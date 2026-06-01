@@ -13,13 +13,13 @@ input file
 
 ## Module Responsibilities
 
-`main.py` is the application entry point. In Stage 0 it prints a skeleton status message.
+`main.py` is the application entry point. It currently prints a skeleton status message.
 
 `gui.py` will contain the future Tkinter desktop interface. It is currently a placeholder.
 
 `file_readers.py` will extract text from TXT, DOCX, and text-based PDF files. It is currently a placeholder.
 
-`anonymizer.py` will detect sensitive values and replace them with labels. In Stage 0 it returns input text unchanged.
+`anonymizer.py` contains the Stage 1 plain text anonymization engine. It accepts a Python string, replaces supported regex matches with placeholders, and returns category counters only.
 
 `file_writers.py` will save anonymized copies without modifying original files. It is currently a placeholder.
 

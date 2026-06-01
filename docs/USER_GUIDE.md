@@ -22,7 +22,7 @@ The planned workflow is:
 
 ## 4. Supported Files in MVP
 
-The MVP plans to support TXT, DOCX, and text-based PDF files. The current Stage 0 skeleton does not process files yet.
+The MVP plans to support TXT, DOCX, and text-based PDF files. The current Stage 1 project does not process files yet.
 
 ## 5. Safety Rules for Users
 
@@ -33,7 +33,7 @@ The MVP plans to support TXT, DOCX, and text-based PDF files. The current Stage 
 
 ## 6. How Anonymized Labels Work
 
-Sensitive values will be replaced with labels such as `IMIE NAZWISKO`, `PESEL`, `EMAIL`, or `ADRES`.
+The Stage 1 engine replaces supported values with labels such as `PESEL`, `EMAIL`, `TELEFON`, or `DATA`.
 
 ## 7. Why Manual Review Is Required
 
@@ -45,4 +45,4 @@ Future versions will save anonymized copies separately from the original files. 
 
 ## 9. What Is Not Implemented Yet
 
-Stage 0 does not include real anonymization, file processing, GUI screens, or final reports.
+Stage 1 includes only plain string anonymization. File processing, GUI screens, final reports, names, addresses, cities, organizations, OCR, AI, and APIs are not implemented.
