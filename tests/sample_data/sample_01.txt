@@ -1,0 +1,9 @@
+Synthetic case note.
+
+Name: Person One Example
+PESEL: 00000000000
+Address: Example Street 1, Sampletown
+Phone: 000-000-000
+Email: person.one@example.test
+
+This file contains only synthetic data for tests and documentation.
