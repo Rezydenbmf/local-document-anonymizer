@@ -4,7 +4,7 @@
 | --- | --- | --- | --- | --- |
 | Stage 0 | Repository skeleton | Create structure, placeholder code, synthetic samples, and documentation. | Complete | Foundation only. |
 | Stage 1 | Plain text anonymization engine | Add narrow rule-based detection and label replacement for plain text. | Complete | Plain Python strings only; no file workflow. |
-| Stage 2 | TXT file input/output | Read TXT files and save anonymized TXT copies. | Planned | No DOCX or PDF yet. |
+| Stage 2 | TXT file input/output | Read TXT files and save anonymized TXT copies. | Complete | No DOCX or PDF yet. |
 | Stage 3 | DOCX support | Extract text from DOCX and write anonymized DOCX or text output. | Planned | Requires careful dependency review. |
 | Stage 4 | Text-based PDF support | Extract text from text-based PDFs. | Planned | No OCR or scanned PDFs. |
 | Stage 5 | Simple Tkinter GUI | Add a small local desktop interface. | Planned | Basic workflow only. |

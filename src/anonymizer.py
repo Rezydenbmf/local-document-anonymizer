@@ -1,6 +1,10 @@
 """Regex-based plain text anonymization engine."""
 
+from pathlib import Path
 import re
+
+from file_readers import read_txt_file
+from file_writers import save_anonymized_txt_copy
 
 
 SUPPORTED_LABELS = ("PESEL", "EMAIL", "TELEFON", "DATA")
@@ -60,3 +64,11 @@ def anonymize_text(text: str) -> tuple[str, dict[str, int]]:
             counters[label] = count
 
     return anonymized, counters
+
+
+def anonymize_txt_file(source_path: str | Path) -> tuple[Path, dict[str, int]]:
+    """Anonymize a TXT file and save a separate Stage 2 output copy."""
+    text = read_txt_file(source_path)
+    anonymized, counters = anonymize_text(text)
+    output_path = save_anonymized_txt_copy(source_path, anonymized)
+    return output_path, counters

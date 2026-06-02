@@ -20,9 +20,21 @@ The planned workflow is:
 6. Save an anonymized copy.
 7. Save a report without source values.
 
-## 4. Supported Files in MVP
+## 4. Supported Files in Current Stage
 
-The MVP plans to support TXT, DOCX, and text-based PDF files. The current Stage 1 project does not process files yet.
+Stage 2 supports ordinary `.txt` files only.
+
+TXT files are read locally as UTF-8 text. The anonymized result is saved as a
+separate copy with `_ANON` added to the filename:
+
+```text
+document.txt -> document_ANON.txt
+```
+
+The original TXT file is not modified.
+
+DOCX, PDF, GUI workflows, OCR, AI, APIs, cloud services, databases, batch
+processing, and final report files are not supported yet.
 
 ## 5. Safety Rules for Users
 
@@ -39,10 +51,13 @@ The Stage 1 engine replaces supported values with labels such as `PESEL`, `EMAIL
 
 Automatic detection may miss data or replace text incorrectly. Manual review is required before using the result.
 
-## 8. Where Output Files Will Be Saved in Future Versions
+## 8. Where Output Files Are Saved
 
-Future versions will save anonymized copies separately from the original files. Original files must not be modified.
+Stage 2 saves anonymized TXT copies next to the source TXT file with the `_ANON`
+suffix. Original files must not be modified.
 
 ## 9. What Is Not Implemented Yet
 
-Stage 1 includes only plain string anonymization. File processing, GUI screens, final reports, names, addresses, cities, organizations, OCR, AI, and APIs are not implemented.
+Stage 2 includes plain string anonymization and TXT file input/output. DOCX,
+PDF, GUI screens, final reports, names, addresses, cities, organizations, OCR,
+AI, and APIs are not implemented.

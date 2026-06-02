@@ -10,7 +10,7 @@ plain Python strings.
 - `src/anonymizer.py`
 - `tests/test_anonymizer.py`
 
-## Public API
+## Core Public API
 
 ```python
 anonymize_text(text: str) -> tuple[str, dict[str, int]]
@@ -23,6 +23,9 @@ The function returns:
 
 The report dictionary contains category names and counts only. It must not
 contain original source values or a replacement map.
+
+Stage 2 also exposes `anonymize_txt_file(...)` from `src/anonymizer.py`; that
+file workflow is documented separately in `docs/modules/02_TXT_IO.md`.
 
 ## Supported categories
 
@@ -75,7 +78,7 @@ Returns:
 - Tests use only synthetic values.
 - No real documents or generated output files are added.
 - No network calls, APIs, AI services, OCR, local LLMs, databases, DOCX, PDF, or
-  GUI code are added in this stage.
+  GUI code are part of the core engine.
 
 ## How to test
 
@@ -97,5 +100,5 @@ occurrences, unchanged text, and report safety.
 - Date detection is limited to `YYYY-MM-DD` and `DD.MM.YYYY`.
 - Names, surnames, cities, organizations, context-based detection, uppercase
   word detection, addresses, and postal codes are not implemented.
-- TXT, DOCX, PDF, GUI, OCR, AI, API calls, cloud services, local LLMs, and
-  databases are not implemented.
+- DOCX, PDF, GUI, OCR, AI, API calls, cloud services, local LLMs, and databases
+  are not implemented.

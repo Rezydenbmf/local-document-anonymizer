@@ -1,9 +1,12 @@
-"""Application entry point for the Stage 0 skeleton."""
+"""Application entry point for the local document anonymizer."""
 
 
 def main() -> None:
-    """Print the current skeleton status."""
-    print("local-document-anonymizer skeleton: no anonymization is implemented yet.")
+    """Print the current project status."""
+    print(
+        "local-document-anonymizer: Stage 2 TXT helpers are available; "
+        "no GUI workflow is implemented yet."
+    )
 
 
 if __name__ == "__main__":
