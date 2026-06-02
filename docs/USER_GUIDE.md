@@ -22,7 +22,7 @@ The planned workflow is:
 
 ## 4. Supported Files in Current Stage
 
-Stage 2 supports ordinary `.txt` files only.
+Stage 3 supports ordinary `.txt` files and basic `.docx` files.
 
 TXT files are read locally as UTF-8 text. The anonymized result is saved as a
 separate copy with `_ANON` added to the filename:
@@ -31,10 +31,22 @@ separate copy with `_ANON` added to the filename:
 document.txt -> document_ANON.txt
 ```
 
-The original TXT file is not modified.
+DOCX files are also read locally. The anonymized result is saved as a separate
+copy with `_ANON` added to the filename:
 
-DOCX, PDF, GUI workflows, OCR, AI, APIs, cloud services, databases, batch
-processing, and final report files are not supported yet.
+```text
+document.docx -> document_ANON.docx
+```
+
+Original TXT and DOCX files are not modified.
+
+DOCX support is basic. It covers ordinary paragraphs and simple tables. It does
+not cover headers, footers, comments, footnotes, form fields, text in images, or
+advanced DOCX elements. Basic formatting is preserved only in a limited MVP
+range.
+
+PDF, GUI workflows, OCR, AI, APIs, cloud services, databases, batch processing,
+and final report files are not supported yet.
 
 ## 5. Safety Rules for Users
 
@@ -53,11 +65,11 @@ Automatic detection may miss data or replace text incorrectly. Manual review is 
 
 ## 8. Where Output Files Are Saved
 
-Stage 2 saves anonymized TXT copies next to the source TXT file with the `_ANON`
-suffix. Original files must not be modified.
+Stage 3 saves anonymized TXT and DOCX copies next to the source file with the
+`_ANON` suffix. Original files must not be modified.
 
 ## 9. What Is Not Implemented Yet
 
-Stage 2 includes plain string anonymization and TXT file input/output. DOCX,
-PDF, GUI screens, final reports, names, addresses, cities, organizations, OCR,
-AI, and APIs are not implemented.
+Stage 3 includes plain string anonymization, TXT file input/output, and basic
+DOCX file input/output. PDF, GUI screens, final reports, names, addresses,
+cities, organizations, OCR, AI, and APIs are not implemented.

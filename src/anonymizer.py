@@ -4,7 +4,7 @@ from pathlib import Path
 import re
 
 from file_readers import read_txt_file
-from file_writers import save_anonymized_txt_copy
+from file_writers import save_anonymized_docx_copy, save_anonymized_txt_copy
 
 
 SUPPORTED_LABELS = ("PESEL", "EMAIL", "TELEFON", "DATA")
@@ -72,3 +72,8 @@ def anonymize_txt_file(source_path: str | Path) -> tuple[Path, dict[str, int]]:
     anonymized, counters = anonymize_text(text)
     output_path = save_anonymized_txt_copy(source_path, anonymized)
     return output_path, counters
+
+
+def anonymize_docx_file(source_path: str | Path) -> tuple[Path, dict[str, int]]:
+    """Anonymize a DOCX file and save a separate Stage 3 output copy."""
+    return save_anonymized_docx_copy(source_path, anonymize_text)

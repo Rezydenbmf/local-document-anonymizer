@@ -67,7 +67,7 @@ class TxtIoTests(unittest.TestCase):
                 read_txt_file(docx_path)
             with self.assertRaisesRegex(ValueError, "Only .txt files are supported"):
                 build_anonymized_txt_path(pdf_path)
-            with self.assertRaisesRegex(ValueError, "Only .txt files are supported"):
+            with self.assertRaisesRegex(ValueError, "Only .txt and .docx"):
                 save_anonymized_copy(no_extension_path, "Anonymized text.")
 
     def test_anonymizes_txt_file_and_writes_anon_copy(self) -> None:

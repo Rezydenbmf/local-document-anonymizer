@@ -2,9 +2,9 @@
 
 Local Document Anonymizer is a planned local-first desktop application for anonymizing text documents on a user's own computer.
 
-The project is currently in Stage 2. It contains the repository skeleton, a
-narrow regex-based plain text anonymization engine for Python strings, and
-TXT-only file input/output helpers.
+The project is currently in Stage 3. It contains the repository skeleton, a
+narrow regex-based plain text anonymization engine for Python strings, TXT file
+input/output helpers, and basic local DOCX input/output support.
 
 ## Project Goal
 
@@ -25,7 +25,7 @@ Planned document flow:
 The planned MVP includes:
 
 - TXT input and output.
-- Later DOCX support.
+- Basic DOCX input and output.
 - Later text-based PDF support.
 - Simple label-based anonymization.
 - Preview and manual review.
@@ -41,13 +41,18 @@ The repository must contain only synthetic test data. Do not add real documents,
 
 ## What Is Not Implemented Yet
 
-The current project implements TXT file input/output only. It does not
+The current project implements TXT file input/output and basic DOCX file
+input/output. It does not
 implement:
 
-- DOCX or PDF parsing.
+- PDF parsing.
 - GUI workflows.
 - Report generation beyond placeholders.
 - Names, cities, organizations, context-based detection, OCR, AI, APIs, cloud services, local LLMs, or databases.
+
+DOCX support is limited to basic paragraphs and simple tables. It does not
+cover headers, footers, comments, footnotes, form fields, text in images, or
+advanced DOCX elements.
 
 ## Manual Review Requirement
 
@@ -72,7 +77,7 @@ python -m unittest discover -s tests
 1. Repository skeleton and documentation.
 2. Plain text anonymization engine. Complete for Stage 1.
 3. TXT file input and output. Complete for Stage 2.
-4. DOCX support.
+4. DOCX support. Complete for Stage 3.
 5. Text-based PDF support.
 6. Simple Tkinter GUI.
 7. Reports without source values.

@@ -4,7 +4,7 @@
 
 This module implements Stage 2: reading UTF-8 TXT files, anonymizing their
 content through the existing plain text engine, and saving a separate
-anonymized TXT copy.
+anonymized TXT copy. TXT support remains unchanged after Stage 3.
 
 ## Related files
 
@@ -26,7 +26,7 @@ anonymize_txt_file(source_path: str | Path) -> tuple[Path, dict[str, int]]
 
 ## How it works
 
-Stage 2 supports only `.txt` files.
+The TXT-specific helpers support only `.txt` files.
 
 The file workflow is:
 
@@ -45,11 +45,12 @@ The original TXT file is not modified.
 
 ## Unsupported files
 
-DOCX, PDF, GUI workflows, OCR, AI, APIs, cloud services, databases, batch
-processing, and report files are not implemented in Stage 2.
+DOCX support is implemented separately in Stage 3 and documented in
+`docs/modules/03_DOCX_IO.md`. PDF, GUI workflows, OCR, AI, APIs, cloud services,
+databases, batch processing, and report files are not implemented.
 
-Files without a `.txt` extension, including `.docx` and `.pdf`, are rejected
-with a clear `ValueError`.
+TXT-specific helpers reject files without a `.txt` extension with a clear
+`ValueError`.
 
 ## Safety assumptions
 
@@ -76,8 +77,9 @@ safety.
 
 ## Known limitations
 
-- TXT is the only supported file type in Stage 2.
-- There is no DOCX or PDF support.
+- TXT-specific helpers still only accept `.txt` files.
+- DOCX support exists in the separate Stage 3 DOCX workflow.
+- There is no PDF support.
 - There is no GUI, OCR, AI, API integration, cloud service, database, batch
   processing, or final report file generation.
 - Detection quality is still limited by the Stage 1 regex engine.

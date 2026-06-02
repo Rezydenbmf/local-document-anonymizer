@@ -25,7 +25,8 @@ The report dictionary contains category names and counts only. It must not
 contain original source values or a replacement map.
 
 Stage 2 also exposes `anonymize_txt_file(...)` from `src/anonymizer.py`; that
-file workflow is documented separately in `docs/modules/02_TXT_IO.md`.
+file workflow is documented separately in `docs/modules/02_TXT_IO.md`. Stage 3
+adds `anonymize_docx_file(...)`, documented in `docs/modules/03_DOCX_IO.md`.
 
 ## Supported categories
 
@@ -100,5 +101,5 @@ occurrences, unchanged text, and report safety.
 - Date detection is limited to `YYYY-MM-DD` and `DD.MM.YYYY`.
 - Names, surnames, cities, organizations, context-based detection, uppercase
   word detection, addresses, and postal codes are not implemented.
-- DOCX, PDF, GUI, OCR, AI, API calls, cloud services, local LLMs, and databases
-  are not implemented.
+- PDF, GUI, OCR, AI, API calls, cloud services, local LLMs, and databases are
+  not implemented.
