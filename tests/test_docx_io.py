@@ -130,18 +130,18 @@ class DocxIoTests(unittest.TestCase):
 
     def test_rejects_unsupported_extension_for_docx_flow(self) -> None:
         with workspace_temp_dir() as temp_dir:
-            pdf_path = Path(temp_dir) / "document.pdf"
+            rtf_path = Path(temp_dir) / "document.rtf"
             no_extension_path = Path(temp_dir) / "document"
 
-            with self.assertRaisesRegex(ValueError, "Only .txt and .docx"):
-                extract_text(pdf_path)
+            with self.assertRaisesRegex(ValueError, "Only .txt, .docx, and .pdf"):
+                extract_text(rtf_path)
             with self.assertRaisesRegex(ValueError, "Only .docx files are supported"):
-                build_anonymized_docx_path(pdf_path)
+                build_anonymized_docx_path(rtf_path)
             with self.assertRaisesRegex(ValueError, "DOCX output requires"):
                 save_anonymized_copy(
                     Path(temp_dir) / "document.docx", "Anonymized text."
                 )
-            with self.assertRaisesRegex(ValueError, "Only .txt and .docx"):
+            with self.assertRaisesRegex(ValueError, "Only .txt, .docx, and .pdf"):
                 save_anonymized_copy(no_extension_path, "Anonymized text.")
 
 

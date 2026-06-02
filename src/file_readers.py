@@ -1,19 +1,20 @@
-"""File readers for Stage 3 TXT and DOCX support."""
+"""File readers for Stage 4 TXT, DOCX, and text-based PDF support."""
 
 from pathlib import Path
 
 
 TXT_EXTENSION = ".txt"
 DOCX_EXTENSION = ".docx"
-SUPPORTED_EXTENSIONS = (TXT_EXTENSION, DOCX_EXTENSION)
+PDF_EXTENSION = ".pdf"
+SUPPORTED_EXTENSIONS = (TXT_EXTENSION, DOCX_EXTENSION, PDF_EXTENSION)
 
 
 def _unsupported_extension_error(file_path: str | Path) -> ValueError:
     path = Path(file_path)
     suffix = path.suffix.lower() or "<none>"
     return ValueError(
-        f"Unsupported file extension for Stage 3: {suffix}. "
-        "Only .txt and .docx files are supported."
+        f"Unsupported file extension for Stage 4: {suffix}. "
+        "Only .txt, .docx, and .pdf files are supported."
     )
 
 
@@ -39,6 +40,17 @@ def _ensure_docx_path(file_path: str | Path) -> Path:
     return path
 
 
+def _ensure_pdf_path(file_path: str | Path) -> Path:
+    path = Path(file_path)
+    if path.suffix.lower() != PDF_EXTENSION:
+        suffix = path.suffix or "<none>"
+        raise ValueError(
+            f"Unsupported file extension for read_pdf_file: {suffix}. "
+            "Only .pdf files are supported by read_pdf_file."
+        )
+    return path
+
+
 def read_txt_file(file_path: str | Path) -> str:
     """Read a UTF-8 TXT file and return its text content."""
     path = _ensure_txt_path(file_path)
@@ -55,6 +67,18 @@ def _load_document_class():
         ) from exc
 
     return Document
+
+
+def _load_pdf_reader_class():
+    try:
+        from pypdf import PdfReader
+    except ModuleNotFoundError as exc:
+        raise RuntimeError(
+            "PDF support requires pypdf. "
+            "Install dependencies from requirements.txt."
+        ) from exc
+
+    return PdfReader
 
 
 def _iter_docx_text_parts(document) -> list[str]:
@@ -82,13 +106,37 @@ def read_docx_file(file_path: str | Path) -> str:
     return "\n".join(_iter_docx_text_parts(document))
 
 
+def read_pdf_file(file_path: str | Path) -> str:
+    """Read extractable text from a local text-based PDF file."""
+    path = _ensure_pdf_path(file_path)
+    PdfReader = _load_pdf_reader_class()
+    reader = PdfReader(path)
+    text_parts: list[str] = []
+
+    for page in reader.pages:
+        page_text = page.extract_text()
+        if page_text:
+            text_parts.append(page_text)
+
+    text = "\n".join(text_parts)
+    if not text.strip():
+        raise ValueError(
+            "PDF contains no extractable text. Only text-based PDFs are "
+            "supported; scanned PDFs and OCR are not supported."
+        )
+
+    return text
+
+
 def extract_text(file_path: str | Path) -> str:
-    """Extract text from a supported Stage 3 input file."""
+    """Extract text from a supported Stage 4 input file."""
     path = Path(file_path)
 
     if path.suffix.lower() == TXT_EXTENSION:
         return read_txt_file(path)
     if path.suffix.lower() == DOCX_EXTENSION:
         return read_docx_file(path)
+    if path.suffix.lower() == PDF_EXTENSION:
+        return read_pdf_file(path)
 
     raise _unsupported_extension_error(path)

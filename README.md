@@ -2,9 +2,10 @@
 
 Local Document Anonymizer is a planned local-first desktop application for anonymizing text documents on a user's own computer.
 
-The project is currently in Stage 3. It contains the repository skeleton, a
+The project is currently in Stage 4. It contains the repository skeleton, a
 narrow regex-based plain text anonymization engine for Python strings, TXT file
-input/output helpers, and basic local DOCX input/output support.
+input/output helpers, basic local DOCX input/output support, and text-based PDF
+input support that saves anonymized TXT output.
 
 ## Project Goal
 
@@ -26,7 +27,7 @@ The planned MVP includes:
 
 - TXT input and output.
 - Basic DOCX input and output.
-- Later text-based PDF support.
+- Text-based PDF input support with TXT output.
 - Simple label-based anonymization.
 - Preview and manual review.
 - Reports without original sensitive values.
@@ -41,11 +42,13 @@ The repository must contain only synthetic test data. Do not add real documents,
 
 ## What Is Not Implemented Yet
 
-The current project implements TXT file input/output and basic DOCX file
-input/output. It does not
+The current project implements TXT file input/output, basic DOCX file
+input/output, and text-based PDF input that writes anonymized TXT output. It
+does not
 implement:
 
-- PDF parsing.
+- Anonymized PDF output.
+- OCR or scanned PDF text extraction.
 - GUI workflows.
 - Report generation beyond placeholders.
 - Names, cities, organizations, context-based detection, OCR, AI, APIs, cloud services, local LLMs, or databases.
@@ -53,6 +56,11 @@ implement:
 DOCX support is limited to basic paragraphs and simple tables. It does not
 cover headers, footers, comments, footnotes, form fields, text in images, or
 advanced DOCX elements.
+
+PDF support is limited to files that already contain an extractable text layer.
+Scanned PDFs are not supported, OCR is not included, layout preservation is not
+guaranteed, and PDF input produces `document_ANON.txt` rather than an
+anonymized PDF.
 
 ## Manual Review Requirement
 
@@ -78,7 +86,7 @@ python -m unittest discover -s tests
 2. Plain text anonymization engine. Complete for Stage 1.
 3. TXT file input and output. Complete for Stage 2.
 4. DOCX support. Complete for Stage 3.
-5. Text-based PDF support.
+5. Text-based PDF support. Complete for Stage 4.
 6. Simple Tkinter GUI.
 7. Reports without source values.
 8. Tests and portfolio polish.

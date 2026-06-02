@@ -27,6 +27,8 @@ contain original source values or a replacement map.
 Stage 2 also exposes `anonymize_txt_file(...)` from `src/anonymizer.py`; that
 file workflow is documented separately in `docs/modules/02_TXT_IO.md`. Stage 3
 adds `anonymize_docx_file(...)`, documented in `docs/modules/03_DOCX_IO.md`.
+Stage 4 adds `anonymize_pdf_file(...)`, documented in
+`docs/modules/04_PDF_IO.md`.
 
 ## Supported categories
 
@@ -79,7 +81,8 @@ Returns:
 - Tests use only synthetic values.
 - No real documents or generated output files are added.
 - No network calls, APIs, AI services, OCR, local LLMs, databases, DOCX, PDF, or
-  GUI code are part of the core engine.
+  GUI code are part of the core engine. File workflows call this engine from
+  separate modules.
 
 ## How to test
 
@@ -101,5 +104,7 @@ occurrences, unchanged text, and report safety.
 - Date detection is limited to `YYYY-MM-DD` and `DD.MM.YYYY`.
 - Names, surnames, cities, organizations, context-based detection, uppercase
   word detection, addresses, and postal codes are not implemented.
-- PDF, GUI, OCR, AI, API calls, cloud services, local LLMs, and databases are
-  not implemented.
+- PDF file input is handled by the Stage 4 file workflow, not by new regex
+  logic in the core engine.
+- GUI, OCR, AI, API calls, cloud services, local LLMs, and databases are not
+  implemented.

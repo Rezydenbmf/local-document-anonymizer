@@ -117,5 +117,6 @@ values, TXT regression coverage, and unsupported extension errors.
 - Detection quality is still limited by the Stage 1 regex engine.
 - DOCX formatting preservation is basic only.
 - Advanced DOCX elements are not scanned or rewritten.
-- There is no PDF, GUI, OCR, AI, API integration, cloud service, database,
-  batch processing, replacement map, or final report file generation.
+- There is no GUI, OCR, AI, API integration, cloud service, database, batch
+  processing, replacement map, or final report file generation.
+- Text-based PDF input is handled by the separate Stage 4 PDF-to-TXT workflow.

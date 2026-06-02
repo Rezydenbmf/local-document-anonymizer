@@ -22,7 +22,8 @@ The planned workflow is:
 
 ## 4. Supported Files in Current Stage
 
-Stage 3 supports ordinary `.txt` files and basic `.docx` files.
+Stage 4 supports ordinary `.txt` files, basic `.docx` files, and text-based
+`.pdf` files.
 
 TXT files are read locally as UTF-8 text. The anonymized result is saved as a
 separate copy with `_ANON` added to the filename:
@@ -40,13 +41,26 @@ document.docx -> document_ANON.docx
 
 Original TXT and DOCX files are not modified.
 
+Text-based PDF files are read locally and the extracted text is anonymized into
+a TXT file:
+
+```text
+document.pdf -> document_ANON.txt
+```
+
+Original PDF files are not modified. The application does not create
+`document_ANON.pdf` or any other anonymized PDF output.
+
 DOCX support is basic. It covers ordinary paragraphs and simple tables. It does
 not cover headers, footers, comments, footnotes, form fields, text in images, or
 advanced DOCX elements. Basic formatting is preserved only in a limited MVP
 range.
 
-PDF, GUI workflows, OCR, AI, APIs, cloud services, databases, batch processing,
-and final report files are not supported yet.
+PDF support requires an existing text layer. Scanned PDFs are not supported,
+OCR is not included, and PDF layout preservation is not guaranteed.
+
+GUI workflows, OCR, AI, APIs, cloud services, databases, batch processing, and
+final report files are not supported yet.
 
 ## 5. Safety Rules for Users
 
@@ -65,11 +79,13 @@ Automatic detection may miss data or replace text incorrectly. Manual review is 
 
 ## 8. Where Output Files Are Saved
 
-Stage 3 saves anonymized TXT and DOCX copies next to the source file with the
-`_ANON` suffix. Original files must not be modified.
+Stage 4 saves anonymized TXT and DOCX copies next to the source file with the
+`_ANON` suffix. PDF input is saved next to the source as `_ANON.txt`. Original
+files must not be modified.
 
 ## 9. What Is Not Implemented Yet
 
-Stage 3 includes plain string anonymization, TXT file input/output, and basic
-DOCX file input/output. PDF, GUI screens, final reports, names, addresses,
-cities, organizations, OCR, AI, and APIs are not implemented.
+Stage 4 includes plain string anonymization, TXT file input/output, basic DOCX
+file input/output, and text-based PDF input with TXT output. GUI screens, final
+reports, names, addresses, cities, organizations, OCR, AI, and APIs are not
+implemented.

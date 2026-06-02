@@ -4,7 +4,7 @@
 
 This module implements Stage 2: reading UTF-8 TXT files, anonymizing their
 content through the existing plain text engine, and saving a separate
-anonymized TXT copy. TXT support remains unchanged after Stage 3.
+anonymized TXT copy. TXT support remains unchanged after Stages 3 and 4.
 
 ## Related files
 
@@ -46,8 +46,11 @@ The original TXT file is not modified.
 ## Unsupported files
 
 DOCX support is implemented separately in Stage 3 and documented in
-`docs/modules/03_DOCX_IO.md`. PDF, GUI workflows, OCR, AI, APIs, cloud services,
-databases, batch processing, and report files are not implemented.
+`docs/modules/03_DOCX_IO.md`. Text-based PDF input is implemented separately in
+Stage 4 and documented in `docs/modules/04_PDF_IO.md`.
+
+GUI workflows, OCR, AI, APIs, cloud services, databases, batch processing, and
+report files are not implemented.
 
 TXT-specific helpers reject files without a `.txt` extension with a clear
 `ValueError`.
@@ -79,7 +82,7 @@ safety.
 
 - TXT-specific helpers still only accept `.txt` files.
 - DOCX support exists in the separate Stage 3 DOCX workflow.
-- There is no PDF support.
+- Text-based PDF support exists in the separate Stage 4 PDF-to-TXT workflow.
 - There is no GUI, OCR, AI, API integration, cloud service, database, batch
   processing, or final report file generation.
 - Detection quality is still limited by the Stage 1 regex engine.
