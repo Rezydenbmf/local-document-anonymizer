@@ -49,8 +49,9 @@ DOCX support is implemented separately in Stage 3 and documented in
 `docs/modules/03_DOCX_IO.md`. Text-based PDF input is implemented separately in
 Stage 4 and documented in `docs/modules/04_PDF_IO.md`.
 
-GUI workflows, OCR, AI, APIs, cloud services, databases, batch processing, and
-report files are not implemented.
+The Stage 5 GUI can call the TXT workflow for one selected file. OCR, AI, APIs,
+cloud services, databases, batch processing, and report files are not
+implemented.
 
 TXT-specific helpers reject files without a `.txt` extension with a clear
 `ValueError`.
@@ -83,7 +84,8 @@ safety.
 - TXT-specific helpers still only accept `.txt` files.
 - DOCX support exists in the separate Stage 3 DOCX workflow.
 - Text-based PDF support exists in the separate Stage 4 PDF-to-TXT workflow.
-- There is no GUI, OCR, AI, API integration, cloud service, database, batch
+- The Stage 5 GUI supports one selected file only.
+- There is no OCR, AI, API integration, cloud service, database, batch
   processing, or final report file generation.
 - Detection quality is still limited by the Stage 1 regex engine.
 - Manual review is still required before trusting anonymized output.

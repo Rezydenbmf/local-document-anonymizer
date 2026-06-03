@@ -1,11 +1,12 @@
 # local-document-anonymizer
 
-Local Document Anonymizer is a planned local-first desktop application for anonymizing text documents on a user's own computer.
+Local Document Anonymizer is a local-first desktop application for anonymizing text documents on a user's own computer.
 
-The project is currently in Stage 4. It contains the repository skeleton, a
+The project is currently in Stage 5. It contains the repository skeleton, a
 narrow regex-based plain text anonymization engine for Python strings, TXT file
 input/output helpers, basic local DOCX input/output support, and text-based PDF
-input support that saves anonymized TXT output.
+input support that saves anonymized TXT output. It also includes a simple
+Tkinter GUI for anonymizing one selected supported file.
 
 ## Project Goal
 
@@ -29,7 +30,8 @@ The planned MVP includes:
 - Basic DOCX input and output.
 - Text-based PDF input support with TXT output.
 - Simple label-based anonymization.
-- Preview and manual review.
+- Simple GUI workflow for one selected file.
+- Manual review.
 - Reports without original sensitive values.
 
 ## Local-First and Offline
@@ -49,7 +51,9 @@ implement:
 
 - Anonymized PDF output.
 - OCR or scanned PDF text extraction.
-- GUI workflows.
+- Advanced document preview or editing.
+- Batch processing.
+- Drag and drop.
 - Report generation beyond placeholders.
 - Names, cities, organizations, context-based detection, OCR, AI, APIs, cloud services, local LLMs, or databases.
 
@@ -66,9 +70,9 @@ anonymized PDF.
 
 Anonymization can miss values or replace too much. Every anonymized result must be manually reviewed by the user before it is trusted or shared.
 
-## Running the Skeleton
+## Running the Application
 
-Run the placeholder entry point:
+Run the GUI entry point:
 
 ```bash
 python src/main.py
@@ -87,6 +91,6 @@ python -m unittest discover -s tests
 3. TXT file input and output. Complete for Stage 2.
 4. DOCX support. Complete for Stage 3.
 5. Text-based PDF support. Complete for Stage 4.
-6. Simple Tkinter GUI.
+6. Simple Tkinter GUI. Complete for Stage 5.
 7. Reports without source values.
 8. Tests and portfolio polish.

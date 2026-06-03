@@ -28,7 +28,8 @@ The repository starts with structure and documentation before full implementatio
 
 ## How it works
 
-This is a foundation stage. The Python modules define names and placeholder behavior that future stages can replace with narrow, tested implementation.
+This is a foundation stage. Later stage documents describe the implemented
+anonymizer, file workflows, and GUI behavior.
 
 ## Inputs
 
@@ -54,12 +55,15 @@ Inspect the repository structure and run:
 python -m unittest discover -s tests
 ```
 
-The tests verify only the current placeholder contract.
+Later stage tests verify the implemented anonymizer, file workflows, and GUI
+workflow dispatcher.
 
 ## Known limitations
 
-There is no real anonymization yet. File reading, file writing, GUI, and final reporting are not implemented.
+This Stage 0 document is historical. Final report generation remains a future
+module.
 
 ## Future improvements
 
-Next stages should add the anonymizer engine, TXT input/output, DOCX support, PDF support, GUI, and reports.
+Later stages add the anonymizer engine, TXT input/output, DOCX support, PDF
+support, GUI, and reports.

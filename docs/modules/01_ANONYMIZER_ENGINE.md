@@ -14,6 +14,7 @@ plain Python strings.
 
 ```python
 anonymize_text(text: str) -> tuple[str, dict[str, int]]
+anonymize_file(source_path: str | Path) -> tuple[Path, dict[str, int]]
 ```
 
 The function returns:
@@ -28,7 +29,9 @@ Stage 2 also exposes `anonymize_txt_file(...)` from `src/anonymizer.py`; that
 file workflow is documented separately in `docs/modules/02_TXT_IO.md`. Stage 3
 adds `anonymize_docx_file(...)`, documented in `docs/modules/03_DOCX_IO.md`.
 Stage 4 adds `anonymize_pdf_file(...)`, documented in
-`docs/modules/04_PDF_IO.md`.
+`docs/modules/04_PDF_IO.md`. Stage 5 adds `anonymize_file(...)`, documented in
+`docs/modules/05_GUI.md`, which dispatches one supported file to the existing
+TXT, DOCX, or PDF workflow.
 
 ## Supported categories
 
@@ -106,5 +109,5 @@ occurrences, unchanged text, and report safety.
   word detection, addresses, and postal codes are not implemented.
 - PDF file input is handled by the Stage 4 file workflow, not by new regex
   logic in the core engine.
-- GUI, OCR, AI, API calls, cloud services, local LLMs, and databases are not
-  implemented.
+- OCR, AI, API calls, cloud services, local LLMs, databases, replacement maps,
+  and report files are not implemented.

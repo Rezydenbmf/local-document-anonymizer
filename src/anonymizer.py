@@ -3,7 +3,14 @@
 from pathlib import Path
 import re
 
-from file_readers import read_pdf_file, read_txt_file
+from file_readers import (
+    DOCX_EXTENSION,
+    PDF_EXTENSION,
+    SUPPORTED_EXTENSIONS,
+    TXT_EXTENSION,
+    read_pdf_file,
+    read_txt_file,
+)
 from file_writers import (
     save_anonymized_docx_copy,
     save_anonymized_pdf_txt_copy,
@@ -89,3 +96,22 @@ def anonymize_pdf_file(source_path: str | Path) -> tuple[Path, dict[str, int]]:
     anonymized, counters = anonymize_text(text)
     output_path = save_anonymized_pdf_txt_copy(source_path, anonymized)
     return output_path, counters
+
+
+def anonymize_file(source_path: str | Path) -> tuple[Path, dict[str, int]]:
+    """Anonymize one supported application file using existing workflows."""
+    path = Path(source_path)
+
+    if path.suffix.lower() == TXT_EXTENSION:
+        return anonymize_txt_file(path)
+    if path.suffix.lower() == DOCX_EXTENSION:
+        return anonymize_docx_file(path)
+    if path.suffix.lower() == PDF_EXTENSION:
+        return anonymize_pdf_file(path)
+
+    suffix = path.suffix.lower() or "<none>"
+    supported = ", ".join(SUPPORTED_EXTENSIONS)
+    raise ValueError(
+        f"Unsupported file extension for anonymize_file: {suffix}. "
+        f"Only {supported} files are supported."
+    )

@@ -2,13 +2,14 @@
 
 ## Current Status
 
-The project is in Stage 4: text-based PDF input support.
+The project is in Stage 5: simple Tkinter GUI.
 
 The repository now contains a narrow regex-based engine that accepts a Python
 string and returns anonymized text plus category counters. It also contains
 TXT file readers and writers, basic DOCX readers and writers, text-based PDF
-text extraction, and small integration helpers for saving separate anonymized
-TXT, DOCX, and PDF-to-TXT outputs.
+text extraction, small integration helpers for saving separate anonymized TXT,
+DOCX, and PDF-to-TXT outputs, and a simple Tkinter GUI for anonymizing one
+selected supported file.
 
 ## What Exists
 
@@ -25,6 +26,9 @@ TXT, DOCX, and PDF-to-TXT outputs.
 - Text-based PDF extraction in `src/file_readers.py`.
 - PDF integration helper `anonymize_pdf_file(...)`, which saves anonymized PDF
   text as `_ANON.txt`.
+- Single-file application dispatcher `anonymize_file(...)`.
+- Simple Tkinter GUI in `src/gui.py`.
+- Default GUI entry point in `src/main.py`.
 - Runtime dependency on `python-docx`.
 - Runtime dependency on `pypdf`.
 - Unit tests for the Stage 1 anonymizer using synthetic values only.
@@ -32,13 +36,17 @@ TXT, DOCX, and PDF-to-TXT outputs.
 - Unit tests for Stage 3 DOCX input/output using synthetic temporary files only.
 - Unit tests for Stage 4 text-based PDF input/output using generated
   synthetic temporary PDFs only.
+- Unit tests for the Stage 5 single-file dispatcher using synthetic temporary
+  TXT files only.
 - Synthetic sample text files in `tests/sample_data/`.
 - Project, user, security, roadmap, and module documentation.
 - `.gitignore` rules for private data and local artifacts.
 
 ## What Does Not Exist Yet
 
-- GUI workflow.
+- Advanced GUI preview or editing workflow.
+- Batch processing.
+- Drag and drop.
 - OCR, AI, API calls, cloud services, local LLMs, or databases.
 - Final report file generation.
 - Names, surnames, cities, organizations, or context-based detection.
@@ -47,7 +55,7 @@ TXT, DOCX, and PDF-to-TXT outputs.
 
 ## How to Run
 
-Run the placeholder entry point:
+Run the GUI entry point:
 
 ```bash
 python src/main.py
@@ -77,15 +85,17 @@ python -m unittest discover -s tests
   advanced elements are not handled.
 - PDF support requires an existing text layer. Scanned PDFs are not supported,
   OCR is not included, and PDF layout preservation is not guaranteed.
-- Report files and GUI remain unimplemented.
+- The GUI processes one selected file at a time and does not include document
+  preview, editing, drag and drop, or batch processing.
+- Report files remain unimplemented.
 
 ## Last Completed Stage
 
-Stage 4: text-based PDF support.
+Stage 5: simple Tkinter GUI.
 
 ## Next Logical Step
 
-Stage 5: add a simple local GUI workflow after explicit scope review.
+Stage 6: safe report file generation without source values.
 
 ## Warning
 
