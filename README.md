@@ -2,11 +2,12 @@
 
 Local Document Anonymizer is a local-first desktop application for anonymizing text documents on a user's own computer.
 
-The project is currently in Stage 5. It contains the repository skeleton, a
+The project is currently in Stage 6. It contains the repository skeleton, a
 narrow regex-based plain text anonymization engine for Python strings, TXT file
 input/output helpers, basic local DOCX input/output support, and text-based PDF
 input support that saves anonymized TXT output. It also includes a simple
-Tkinter GUI for anonymizing one selected supported file.
+Tkinter GUI for anonymizing one selected supported file and safe TXT report
+output without source values.
 
 ## Project Goal
 
@@ -45,8 +46,8 @@ The repository must contain only synthetic test data. Do not add real documents,
 ## What Is Not Implemented Yet
 
 The current project implements TXT file input/output, basic DOCX file
-input/output, and text-based PDF input that writes anonymized TXT output. It
-does not
+input/output, text-based PDF input that writes anonymized TXT output, a simple
+Tkinter GUI, and safe TXT reports with category counters only. It does not
 implement:
 
 - Anonymized PDF output.
@@ -54,7 +55,6 @@ implement:
 - Advanced document preview or editing.
 - Batch processing.
 - Drag and drop.
-- Report generation beyond placeholders.
 - Names, cities, organizations, context-based detection, OCR, AI, APIs, cloud services, local LLMs, or databases.
 
 DOCX support is limited to basic paragraphs and simple tables. It does not
@@ -65,6 +65,11 @@ PDF support is limited to files that already contain an extractable text layer.
 Scanned PDFs are not supported, OCR is not included, layout preservation is not
 guaranteed, and PDF input produces `document_ANON.txt` rather than an
 anonymized PDF.
+
+Report support is limited to safe TXT reports named `document_RAPORT.txt`.
+Reports include status, input and output type, category counters, and manual
+review/security notes. They do not include original source values, full input
+paths, source filenames, replacement maps, or document content.
 
 ## Manual Review Requirement
 
@@ -92,5 +97,5 @@ python -m unittest discover -s tests
 4. DOCX support. Complete for Stage 3.
 5. Text-based PDF support. Complete for Stage 4.
 6. Simple Tkinter GUI. Complete for Stage 5.
-7. Reports without source values.
+7. Reports without source values. Complete for Stage 6.
 8. Tests and portfolio polish.

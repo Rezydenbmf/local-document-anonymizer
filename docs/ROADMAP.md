@@ -8,7 +8,7 @@
 | Stage 3 | DOCX support | Extract text from basic DOCX paragraphs and simple tables, then write an anonymized `_ANON.docx` copy. | Complete | Basic formatting only; no advanced DOCX elements. |
 | Stage 4 | Text-based PDF support | Extract text from text-based PDFs and save anonymized TXT output. | Complete | No OCR, scanned PDFs, layout preservation, or anonymized PDF output. |
 | Stage 5 | Simple Tkinter GUI | Add a small local desktop interface for one selected supported file. | Complete | No preview, editing, drag and drop, batch processing, OCR, or PDF writing. |
-| Stage 6 | Reports without source data | Generate safe reports with labels and counts only. | Planned | No source values or replacement maps. |
+| Stage 6 | Reports without source data | Generate safe reports with labels and counts only. | Complete | No source values or replacement maps. |
 | Stage 7 | Tests and portfolio polish | Expand tests and documentation for review. | Planned | Must stay synthetic-data only. |
 | Later | OCR | Consider scanned document support. | Not planned for MVP | Requires explicit approval. |
 | Later | Batch processing | Process multiple files. | Not planned for MVP | Higher safety and review risk. |

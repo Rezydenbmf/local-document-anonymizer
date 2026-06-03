@@ -22,7 +22,7 @@ The function returns:
 1. anonymized text,
 2. a dictionary of category counters.
 
-The report dictionary contains category names and counts only. It must not
+The counter dictionary contains category names and counts only. It must not
 contain original source values or a replacement map.
 
 Stage 2 also exposes `anonymize_txt_file(...)` from `src/anonymizer.py`; that
@@ -31,7 +31,8 @@ adds `anonymize_docx_file(...)`, documented in `docs/modules/03_DOCX_IO.md`.
 Stage 4 adds `anonymize_pdf_file(...)`, documented in
 `docs/modules/04_PDF_IO.md`. Stage 5 adds `anonymize_file(...)`, documented in
 `docs/modules/05_GUI.md`, which dispatches one supported file to the existing
-TXT, DOCX, or PDF workflow.
+TXT, DOCX, or PDF workflow. Stage 6 adds safe report output, documented in
+`docs/modules/06_REPORTING.md`.
 
 ## Supported categories
 
@@ -109,5 +110,7 @@ occurrences, unchanged text, and report safety.
   word detection, addresses, and postal codes are not implemented.
 - PDF file input is handled by the Stage 4 file workflow, not by new regex
   logic in the core engine.
-- OCR, AI, API calls, cloud services, local LLMs, databases, replacement maps,
-  and report files are not implemented.
+- OCR, AI, API calls, cloud services, local LLMs, databases, and replacement
+  maps are not implemented.
+- Safe report files are created by the file workflows in Stage 6; the core
+  engine itself still returns only anonymized text and counters.

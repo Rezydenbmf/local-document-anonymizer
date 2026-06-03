@@ -16,6 +16,11 @@ The project must not use external APIs, including AI APIs.
 
 Reports must not include original source values. They may include safe metadata such as label names and counts.
 
+Stage 6 reports may include status, input type, output type, category counters,
+and manual review/security notes only. They must not include document text,
+detected source values, full input paths, full input filenames, or logs
+containing document content.
+
 ## No Replacement Map
 
 The application must not store a map from original sensitive values to replacement labels.

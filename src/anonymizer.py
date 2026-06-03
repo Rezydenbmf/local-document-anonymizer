@@ -12,10 +12,12 @@ from file_readers import (
     read_txt_file,
 )
 from file_writers import (
+    build_report_path,
     save_anonymized_docx_copy,
     save_anonymized_pdf_txt_copy,
     save_anonymized_txt_copy,
 )
+from report import save_report_file
 
 
 SUPPORTED_LABELS = ("PESEL", "EMAIL", "TELEFON", "DATA")
@@ -78,24 +80,43 @@ def anonymize_text(text: str) -> tuple[str, dict[str, int]]:
 
 
 def anonymize_txt_file(source_path: str | Path) -> tuple[Path, dict[str, int]]:
-    """Anonymize a TXT file and save a separate Stage 2 output copy."""
+    """Anonymize a TXT file and save output plus a safe report."""
     text = read_txt_file(source_path)
     anonymized, counters = anonymize_text(text)
     output_path = save_anonymized_txt_copy(source_path, anonymized)
+    _save_anonymization_report(source_path, output_path, counters)
     return output_path, counters
 
 
 def anonymize_docx_file(source_path: str | Path) -> tuple[Path, dict[str, int]]:
-    """Anonymize a DOCX file and save a separate Stage 3 output copy."""
-    return save_anonymized_docx_copy(source_path, anonymize_text)
+    """Anonymize a DOCX file and save output plus a safe report."""
+    output_path, counters = save_anonymized_docx_copy(source_path, anonymize_text)
+    _save_anonymization_report(source_path, output_path, counters)
+    return output_path, counters
 
 
 def anonymize_pdf_file(source_path: str | Path) -> tuple[Path, dict[str, int]]:
-    """Anonymize text from a PDF and save a separate Stage 4 TXT output copy."""
+    """Anonymize text from a PDF and save TXT output plus a safe report."""
     text = read_pdf_file(source_path)
     anonymized, counters = anonymize_text(text)
     output_path = save_anonymized_pdf_txt_copy(source_path, anonymized)
+    _save_anonymization_report(source_path, output_path, counters)
     return output_path, counters
+
+
+def _save_anonymization_report(
+    source_path: str | Path, output_path: str | Path, counters: dict[str, int]
+) -> Path:
+    source = Path(source_path)
+    output = Path(output_path)
+    report_path = build_report_path(source)
+    return save_report_file(
+        report_path,
+        counters=counters,
+        input_extension=source.suffix,
+        output_extension=output.suffix,
+        category_order=SUPPORTED_LABELS,
+    )
 
 
 def anonymize_file(source_path: str | Path) -> tuple[Path, dict[str, int]]:

@@ -3,7 +3,8 @@
 ## Purpose
 
 This module implements Stage 3: local DOCX reading, anonymization through the
-existing plain text engine, and saving a separate anonymized DOCX copy.
+existing plain text engine, and saving a separate anonymized DOCX copy. Stage 6
+adds safe report file output after successful anonymization.
 
 ## Related files
 
@@ -30,6 +31,7 @@ processing.
 read_docx_file(file_path: str | Path) -> str
 extract_text(file_path: str | Path) -> str
 build_anonymized_docx_path(source_path: str | Path) -> Path
+build_report_path(source_path: str | Path) -> Path
 save_anonymized_docx_copy(
     source_path: str | Path,
     anonymize: Callable[[str], tuple[str, dict[str, int]]],
@@ -51,11 +53,13 @@ The DOCX workflow is:
 3. `save_anonymized_docx_copy(...)` opens the source DOCX locally, anonymizes
    supported paragraph and simple table text, and saves a separate copy.
 4. The output file is saved next to the source with an `_ANON` suffix.
+5. A safe report file is saved next to the output with a `_RAPORT.txt` suffix.
 
 Example:
 
 ```text
 document.docx -> document_ANON.docx
+document.docx -> document_RAPORT.txt
 ```
 
 The original DOCX file is not modified.
@@ -65,6 +69,7 @@ The original DOCX file is not modified.
 - DOCX files are read and written locally.
 - The original source file is left unchanged.
 - The output file receives the `_ANON` suffix.
+- The safe report file receives the `_RAPORT.txt` suffix.
 - No replacement map is created.
 - No source values are written to reports, metadata, or counters.
 - The integration helper returns only the output path and category counters.
@@ -119,5 +124,5 @@ values, TXT regression coverage, and unsupported extension errors.
 - Advanced DOCX elements are not scanned or rewritten.
 - The Stage 5 GUI supports one selected file only.
 - There is no OCR, AI, API integration, cloud service, database, batch
-  processing, replacement map, or final report file generation.
+  processing, replacement map, or detailed audit report generation.
 - Text-based PDF input is handled by the separate Stage 4 PDF-to-TXT workflow.

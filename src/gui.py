@@ -1,10 +1,11 @@
-"""Tkinter GUI for Stage 5 single-file anonymization."""
+"""Tkinter GUI for single-file anonymization."""
 
 from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, ttk
 
 from anonymizer import SUPPORTED_LABELS, anonymize_file
+from file_writers import build_report_path
 
 
 APP_TITLE = "Local Document Anonymizer"
@@ -30,13 +31,14 @@ class AnonymizerGui:
         self.status_var = tk.StringVar(value="Select a file to begin.")
         self.counters_var = tk.StringVar(value=format_counters({}))
         self.output_path_var = tk.StringVar(value="No output yet.")
+        self.report_path_var = tk.StringVar(value="No report yet.")
         self.anonymize_button: ttk.Button | None = None
 
         self._build()
 
     def _build(self) -> None:
         self.root.title(APP_TITLE)
-        self.root.minsize(640, 420)
+        self.root.minsize(640, 460)
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
 
@@ -95,13 +97,21 @@ class AnonymizerGui:
         )
         output_label.grid(row=6, column=1, columnspan=2, sticky="ew", pady=(0, 10))
 
+        ttk.Label(main, text="Report file:").grid(
+            row=7, column=0, sticky="nw", pady=(0, 10)
+        )
+        report_label = ttk.Label(
+            main, textvariable=self.report_path_var, wraplength=500
+        )
+        report_label.grid(row=7, column=1, columnspan=2, sticky="ew", pady=(0, 10))
+
         warning_label = ttk.Label(
             main,
             text=MANUAL_REVIEW_WARNING,
             foreground="#9a3412",
             wraplength=580,
         )
-        warning_label.grid(row=7, column=0, columnspan=3, sticky="w", pady=(4, 0))
+        warning_label.grid(row=8, column=0, columnspan=3, sticky="w", pady=(4, 0))
 
     def select_file(self) -> None:
         file_path = filedialog.askopenfilename(
@@ -122,6 +132,7 @@ class AnonymizerGui:
         self.status_var.set("Ready to anonymize selected file.")
         self.counters_var.set(format_counters({}))
         self.output_path_var.set("No output yet.")
+        self.report_path_var.set("No report yet.")
         if self.anonymize_button is not None:
             self.anonymize_button.state(["!disabled"])
 
@@ -139,15 +150,17 @@ class AnonymizerGui:
             self.status_var.set(f"Error: {exc}")
             self.counters_var.set(format_counters({}))
             self.output_path_var.set("No output created.")
+            self.report_path_var.set("No report created.")
             return
 
         self.status_var.set("Completed. Review the anonymized output manually.")
         self.counters_var.set(format_counters(counters))
         self.output_path_var.set(str(output_path))
+        self.report_path_var.set(str(build_report_path(self.selected_path)))
 
 
 def start_gui() -> None:
-    """Start the Stage 5 Tkinter desktop application."""
+    """Start the Tkinter desktop application."""
     root = tk.Tk()
     AnonymizerGui(root)
     root.mainloop()

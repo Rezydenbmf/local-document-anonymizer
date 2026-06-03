@@ -11,17 +11,17 @@ It is not a cloud service, compliance guarantee, OCR tool, batch processor, or a
 
 ## 3. Basic Workflow
 
-The current Stage 5 workflow is:
+The current Stage 6 workflow is:
 
 1. Run `python src/main.py`.
 2. Select one supported file.
 3. Click `Anonymize`.
-4. Check the status, category counters, and output path.
+4. Check the status, category counters, output path, and report path.
 5. Manually review the anonymized output file before using or sharing it.
 
 ## 4. Supported Files in Current Stage
 
-Stage 5 supports ordinary `.txt` files, basic `.docx` files, and text-based
+Stage 6 supports ordinary `.txt` files, basic `.docx` files, and text-based
 `.pdf` files.
 
 TXT files are read locally as UTF-8 text. The anonymized result is saved as a
@@ -29,6 +29,7 @@ separate copy with `_ANON` added to the filename:
 
 ```text
 document.txt -> document_ANON.txt
+document.txt -> document_RAPORT.txt
 ```
 
 DOCX files are also read locally. The anonymized result is saved as a separate
@@ -36,6 +37,7 @@ copy with `_ANON` added to the filename:
 
 ```text
 document.docx -> document_ANON.docx
+document.docx -> document_RAPORT.txt
 ```
 
 Original TXT and DOCX files are not modified.
@@ -45,6 +47,7 @@ a TXT file:
 
 ```text
 document.pdf -> document_ANON.txt
+document.pdf -> document_RAPORT.txt
 ```
 
 Original PDF files are not modified. The application does not create
@@ -59,34 +62,53 @@ PDF support requires an existing text layer. Scanned PDFs are not supported,
 OCR is not included, and PDF layout preservation is not guaranteed.
 
 OCR, AI, APIs, cloud services, databases, batch processing, drag and drop,
-advanced document preview, PDF writing, and final report files are not
+advanced document preview, PDF writing, and detailed audit reports are not
 supported.
 
-## 5. Safety Rules for Users
+## 5. Report Files
+
+For every successful TXT, DOCX, or text-based PDF anonymization, the
+application writes a separate `_RAPORT.txt` file next to the anonymized output.
+
+The report contains:
+
+- status,
+- input type,
+- output type,
+- category counters,
+- manual review requirement,
+- confirmation that original sensitive values are not stored,
+- confirmation that no replacement map was created.
+
+The report does not contain document text, original sensitive values, full
+input paths, source filenames, or replacement maps.
+
+## 6. Safety Rules for Users
 
 - Do not place real documents in the repository.
 - Keep original files outside the project folder.
 - Review anonymized output manually.
 - Do not share output until you have checked it.
 
-## 6. How Anonymized Labels Work
+## 7. How Anonymized Labels Work
 
 The Stage 1 engine replaces supported values with labels such as `PESEL`, `EMAIL`, `TELEFON`, or `DATA`.
 
-## 7. Why Manual Review Is Required
+## 8. Why Manual Review Is Required
 
 Automatic detection may miss data or replace text incorrectly. Manual review is required before using the result.
 
-## 8. Where Output Files Are Saved
+## 9. Where Output Files Are Saved
 
-Stage 5 saves anonymized TXT and DOCX copies next to the source file with the
-`_ANON` suffix. PDF input is saved next to the source as `_ANON.txt`. Original
-files must not be modified.
+Stage 6 saves anonymized TXT and DOCX copies next to the source file with the
+`_ANON` suffix. PDF input is saved next to the source as `_ANON.txt`. A safe
+report is saved next to the anonymized output with the `_RAPORT.txt` suffix.
+Original files must not be modified.
 
-## 9. What Is Not Implemented Yet
+## 10. What Is Not Implemented Yet
 
-Stage 5 includes plain string anonymization, TXT file input/output, basic DOCX
+Stage 6 includes plain string anonymization, TXT file input/output, basic DOCX
 file input/output, text-based PDF input with TXT output, and a simple Tkinter
-GUI for one selected file. Final reports, names, addresses, cities,
+GUI for one selected file. Safe reports are implemented, but names, addresses, cities,
 organizations, OCR, AI, APIs, drag and drop, batch processing, advanced preview,
 and anonymized PDF output are not implemented.

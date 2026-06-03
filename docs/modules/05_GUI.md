@@ -4,6 +4,7 @@
 
 This module implements Stage 5: a small local Tkinter desktop interface for
 anonymizing one selected `.txt`, `.docx`, or `.pdf` file.
+Stage 6 extends the GUI status area to show the saved report file path.
 
 ## Related files
 
@@ -38,7 +39,7 @@ The Stage 5 GUI supports this flow:
 1. Open the application with `python src/main.py`.
 2. Select one file.
 3. Click `Anonymize`.
-4. Review the status, category counters, output path, and manual review warning.
+4. Review the status, category counters, output path, report path, and manual review warning.
 5. Manually inspect the anonymized output file before using or sharing it.
 
 The GUI shows:
@@ -47,6 +48,7 @@ The GUI shows:
 - operation status,
 - category counters,
 - output file path,
+- report file path,
 - clear errors from unsupported file types or PDFs without extractable text,
 - a reminder that manual review is required.
 
@@ -56,18 +58,21 @@ TXT input:
 
 ```text
 document.txt -> document_ANON.txt
+document.txt -> document_RAPORT.txt
 ```
 
 DOCX input:
 
 ```text
 document.docx -> document_ANON.docx
+document.docx -> document_RAPORT.txt
 ```
 
 Text-based PDF input:
 
 ```text
 document.pdf -> document_ANON.txt
+document.pdf -> document_RAPORT.txt
 ```
 
 Original files are not modified.
@@ -77,8 +82,9 @@ Original files are not modified.
 - The GUI processes one selected file only.
 - The GUI displays category names and counts only.
 - The GUI does not display original detected source values.
+- The GUI displays report paths only, not report contents or source values.
 - No replacement map is created.
-- No report file is created in Stage 5.
+- Safe report files are created by the existing file workflow helpers.
 - No source data is logged.
 - No OCR, AI, API, cloud service, database, drag and drop, batch processing, or
   PDF writing is added.
@@ -92,8 +98,8 @@ python -m unittest discover -s tests
 ```
 
 The Stage 5 test covers the non-Tk single-file integration dispatcher using
-synthetic TXT data and unsupported extension handling. Fragile widget tests are
-not included.
+synthetic TXT data and unsupported extension handling. Stage 6 report creation
+is covered by `tests/test_report.py`. Fragile widget tests are not included.
 
 ## Known limitations
 

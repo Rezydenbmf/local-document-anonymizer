@@ -4,7 +4,8 @@
 
 This module implements Stage 4: local text extraction from text-based PDF
 files, anonymization through the existing plain text engine, and saving the
-anonymized result as a TXT file.
+anonymized result as a TXT file. Stage 6 adds safe report file output after
+successful anonymization.
 
 ## Related files
 
@@ -31,6 +32,7 @@ batch processing.
 read_pdf_file(file_path: str | Path) -> str
 extract_text(file_path: str | Path) -> str
 build_anonymized_pdf_txt_path(source_path: str | Path) -> Path
+build_report_path(source_path: str | Path) -> Path
 save_anonymized_pdf_txt_copy(source_path: str | Path, anonymized_text: str) -> Path
 anonymize_pdf_file(source_path: str | Path) -> tuple[Path, dict[str, int]]
 ```
@@ -47,11 +49,13 @@ The PDF workflow is:
 2. `anonymize_pdf_file()` passes that text to `anonymize_text()`.
 3. `save_anonymized_pdf_txt_copy()` writes the anonymized text as UTF-8 TXT.
 4. The output file is saved next to the source with an `_ANON.txt` suffix.
+5. A safe report file is saved next to the output with a `_RAPORT.txt` suffix.
 
 Example:
 
 ```text
 document.pdf -> document_ANON.txt
+document.pdf -> document_RAPORT.txt
 ```
 
 The original PDF file is not modified.
@@ -76,6 +80,7 @@ Stage 4 does not support:
 - The original source PDF is left unchanged.
 - PDF input produces TXT output only.
 - No anonymized PDF file is created.
+- The safe report file receives the `_RAPORT.txt` suffix.
 - No replacement map is created.
 - No source values are written to reports, metadata, or counters.
 - The integration helper returns only the output path and category counters.

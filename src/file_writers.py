@@ -1,4 +1,4 @@
-"""File writers for Stage 4 TXT, DOCX, and PDF-to-TXT support."""
+"""File writers for Stage 6 TXT, DOCX, PDF-to-TXT, and report support."""
 
 from collections.abc import Callable
 from pathlib import Path
@@ -8,6 +8,7 @@ TXT_EXTENSION = ".txt"
 DOCX_EXTENSION = ".docx"
 PDF_EXTENSION = ".pdf"
 ANON_SUFFIX = "_ANON"
+REPORT_SUFFIX = "_RAPORT"
 AnonymizeFunction = Callable[[str], tuple[str, dict[str, int]]]
 
 
@@ -15,7 +16,7 @@ def _unsupported_extension_error(file_path: str | Path) -> ValueError:
     path = Path(file_path)
     suffix = path.suffix.lower() or "<none>"
     return ValueError(
-        f"Unsupported file extension for Stage 4: {suffix}. "
+        f"Unsupported file extension: {suffix}. "
         "Only .txt, .docx, and .pdf files are supported."
     )
 
@@ -69,6 +70,15 @@ def build_anonymized_pdf_txt_path(source_path: str | Path) -> Path:
     """Return the anonymized TXT output path for a PDF source file."""
     path = _ensure_pdf_path(source_path)
     return path.with_name(f"{path.stem}{ANON_SUFFIX}{TXT_EXTENSION}")
+
+
+def build_report_path(source_path: str | Path) -> Path:
+    """Return the safe report output path for a supported source file."""
+    path = Path(source_path)
+    if path.suffix.lower() not in (TXT_EXTENSION, DOCX_EXTENSION, PDF_EXTENSION):
+        raise _unsupported_extension_error(path)
+
+    return path.with_name(f"{path.stem}{REPORT_SUFFIX}{TXT_EXTENSION}")
 
 
 def save_anonymized_txt_copy(
