@@ -60,10 +60,11 @@ workflow dispatcher.
 
 ## Known limitations
 
-This Stage 0 document is historical. Final report generation remains a future
-module.
+This Stage 0 document is historical. Later module documents describe the
+implemented engine, TXT, DOCX, PDF, GUI, and safe report behavior.
 
 ## Future improvements
 
 Later stages add the anonymizer engine, TXT input/output, DOCX support, PDF
-support, GUI, and reports.
+support, GUI, and reports. Future work beyond the current MVP should be planned
+as separate approved stages.

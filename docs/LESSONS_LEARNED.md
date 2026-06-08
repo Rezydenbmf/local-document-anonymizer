@@ -39,3 +39,14 @@ Reliability, safety, and reviewability matter more than adding many features ear
 ## 10. Confirm the target directory before creating a project.
 
 Before creating a new repository, project skeleton, or large file set, ask the user to confirm the exact local path. A correct structure in the wrong directory still creates cleanup work.
+
+## 11. Portfolio documentation must be as honest as the limitations.
+
+A portfolio README should explain the working flow, installation, safety model,
+and limits with the same clarity as the implemented features.
+
+## 12. Do not add OCR, PDF editing, or broad NLP before the core workflow is reviewed.
+
+Large document-processing features increase safety and testing risk. They should
+come after the narrow local workflow, reports, documentation, and review checks
+are stable.

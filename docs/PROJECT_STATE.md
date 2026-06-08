@@ -2,14 +2,18 @@
 
 ## Current Status
 
-The project is in Stage 6: safe report file output.
+The project is in Stage 7: portfolio polish and release review.
 
-The repository now contains a narrow regex-based engine that accepts a Python
-string and returns anonymized text plus category counters. It also contains
-TXT file readers and writers, basic DOCX readers and writers, text-based PDF
-text extraction, small integration helpers for saving separate anonymized TXT,
-DOCX, and PDF-to-TXT outputs, a simple Tkinter GUI for anonymizing one selected
-supported file, and safe TXT report generation without source values.
+The Stage 0-6 MVP implementation contains a narrow regex-based engine that
+accepts a Python string and returns anonymized text plus category counters. It
+also contains TXT file readers and writers, basic DOCX readers and writers,
+text-based PDF text extraction, small integration helpers for saving separate
+anonymized TXT, DOCX, and PDF-to-TXT outputs, a simple Tkinter GUI for
+anonymizing one selected supported file, and safe TXT report generation without
+source values.
+
+Stage 7 is a documentation, safety, test, and portfolio review stage. It does
+not add application features or change the MVP scope.
 
 ## What Exists
 
@@ -48,6 +52,9 @@ supported file, and safe TXT report generation without source values.
 - Synthetic sample text files in `tests/sample_data/`.
 - Project, user, security, roadmap, and module documentation.
 - `.gitignore` rules for private data and local artifacts.
+- Stage 7 portfolio/release review documentation updates for README quality,
+  user guidance, technical flow clarity, roadmap status, security assumptions,
+  and honest portfolio text.
 
 ## What Does Not Exist Yet
 
@@ -102,12 +109,27 @@ python -m unittest discover -s tests
 
 Stage 6: safe report file output.
 
+Last implementation commit:
+
+```text
+decc8ad Implement Stage 6 safe report output
+```
+
+Current review stage:
+
+```text
+Stage 7: portfolio polish and release review
+```
+
 ## Next Logical Step
 
-Stage 7: tests and portfolio polish.
+After Stage 7 review, the safest next step is user review and a small
+documentation-only commit. Later work should stay separate and require an
+explicit project decision, especially OCR, batch processing, installer work,
+better NLP, stronger entity detection, packaging, or release automation.
 
 ## Warning
 
-This repository is still an early-stage tool. Do not use it to anonymize real
-documents without manual review and without completing the later file workflow
-and safety checks.
+This repository is still an early-stage portfolio MVP. Do not use it to
+anonymize real documents without manual review and project-specific safety
+checks.

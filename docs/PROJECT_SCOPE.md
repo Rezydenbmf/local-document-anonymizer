@@ -2,32 +2,40 @@
 
 ## What the Application Does
 
-The planned application will help users anonymize text documents locally by replacing sensitive values with general uppercase labels.
+The current MVP helps users anonymize supported text documents locally by
+replacing selected high-confidence sensitive values with general uppercase
+labels.
 
-## MVP Scope
+## Current MVP Scope
 
-The MVP is planned to support:
+The current MVP supports:
 
 - TXT files.
 - DOCX files.
 - Text-based PDF files.
 - Simple label-based anonymization.
-- Preview of anonymized text.
-- Manual review before saving.
+- A simple Tkinter GUI for one selected file.
+- Separate `_ANON` output files.
 - Reports without original source values.
+- Manual review after output is generated.
 
-## Data Types Planned for Anonymization
+## Data Types Implemented in the Current Engine
 
-Planned labels include:
+Implemented labels are:
 
-- `IMIE NAZWISKO`
 - `PESEL`
 - `DATA`
+- `TELEFON`
+- `EMAIL`
+
+## Data Types Planned for Later Consideration
+
+Potential future labels include:
+
+- `IMIE NAZWISKO`
 - `MIEJSCOWOSC`
 - `ULICA`
 - `NUMER`
-- `TELEFON`
-- `EMAIL`
 - `NAZWA PODMIOTU`
 - `ADRES`
 - `INNE DANE`

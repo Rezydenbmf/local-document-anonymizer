@@ -1,14 +1,14 @@
 # Technical Overview
 
-## Planned Flow
+## Current Flow
 
 ```text
 input file
 -> text extraction
 -> anonymization
--> preview/manual review
 -> output file
--> report
+-> safe report
+-> manual review outside the application
 ```
 
 ## Module Responsibilities
@@ -47,9 +47,9 @@ local LLMs, databases, drag and drop, or batch processing.
 ## GUI Limitations
 
 Stage 5 is a simple workflow shell. It does not preview document content, edit
-output, process multiple files, write anonymized PDF files, or generate final
-reports beyond the safe Stage 6 counter report. It calls the existing file
-workflow helpers instead of parsing files inside the GUI layer.
+output, process multiple files, write anonymized PDF files, or generate detailed
+audit reports beyond the safe Stage 6 counter report. It calls the existing
+file workflow helpers instead of parsing files inside the GUI layer.
 
 ## DOCX Limitations
 

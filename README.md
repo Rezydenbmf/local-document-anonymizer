@@ -1,39 +1,43 @@
 # local-document-anonymizer
 
-Local Document Anonymizer is a local-first desktop application for anonymizing text documents on a user's own computer.
+Local Document Anonymizer is a local-first desktop application for
+anonymizing text documents on a user's own computer.
 
-The project is currently in Stage 6. It contains the repository skeleton, a
-narrow regex-based plain text anonymization engine for Python strings, TXT file
-input/output helpers, basic local DOCX input/output support, and text-based PDF
-input support that saves anonymized TXT output. It also includes a simple
-Tkinter GUI for anonymizing one selected supported file and safe TXT report
-output without source values.
+The project is currently in Stage 7: portfolio polish and release review.
+The Stage 0-6 MVP includes a narrow regex-based plain text anonymization
+engine, TXT input/output, basic local DOCX input/output, text-based PDF input
+that saves anonymized TXT output, a simple Tkinter GUI for one selected file,
+and safe TXT report output without source values.
 
 ## Project Goal
 
-The goal is to build a simple, maintainable, offline tool that helps users replace sensitive values in documents with general uppercase labels, then manually review the result before saving an anonymized copy.
+The goal is to build a simple, maintainable, offline tool that helps users
+replace supported sensitive values in documents with general uppercase labels,
+then manually review the generated anonymized output before trusting or sharing
+it.
 
-Planned document flow:
+Current MVP document flow:
 
 1. Select a TXT, DOCX, or text-based PDF file.
 2. Extract text locally.
 3. Detect sensitive data.
-4. Replace detected values with labels such as `IMIE NAZWISKO`, `PESEL`, or `EMAIL`.
-5. Review the result manually.
-6. Save an anonymized copy.
-7. Save a report that does not contain original source values.
+4. Replace detected values with labels such as `PESEL`, `EMAIL`, `TELEFON`,
+   or `DATA`.
+5. Save an anonymized copy with an `_ANON` suffix.
+6. Save a safe report with a `_RAPORT.txt` suffix.
+7. Manually review the anonymized output outside the application.
 
 ## MVP Scope
 
-The planned MVP includes:
+The current MVP includes:
 
 - TXT input and output.
 - Basic DOCX input and output.
 - Text-based PDF input support with TXT output.
 - Simple label-based anonymization.
 - Simple GUI workflow for one selected file.
-- Manual review.
 - Reports without original sensitive values.
+- Manual review as a required user step.
 
 ## Local-First and Offline
 
@@ -75,6 +79,17 @@ paths, source filenames, replacement maps, or document content.
 
 Anonymization can miss values or replace too much. Every anonymized result must be manually reviewed by the user before it is trusted or shared.
 
+## Installation
+
+Use a local Python environment. The project dependencies are intentionally
+small:
+
+```bash
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+```
+
 ## Running the Application
 
 Run the GUI entry point:
@@ -89,6 +104,52 @@ Run the tests:
 python -m unittest discover -s tests
 ```
 
+## Basic Workflow Example
+
+For a TXT file named `document.txt`, the current GUI workflow creates:
+
+```text
+document.txt -> document_ANON.txt
+document.txt -> document_RAPORT.txt
+```
+
+For a DOCX file named `document.docx`, it creates:
+
+```text
+document.docx -> document_ANON.docx
+document.docx -> document_RAPORT.txt
+```
+
+For a text-based PDF named `document.pdf`, it creates extracted TXT output:
+
+```text
+document.pdf -> document_ANON.txt
+document.pdf -> document_RAPORT.txt
+```
+
+The original file is not modified. The `_RAPORT.txt` file contains category
+counters and safety notes only, not source values.
+
+## Portfolio Summary
+
+GitHub repository description:
+
+```text
+Local-first Python/Tkinter document anonymizer for TXT, basic DOCX, and text-based PDF input, with safe reports and synthetic tests.
+```
+
+CV bullet:
+
+```text
+Built a local-first Python desktop MVP for document anonymization, covering TXT, basic DOCX, and text-based PDF workflows with safe report generation and synthetic unit tests.
+```
+
+LinkedIn/project summary:
+
+```text
+Local Document Anonymizer is a portfolio MVP for offline document anonymization. It uses deterministic regex rules, keeps processing on the user's computer, writes separate anonymized outputs and safe reports, and documents its limitations clearly: no OCR, AI, cloud services, batch processing, or guarantee of perfect anonymization.
+```
+
 ## Basic Development Plan
 
 1. Repository skeleton and documentation.
@@ -98,4 +159,4 @@ python -m unittest discover -s tests
 5. Text-based PDF support. Complete for Stage 4.
 6. Simple Tkinter GUI. Complete for Stage 5.
 7. Reports without source values. Complete for Stage 6.
-8. Tests and portfolio polish.
+8. Portfolio polish and release review. Current Stage 7.

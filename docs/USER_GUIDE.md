@@ -11,7 +11,7 @@ It is not a cloud service, compliance guarantee, OCR tool, batch processor, or a
 
 ## 3. Basic Workflow
 
-The current Stage 6 workflow is:
+The current MVP workflow is:
 
 1. Run `python src/main.py`.
 2. Select one supported file.
@@ -19,9 +19,12 @@ The current Stage 6 workflow is:
 4. Check the status, category counters, output path, and report path.
 5. Manually review the anonymized output file before using or sharing it.
 
+The application saves output files before manual review. It does not provide an
+in-app document preview or editing screen.
+
 ## 4. Supported Files in Current Stage
 
-Stage 6 supports ordinary `.txt` files, basic `.docx` files, and text-based
+The current MVP supports ordinary `.txt` files, basic `.docx` files, and text-based
 `.pdf` files.
 
 TXT files are read locally as UTF-8 text. The anonymized result is saved as a
@@ -100,14 +103,14 @@ Automatic detection may miss data or replace text incorrectly. Manual review is 
 
 ## 9. Where Output Files Are Saved
 
-Stage 6 saves anonymized TXT and DOCX copies next to the source file with the
+The application saves anonymized TXT and DOCX copies next to the source file with the
 `_ANON` suffix. PDF input is saved next to the source as `_ANON.txt`. A safe
 report is saved next to the anonymized output with the `_RAPORT.txt` suffix.
 Original files must not be modified.
 
 ## 10. What Is Not Implemented Yet
 
-Stage 6 includes plain string anonymization, TXT file input/output, basic DOCX
+The current MVP includes plain string anonymization, TXT file input/output, basic DOCX
 file input/output, text-based PDF input with TXT output, and a simple Tkinter
 GUI for one selected file. Safe reports are implemented, but names, addresses, cities,
 organizations, OCR, AI, APIs, drag and drop, batch processing, advanced preview,
