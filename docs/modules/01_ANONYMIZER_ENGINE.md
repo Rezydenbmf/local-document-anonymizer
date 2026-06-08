@@ -2,19 +2,22 @@
 
 ## Purpose
 
-This module implements Stage 1: a small regex-based anonymization engine for
-plain Python strings.
+This module implements the plain text anonymization engine for plain Python
+strings. Stage 8 extends the engine with optional private sensitive terms
+dictionary input.
 
 ## Related files
 
 - `src/anonymizer.py`
+- `src/sensitive_terms.py`
 - `tests/test_anonymizer.py`
+- `tests/test_sensitive_terms.py`
 
 ## Core Public API
 
 ```python
-anonymize_text(text: str) -> tuple[str, dict[str, int]]
-anonymize_file(source_path: str | Path) -> tuple[Path, dict[str, int]]
+anonymize_text(text: str, sensitive_terms=None) -> tuple[str, dict[str, int]]
+anonymize_file(source_path: str | Path, sensitive_terms=None) -> tuple[Path, dict[str, int]]
 ```
 
 The function returns:
@@ -32,7 +35,8 @@ Stage 4 adds `anonymize_pdf_file(...)`, documented in
 `docs/modules/04_PDF_IO.md`. Stage 5 adds `anonymize_file(...)`, documented in
 `docs/modules/05_GUI.md`, which dispatches one supported file to the existing
 TXT, DOCX, or PDF workflow. Stage 6 adds safe report output, documented in
-`docs/modules/06_REPORTING.md`.
+`docs/modules/06_REPORTING.md`. Stage 8 adds optional private dictionary
+support, documented in `docs/modules/08_PRIVATE_DICTIONARY.md`.
 
 ## Supported categories
 
@@ -43,11 +47,20 @@ Stage 1 supports:
 - `TELEFON` replaced with `[TELEFON]`
 - `DATA` replaced with `[DATA]`
 
-Address and postal-code detection are not implemented in Stage 1.
+Stage 8 can also replace user-provided exact private terms with labels from a
+private dictionary, for example `[IMIE NAZWISKO]`. These labels are dynamic and
+are not automatic entity detection.
+
+Address and postal-code detection are not implemented as automatic regex
+categories.
 
 ## How it works
 
-The engine applies deterministic regular expressions in a fixed order:
+The engine first applies optional private sensitive terms, if provided. Private
+terms are literal and case-sensitive. Longer terms are processed before shorter
+terms.
+
+The engine then applies deterministic regular expressions in a fixed order:
 
 1. `EMAIL`
 2. `PESEL`
@@ -59,7 +72,8 @@ Counters are based on actual replacements performed by `re.subn`.
 ## Inputs
 
 The module accepts only a plain Python string. Passing another type raises
-`TypeError`.
+`TypeError`. The optional `sensitive_terms` argument accepts parsed
+`SensitiveTerm` items from `src/sensitive_terms.py`.
 
 ## Outputs
 
@@ -78,10 +92,26 @@ Returns:
 ("Email [EMAIL] on [DATA].", {"EMAIL": 1, "DATA": 1})
 ```
 
+Example with private dictionary terms:
+
+```python
+anonymize_text(
+    "Person One Example emailed tester@example.test.",
+    sensitive_terms=[SensitiveTerm("Person One Example", "IMIE NAZWISKO")],
+)
+```
+
+Returns:
+
+```python
+("[IMIE NAZWISKO] emailed [EMAIL].", {"IMIE NAZWISKO": 1, "EMAIL": 1})
+```
+
 ## Safety assumptions
 
 - No source values are stored in the report.
 - No replacement map is created.
+- Private dictionary terms are not stored in counters or reports.
 - Tests use only synthetic values.
 - No real documents or generated output files are added.
 - No network calls, APIs, AI services, OCR, local LLMs, databases, DOCX, PDF, or
@@ -97,7 +127,8 @@ python -m unittest discover -s tests
 ```
 
 The tests cover PESEL, email, phone, date, combined categories, repeated
-occurrences, unchanged text, and report safety.
+occurrences, unchanged text, private dictionary replacement, replacement order,
+regex integration, and report safety.
 
 ## Known limitations
 
@@ -106,8 +137,9 @@ occurrences, unchanged text, and report safety.
 - Phone detection focuses on high-confidence Polish-style numeric forms with a
   prefix or separators.
 - Date detection is limited to `YYYY-MM-DD` and `DD.MM.YYYY`.
-- Names, surnames, cities, organizations, context-based detection, uppercase
-  word detection, addresses, and postal codes are not implemented.
+- Automatic names, surnames, cities, organizations, context-based detection,
+  uppercase word detection, addresses, and postal codes are not implemented.
+- Private dictionary matching is literal and case-sensitive.
 - PDF file input is handled by the Stage 4 file workflow, not by new regex
   logic in the core engine.
 - OCR, AI, API calls, cloud services, local LLMs, databases, and replacement

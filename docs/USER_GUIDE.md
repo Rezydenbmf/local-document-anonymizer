@@ -15,9 +15,10 @@ The current MVP workflow is:
 
 1. Run `python src/main.py`.
 2. Select one supported file.
-3. Click `Anonymize`.
-4. Check the status, category counters, output path, and report path.
-5. Manually review the anonymized output file before using or sharing it.
+3. Optionally select a private sensitive terms file.
+4. Click `Anonymize`.
+5. Check the status, category counters, output path, and report path.
+6. Manually review the anonymized output file before using or sharing it.
 
 The application saves output files before manual review. It does not provide an
 in-app document preview or editing screen.
@@ -65,8 +66,8 @@ PDF support requires an existing text layer. Scanned PDFs are not supported,
 OCR is not included, and PDF layout preservation is not guaranteed.
 
 OCR, AI, APIs, cloud services, databases, batch processing, drag and drop,
-advanced document preview, PDF writing, and detailed audit reports are not
-supported.
+advanced document preview, PDF writing, automatic entity detection, and
+detailed audit reports are not supported.
 
 ## 5. Report Files
 
@@ -84,12 +85,15 @@ The report contains:
 - confirmation that no replacement map was created.
 
 The report does not contain document text, original sensitive values, full
-input paths, source filenames, or replacement maps.
+input paths, source filenames, private dictionary terms, or replacement maps.
 
 ## 6. Safety Rules for Users
 
 - Do not place real documents in the repository.
+- Do not commit a real private sensitive terms dictionary.
 - Keep original files outside the project folder.
+- Keep real dictionary files outside the repository or inside an ignored
+  `private/` folder.
 - Review anonymized output manually.
 - Do not share output until you have checked it.
 
@@ -97,21 +101,52 @@ input paths, source filenames, or replacement maps.
 
 The Stage 1 engine replaces supported values with labels such as `PESEL`, `EMAIL`, `TELEFON`, or `DATA`.
 
-## 8. Why Manual Review Is Required
+## 8. Private Sensitive Terms Dictionary
+
+Stage 8 adds an optional private local dictionary for exact terms that the user
+knows should be replaced. The file is a UTF-8 text file with one term per line:
+
+```text
+Person One Example = [IMIE NAZWISKO]
+Example Institution = [NAZWA PODMIOTU]
+```
+
+Blank lines are ignored. Lines starting with `#` are comments. Malformed lines
+stop the run with a safe line-number error.
+
+The real dictionary must stay private and must not be committed. The repository
+contains only a synthetic example:
+
+```text
+examples/sensitive_terms.example.txt
+```
+
+When a dictionary is selected, the app replaces matching terms with the
+specified labels and reports only label counters. It does not display
+dictionary contents, write original dictionary terms to reports, or create a
+replacement map. Longer terms are applied before shorter terms, so a term like
+`Person One Example` is handled before `Person`.
+
+Private dictionary matching is literal and case-sensitive. It is not OCR, AI,
+automatic names or address detection, batch processing, a database, or automatic
+deletion of originals.
+
+## 9. Why Manual Review Is Required
 
 Automatic detection may miss data or replace text incorrectly. Manual review is required before using the result.
 
-## 9. Where Output Files Are Saved
+## 10. Where Output Files Are Saved
 
 The application saves anonymized TXT and DOCX copies next to the source file with the
 `_ANON` suffix. PDF input is saved next to the source as `_ANON.txt`. A safe
 report is saved next to the anonymized output with the `_RAPORT.txt` suffix.
 Original files must not be modified.
 
-## 10. What Is Not Implemented Yet
+## 11. What Is Not Implemented Yet
 
 The current MVP includes plain string anonymization, TXT file input/output, basic DOCX
 file input/output, text-based PDF input with TXT output, and a simple Tkinter
-GUI for one selected file. Safe reports are implemented, but names, addresses, cities,
-organizations, OCR, AI, APIs, drag and drop, batch processing, advanced preview,
-and anonymized PDF output are not implemented.
+GUI for one selected file. Safe reports and optional private dictionary input
+are implemented, but automatic names, addresses, cities, organizations, OCR, AI,
+APIs, drag and drop, batch processing, advanced preview, and anonymized PDF
+output are not implemented.

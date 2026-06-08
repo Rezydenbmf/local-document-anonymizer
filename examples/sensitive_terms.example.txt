@@ -1,0 +1,7 @@
+# Synthetic example sensitive terms file
+
+Person One Example = [IMIE NAZWISKO]
+Example Institution = [NAZWA PODMIOTU]
+Example Department = [KOMORKA ORGANIZACYJNA]
+Example City = [MIEJSCOWOSC]
+Example Street = [ULICA]

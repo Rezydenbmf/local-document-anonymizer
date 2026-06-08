@@ -28,6 +28,20 @@ containing document content.
 
 The application must not store a map from original sensitive values to replacement labels.
 
+## Private Sensitive Terms Dictionary
+
+Stage 8 supports an optional private local sensitive terms dictionary maintained
+by the user. The real dictionary must not be committed to the repository. It
+should live outside the repository or inside an ignored folder such as
+`private/`.
+
+The repository may contain only synthetic dictionary examples, such as
+`examples/sensitive_terms.example.txt`.
+
+Dictionary contents must not be displayed in the GUI, written to reports, logged
+as source values, or turned into a persisted replacement map. Reports may show
+only dictionary labels and counts, for example `IMIE NAZWISKO: 2`.
+
 ## Original Files Are Not Modified
 
 Original user files must remain unchanged. Future output should be saved as a separate anonymized copy.
@@ -37,8 +51,8 @@ Original user files must remain unchanged. Future output should be saved as a se
 The repository may contain only synthetic examples and tests. Real documents and personal data must stay out of the repository.
 
 Generated `_ANON` and `_RAPORT` files from real data must not be committed.
-Logs, local configuration files, `.env` files, private folders, and real input
-documents must also stay out of git.
+Logs, local configuration files, `.env` files, private folders, real private
+dictionaries, and real input documents must also stay out of git.
 
 ## Manual Review Required
 
@@ -54,4 +68,4 @@ Users must not manually place real documents inside the repository. Folders such
 
 Before a release or portfolio commit, run a repository check for ignored data
 folders, generated outputs, logs, local config files, private paths, and
-non-synthetic source values.
+non-synthetic source values or dictionary terms.

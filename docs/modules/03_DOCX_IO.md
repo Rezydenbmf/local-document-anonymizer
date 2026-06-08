@@ -4,14 +4,17 @@
 
 This module implements Stage 3: local DOCX reading, anonymization through the
 existing plain text engine, and saving a separate anonymized DOCX copy. Stage 6
-adds safe report file output after successful anonymization.
+adds safe report file output after successful anonymization. Stage 8 lets the
+workflow receive optional private sensitive terms.
 
 ## Related files
 
 - `src/file_readers.py`
 - `src/file_writers.py`
 - `src/anonymizer.py`
+- `src/sensitive_terms.py`
 - `tests/test_docx_io.py`
+- `tests/test_sensitive_terms.py`
 
 ## Runtime dependency
 
@@ -36,12 +39,12 @@ save_anonymized_docx_copy(
     source_path: str | Path,
     anonymize: Callable[[str], tuple[str, dict[str, int]]],
 ) -> tuple[Path, dict[str, int]]
-anonymize_docx_file(source_path: str | Path) -> tuple[Path, dict[str, int]]
+anonymize_docx_file(source_path: str | Path, sensitive_terms=None) -> tuple[Path, dict[str, int]]
 ```
 
 `anonymize_docx_file(...)` passes DOCX text through the existing
-`anonymize_text(text: str)` engine. Stage 3 does not create a separate DOCX
-anonymization engine.
+`anonymize_text(text: str, sensitive_terms=None)` engine. Stage 3 does not
+create a separate DOCX anonymization engine.
 
 ## How it works
 
@@ -74,6 +77,8 @@ The original DOCX file is not modified.
 - No source values are written to reports, metadata, or counters.
 - The integration helper returns only the output path and category counters.
 - Counters contain category names and counts only.
+- Private dictionary terms are not written to reports, counters, or returned
+  metadata.
 - Tests use only synthetic data and temporary files.
 
 ## Formatting behavior
@@ -120,6 +125,7 @@ values, TXT regression coverage, and unsupported extension errors.
 ## Known limitations
 
 - Detection quality is still limited by the Stage 1 regex engine.
+- Private dictionary matching is literal and case-sensitive.
 - DOCX formatting preservation is basic only.
 - Advanced DOCX elements are not scanned or rewritten.
 - The Stage 5 GUI supports one selected file only.

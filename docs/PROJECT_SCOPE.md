@@ -13,6 +13,7 @@ The current MVP supports:
 - TXT files.
 - DOCX files.
 - Text-based PDF files.
+- Optional private sensitive terms dictionary support.
 - Simple label-based anonymization.
 - A simple Tkinter GUI for one selected file.
 - Separate `_ANON` output files.
@@ -21,12 +22,24 @@ The current MVP supports:
 
 ## Data Types Implemented in the Current Engine
 
-Implemented labels are:
+Built-in regex labels are:
 
 - `PESEL`
 - `DATA`
 - `TELEFON`
 - `EMAIL`
+
+Stage 8 also supports user-defined dictionary labels from a private local
+dictionary, for example `IMIE NAZWISKO` or `NAZWA PODMIOTU`. These labels are
+manually defined by the user and are not automatic entity detection.
+
+## Private Dictionary Safety
+
+Real private dictionaries must not be committed to the repository. They should
+live outside the repository or inside an ignored folder such as `private/`.
+
+Reports may include only labels and counts from dictionary matches. They must
+not include original dictionary terms or a replacement map.
 
 ## Data Types Planned for Later Consideration
 

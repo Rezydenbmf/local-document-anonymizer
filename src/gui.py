@@ -6,6 +6,7 @@ from tkinter import filedialog, ttk
 
 from anonymizer import SUPPORTED_LABELS, anonymize_file
 from file_writers import build_report_path
+from sensitive_terms import SensitiveTerm, load_sensitive_terms
 
 
 APP_TITLE = "Local Document Anonymizer"
@@ -16,7 +17,12 @@ MANUAL_REVIEW_WARNING = (
 
 def format_counters(counters: dict[str, int]) -> str:
     """Format anonymization counters without exposing source values."""
-    lines = [f"{label}: {counters.get(label, 0)}" for label in SUPPORTED_LABELS]
+    labels = list(SUPPORTED_LABELS)
+    for label in sorted(counters):
+        if label not in labels:
+            labels.append(label)
+
+    lines = [f"{label}: {counters.get(label, 0)}" for label in labels]
     lines.append(f"TOTAL: {sum(counters.values())}")
     return "\n".join(lines)
 
@@ -27,7 +33,11 @@ class AnonymizerGui:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.selected_path: Path | None = None
+        self.sensitive_terms: list[SensitiveTerm] | None = None
         self.selected_path_var = tk.StringVar(value="No file selected.")
+        self.sensitive_terms_var = tk.StringVar(
+            value="No sensitive terms file selected."
+        )
         self.status_var = tk.StringVar(value="Select a file to begin.")
         self.counters_var = tk.StringVar(value=format_counters({}))
         self.output_path_var = tk.StringVar(value="No output yet.")
@@ -38,7 +48,7 @@ class AnonymizerGui:
 
     def _build(self) -> None:
         self.root.title(APP_TITLE)
-        self.root.minsize(640, 460)
+        self.root.minsize(640, 520)
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
 
@@ -62,25 +72,40 @@ class AnonymizerGui:
         )
         selected_label.grid(row=2, column=1, columnspan=2, sticky="ew", pady=(0, 10))
 
+        terms_button = ttk.Button(
+            main,
+            text="Select sensitive terms file",
+            command=self.select_sensitive_terms_file,
+        )
+        terms_button.grid(row=3, column=0, sticky="w", pady=(0, 10))
+
+        ttk.Label(main, text="Sensitive terms:").grid(
+            row=4, column=0, sticky="nw", pady=(0, 10)
+        )
+        terms_label = ttk.Label(
+            main, textvariable=self.sensitive_terms_var, wraplength=500
+        )
+        terms_label.grid(row=4, column=1, columnspan=2, sticky="ew", pady=(0, 10))
+
         self.anonymize_button = ttk.Button(
             main,
             text="Anonymize",
             command=self.anonymize_selected_file,
             state="disabled",
         )
-        self.anonymize_button.grid(row=3, column=0, sticky="w", pady=(0, 14))
+        self.anonymize_button.grid(row=5, column=0, sticky="w", pady=(0, 14))
 
         ttk.Label(main, text="Status:").grid(
-            row=4, column=0, sticky="nw", pady=(0, 10)
+            row=6, column=0, sticky="nw", pady=(0, 10)
         )
         status_label = ttk.Label(
             main, textvariable=self.status_var, wraplength=500
         )
-        status_label.grid(row=4, column=1, columnspan=2, sticky="ew", pady=(0, 10))
+        status_label.grid(row=6, column=1, columnspan=2, sticky="ew", pady=(0, 10))
 
         counters_frame = ttk.LabelFrame(main, text="Category counters", padding=10)
         counters_frame.grid(
-            row=5, column=0, columnspan=3, sticky="ew", pady=(0, 14)
+            row=7, column=0, columnspan=3, sticky="ew", pady=(0, 14)
         )
         counters_frame.columnconfigure(0, weight=1)
         ttk.Label(
@@ -90,20 +115,20 @@ class AnonymizerGui:
         ).grid(row=0, column=0, sticky="w")
 
         ttk.Label(main, text="Output file:").grid(
-            row=6, column=0, sticky="nw", pady=(0, 10)
+            row=8, column=0, sticky="nw", pady=(0, 10)
         )
         output_label = ttk.Label(
             main, textvariable=self.output_path_var, wraplength=500
         )
-        output_label.grid(row=6, column=1, columnspan=2, sticky="ew", pady=(0, 10))
+        output_label.grid(row=8, column=1, columnspan=2, sticky="ew", pady=(0, 10))
 
         ttk.Label(main, text="Report file:").grid(
-            row=7, column=0, sticky="nw", pady=(0, 10)
+            row=9, column=0, sticky="nw", pady=(0, 10)
         )
         report_label = ttk.Label(
             main, textvariable=self.report_path_var, wraplength=500
         )
-        report_label.grid(row=7, column=1, columnspan=2, sticky="ew", pady=(0, 10))
+        report_label.grid(row=9, column=1, columnspan=2, sticky="ew", pady=(0, 10))
 
         warning_label = ttk.Label(
             main,
@@ -111,7 +136,7 @@ class AnonymizerGui:
             foreground="#9a3412",
             wraplength=580,
         )
-        warning_label.grid(row=8, column=0, columnspan=3, sticky="w", pady=(4, 0))
+        warning_label.grid(row=10, column=0, columnspan=3, sticky="w", pady=(4, 0))
 
     def select_file(self) -> None:
         file_path = filedialog.askopenfilename(
@@ -136,6 +161,33 @@ class AnonymizerGui:
         if self.anonymize_button is not None:
             self.anonymize_button.state(["!disabled"])
 
+    def select_sensitive_terms_file(self) -> None:
+        file_path = filedialog.askopenfilename(
+            title="Select sensitive terms file",
+            filetypes=[
+                ("TXT files", "*.txt"),
+                ("All files", "*.*"),
+            ],
+        )
+        if not file_path:
+            return
+
+        try:
+            self.sensitive_terms = load_sensitive_terms(file_path)
+        except ValueError as exc:
+            self.sensitive_terms = None
+            self.sensitive_terms_var.set("No valid sensitive terms file selected.")
+            self.status_var.set(f"Sensitive terms file error: {exc}")
+            return
+        except Exception:
+            self.sensitive_terms = None
+            self.sensitive_terms_var.set("No valid sensitive terms file selected.")
+            self.status_var.set("Sensitive terms file error: could not load file.")
+            return
+
+        self.sensitive_terms_var.set("Sensitive terms file selected.")
+        self.status_var.set("Ready to anonymize with selected sensitive terms file.")
+
     def anonymize_selected_file(self) -> None:
         if self.selected_path is None:
             self.status_var.set("Select a file before anonymizing.")
@@ -145,7 +197,9 @@ class AnonymizerGui:
         self.root.update_idletasks()
 
         try:
-            output_path, counters = anonymize_file(self.selected_path)
+            output_path, counters = anonymize_file(
+                self.selected_path, sensitive_terms=self.sensitive_terms
+            )
         except Exception as exc:
             self.status_var.set(f"Error: {exc}")
             self.counters_var.set(format_counters({}))

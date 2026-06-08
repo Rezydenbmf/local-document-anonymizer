@@ -2,8 +2,9 @@
 
 ## Purpose
 
-This module implements Stage 6: safe report file output without source values
-or replacement maps.
+This module implements safe report file output without source values or
+replacement maps. Stage 8 allows reports to include private dictionary labels
+and counts, but never original dictionary terms.
 
 ## Related files
 
@@ -11,7 +12,9 @@ or replacement maps.
 - `src/file_writers.py`
 - `src/anonymizer.py`
 - `src/gui.py`
+- `src/sensitive_terms.py`
 - `tests/test_report.py`
+- `tests/test_sensitive_terms.py`
 
 ## Public API
 
@@ -24,10 +27,10 @@ build_report_path(source_path: str | Path) -> Path
 The existing anonymization helpers keep their Stage 2-5 return values:
 
 ```python
-anonymize_txt_file(source_path) -> tuple[Path, dict[str, int]]
-anonymize_docx_file(source_path) -> tuple[Path, dict[str, int]]
-anonymize_pdf_file(source_path) -> tuple[Path, dict[str, int]]
-anonymize_file(source_path) -> tuple[Path, dict[str, int]]
+anonymize_txt_file(source_path, sensitive_terms=None) -> tuple[Path, dict[str, int]]
+anonymize_docx_file(source_path, sensitive_terms=None) -> tuple[Path, dict[str, int]]
+anonymize_pdf_file(source_path, sensitive_terms=None) -> tuple[Path, dict[str, int]]
+anonymize_file(source_path, sensitive_terms=None) -> tuple[Path, dict[str, int]]
 ```
 
 After a successful anonymized output is saved, these helpers also save a report
@@ -53,6 +56,7 @@ The report contains only safe metadata:
 - input type,
 - output type,
 - counters by supported category,
+- optional private dictionary label counters,
 - manual review requirement,
 - confirmation that original sensitive values are not stored,
 - confirmation that no replacement map was created.
@@ -67,6 +71,7 @@ The report must not contain:
 - original e-mail addresses,
 - original phone numbers,
 - original dates in source form,
+- original private dictionary terms,
 - replacement maps,
 - full input paths,
 - full input filenames,
@@ -75,7 +80,8 @@ The report must not contain:
 ## Safety Assumptions
 
 The report module receives only counters and file-type metadata. It does not
-read source documents and does not receive original source text.
+read source documents and does not receive original source text or original
+private dictionary terms.
 
 Manual review is still required. A safe report confirms what the tool replaced,
 but it does not prove the whole document is anonymized.
@@ -88,14 +94,15 @@ Run:
 python -m unittest discover -s tests
 ```
 
-The Stage 6 tests cover report text generation, report path naming, safe report
-content, TXT integration, DOCX integration, PDF integration, and dispatcher
-report safety.
+The tests cover report text generation, report path naming, safe report
+content, TXT integration, DOCX integration, PDF integration, dispatcher report
+safety, and private dictionary report safety.
 
 ## Known Limitations
 
 - The report is a plain TXT file only.
 - The report contains counters only, not a detailed audit trail.
 - No replacement map is created.
+- No original private dictionary terms are written to reports.
 - No source filename is written into the report body.
 - The report does not guarantee complete anonymization.

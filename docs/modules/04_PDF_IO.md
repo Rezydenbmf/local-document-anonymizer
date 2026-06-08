@@ -5,14 +5,17 @@
 This module implements Stage 4: local text extraction from text-based PDF
 files, anonymization through the existing plain text engine, and saving the
 anonymized result as a TXT file. Stage 6 adds safe report file output after
-successful anonymization.
+successful anonymization. Stage 8 lets the workflow receive optional private
+sensitive terms.
 
 ## Related files
 
 - `src/file_readers.py`
 - `src/file_writers.py`
 - `src/anonymizer.py`
+- `src/sensitive_terms.py`
 - `tests/test_pdf_io.py`
+- `tests/test_sensitive_terms.py`
 
 ## Runtime dependency
 
@@ -34,12 +37,12 @@ extract_text(file_path: str | Path) -> str
 build_anonymized_pdf_txt_path(source_path: str | Path) -> Path
 build_report_path(source_path: str | Path) -> Path
 save_anonymized_pdf_txt_copy(source_path: str | Path, anonymized_text: str) -> Path
-anonymize_pdf_file(source_path: str | Path) -> tuple[Path, dict[str, int]]
+anonymize_pdf_file(source_path: str | Path, sensitive_terms=None) -> tuple[Path, dict[str, int]]
 ```
 
 `anonymize_pdf_file(...)` passes extracted PDF text through the existing
-`anonymize_text(text: str)` engine. Stage 4 does not create separate
-PDF-specific anonymization regex logic.
+`anonymize_text(text: str, sensitive_terms=None)` engine. Stage 4 does not
+create separate PDF-specific anonymization regex logic.
 
 ## How it works
 
@@ -85,6 +88,8 @@ Stage 4 does not support:
 - No source values are written to reports, metadata, or counters.
 - The integration helper returns only the output path and category counters.
 - Counters contain category names and counts only.
+- Private dictionary terms are not written to reports, counters, or returned
+  metadata.
 - Tests use only generated synthetic temporary PDFs.
 
 ## How to test
@@ -103,6 +108,7 @@ the absence of `_ANON.pdf` output.
 ## Known limitations
 
 - Detection quality is still limited by the Stage 1 regex engine.
+- Private dictionary matching is literal and case-sensitive.
 - Extracted PDF text may not preserve visual layout or reading order.
 - Scanned PDFs are not supported.
 - OCR is not included.

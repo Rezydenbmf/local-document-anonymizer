@@ -9,7 +9,8 @@
 | Stage 4 | Text-based PDF support | Extract text from text-based PDFs and save anonymized TXT output. | Complete | No OCR, scanned PDFs, layout preservation, or anonymized PDF output. |
 | Stage 5 | Simple Tkinter GUI | Add a small local desktop interface for one selected supported file. | Complete | No preview, editing, drag and drop, batch processing, OCR, or PDF writing. |
 | Stage 6 | Reports without source data | Generate safe reports with labels and counts only. | Complete | No source values or replacement maps. |
-| Stage 7 | Portfolio polish and release review | Review README, user docs, technical docs, existing tests, security assumptions, roadmap, and portfolio text. | Current | Documentation and review only; no new features or scope expansion. |
+| Stage 7 | Portfolio polish and release review | Review README, user docs, technical docs, existing tests, security assumptions, roadmap, and portfolio text. | Complete | Documentation and review only; no new features or scope expansion. |
+| Stage 8 | Private sensitive terms dictionary | Let the user load a private local exact-term dictionary such as `term = [LABEL]`, apply longer terms first, and report only labels and counts. | Current | Literal case-sensitive matching only; real dictionaries must stay out of git; no replacement map or automatic entity detection. |
 | Later | OCR | Consider scanned document support. | Not planned for MVP | Requires explicit approval. |
 | Later | Batch processing | Process multiple files. | Not planned for MVP | Higher safety and review risk. |
 | Later | Installer | Package for easier desktop use. | Not planned for MVP | Platform-specific work. |

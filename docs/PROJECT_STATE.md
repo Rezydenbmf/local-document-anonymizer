@@ -2,18 +2,19 @@
 
 ## Current Status
 
-The project is in Stage 7: portfolio polish and release review.
+The project is in Stage 8: private sensitive terms dictionary.
 
-The Stage 0-6 MVP implementation contains a narrow regex-based engine that
+The Stage 0-8 MVP implementation contains a narrow regex-based engine that
 accepts a Python string and returns anonymized text plus category counters. It
-also contains TXT file readers and writers, basic DOCX readers and writers,
-text-based PDF text extraction, small integration helpers for saving separate
-anonymized TXT, DOCX, and PDF-to-TXT outputs, a simple Tkinter GUI for
-anonymizing one selected supported file, and safe TXT report generation without
-source values.
+also contains optional private exact-term dictionary support, TXT file readers
+and writers, basic DOCX readers and writers, text-based PDF text extraction,
+small integration helpers for saving separate anonymized TXT, DOCX, and
+PDF-to-TXT outputs, a simple Tkinter GUI for anonymizing one selected supported
+file, and safe TXT report generation without source values.
 
-Stage 7 is a documentation, safety, test, and portfolio review stage. It does
-not add application features or change the MVP scope.
+Stage 8 adds a private local sensitive terms dictionary. It does not add OCR,
+AI, cloud services, APIs, local LLMs, databases, batch processing, automatic
+replacement-map generation, or automatic deletion of originals.
 
 ## What Exists
 
@@ -36,6 +37,12 @@ not add application features or change the MVP scope.
 - Safe report text generation in `src/report.py`.
 - Report path helper `build_report_path(...)`, which saves `_RAPORT.txt`
   reports next to anonymized outputs.
+- Private sensitive terms parsing and replacement in `src/sensitive_terms.py`.
+- Optional `sensitive_terms` arguments in the plain text, TXT, DOCX, PDF, and
+  single-file dispatcher workflows.
+- Optional GUI selection of a private sensitive terms file without displaying
+  dictionary contents.
+- Safe report counters for dictionary labels only.
 - TXT, DOCX, PDF, and dispatcher flows that create safe reports after
   successful anonymization.
 - Runtime dependency on `python-docx`.
@@ -49,7 +56,10 @@ not add application features or change the MVP scope.
   TXT files only.
 - Unit tests for Stage 6 safe report generation and TXT/DOCX/PDF report
   integration using synthetic temporary files only.
+- Unit tests for Stage 8 private dictionary parsing, replacement order,
+  integration, and report safety using synthetic values only.
 - Synthetic sample text files in `tests/sample_data/`.
+- Synthetic example dictionary in `examples/sensitive_terms.example.txt`.
 - Project, user, security, roadmap, and module documentation.
 - `.gitignore` rules for private data and local artifacts.
 - Stage 7 portfolio/release review documentation updates for README quality,
@@ -63,7 +73,7 @@ not add application features or change the MVP scope.
 - Drag and drop.
 - OCR, AI, API calls, cloud services, local LLMs, or databases.
 - Detailed report generation beyond safe counters and metadata.
-- Names, surnames, cities, organizations, or context-based detection.
+- Automatic names, surnames, cities, organizations, or context-based detection.
 - Anonymized PDF output.
 - Scanned PDF processing.
 
@@ -104,27 +114,31 @@ python -m unittest discover -s tests
 - The GUI processes one selected file at a time and does not include document
   preview, editing, drag and drop, or batch processing.
 - Report files are plain TXT only and do not include a detailed audit trail.
+- Private dictionary matching is literal and case-sensitive. It is useful for
+  exact user-specified terms, but it is not automatic entity recognition.
+- The real private dictionary must stay outside git, either outside the
+  repository or inside an ignored folder such as `private/`.
 
 ## Last Completed Stage
 
-Stage 6: safe report file output.
+Stage 8: private sensitive terms dictionary.
 
-Last implementation commit:
+Last committed implementation before the Stage 8 working tree:
 
 ```text
 decc8ad Implement Stage 6 safe report output
 ```
 
-Current review stage:
+Current working tree stage:
 
 ```text
-Stage 7: portfolio polish and release review
+Stage 8: private sensitive terms dictionary
 ```
 
 ## Next Logical Step
 
-After Stage 7 review, the safest next step is user review and a small
-documentation-only commit. Later work should stay separate and require an
+After Stage 8 review, the safest next step is a small implementation commit for
+the private dictionary stage. Later work should stay separate and require an
 explicit project decision, especially OCR, batch processing, installer work,
 better NLP, stronger entity detection, packaging, or release automation.
 
