@@ -19,10 +19,11 @@ added without an explicit project decision.
 
 Reports must not include original source values. They may include safe metadata such as label names and counts.
 
-Stage 6 reports may include status, input type, output type, category counters,
-and manual review/security notes only. They must not include document text,
-detected source values, full input paths, full input filenames, or logs
-containing document content.
+Stage 9 reports may include status, input type, output type, anonymization
+category counters, post-anonymization audit status and counters, and manual
+review/security notes only. They must not include document text, detected
+source values, full input paths, full input filenames, text snippets,
+dictionary terms, or logs containing document content.
 
 ## No Replacement Map
 
@@ -41,6 +42,19 @@ The repository may contain only synthetic dictionary examples, such as
 Dictionary contents must not be displayed in the GUI, written to reports, logged
 as source values, or turned into a persisted replacement map. Reports may show
 only dictionary labels and counts, for example `IMIE NAZWISKO: 2`.
+
+## Post-Anonymization Audit
+
+Stage 9 audit results must contain only safe metadata: audit status, categories,
+counters, and the manual review flag.
+
+The audit must not return, save, display, or log original detected values, text
+snippets, private dictionary terms, full document text, full source paths, or a
+replacement map.
+
+The audit is a warning layer only. `ok` status does not guarantee complete
+anonymization, and `warning` status does not include the suspicious source
+values. Manual review remains required for every output.
 
 ## Original Files Are Not Modified
 
@@ -61,6 +75,9 @@ The user must review anonymized output before trusting or sharing it.
 ## No Perfect Anonymization Guarantee
 
 The tool can support anonymization but cannot guarantee that all sensitive values are removed.
+
+The post-anonymization audit also cannot guarantee that all remaining sensitive
+values are detected.
 
 ## Repository Privacy Risk
 

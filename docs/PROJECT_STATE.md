@@ -2,19 +2,21 @@
 
 ## Current Status
 
-The project is in Stage 8: private sensitive terms dictionary.
+The project is in Stage 9: post-anonymization audit.
 
-The Stage 0-8 MVP implementation contains a narrow regex-based engine that
+The Stage 0-9 MVP implementation contains a narrow regex-based engine that
 accepts a Python string and returns anonymized text plus category counters. It
 also contains optional private exact-term dictionary support, TXT file readers
 and writers, basic DOCX readers and writers, text-based PDF text extraction,
 small integration helpers for saving separate anonymized TXT, DOCX, and
 PDF-to-TXT outputs, a simple Tkinter GUI for anonymizing one selected supported
-file, and safe TXT report generation without source values.
+file, safe TXT report generation without source values, and a safe
+post-anonymization audit with category counters only.
 
-Stage 8 adds a private local sensitive terms dictionary. It does not add OCR,
-AI, cloud services, APIs, local LLMs, databases, batch processing, automatic
-replacement-map generation, or automatic deletion of originals.
+Stage 9 adds a conservative audit of anonymized output text after `_ANON`
+outputs are generated. It does not add OCR, AI, cloud services, APIs, local
+LLMs, databases, batch processing, automatic replacement-map generation,
+source-value logging, or automatic deletion of originals.
 
 ## What Exists
 
@@ -38,11 +40,16 @@ replacement-map generation, or automatic deletion of originals.
 - Report path helper `build_report_path(...)`, which saves `_RAPORT.txt`
   reports next to anonymized outputs.
 - Private sensitive terms parsing and replacement in `src/sensitive_terms.py`.
+- Post-anonymization audit in `src/audit.py`.
 - Optional `sensitive_terms` arguments in the plain text, TXT, DOCX, PDF, and
   single-file dispatcher workflows.
+- `_with_audit` TXT, DOCX, PDF, and dispatcher helpers that return safe audit
+  metadata while existing helpers keep their Stage 2-5 return shape.
 - Optional GUI selection of a private sensitive terms file without displaying
   dictionary contents.
+- GUI display of post-anonymization audit status and category counters only.
 - Safe report counters for dictionary labels only.
+- Safe report section for post-anonymization audit status and counters only.
 - TXT, DOCX, PDF, and dispatcher flows that create safe reports after
   successful anonymization.
 - Runtime dependency on `python-docx`.
@@ -58,6 +65,9 @@ replacement-map generation, or automatic deletion of originals.
   integration using synthetic temporary files only.
 - Unit tests for Stage 8 private dictionary parsing, replacement order,
   integration, and report safety using synthetic values only.
+- Unit tests for Stage 9 post-anonymization audit detection, report safety,
+  workflow integration, and GUI/dispatcher audit metadata safety using
+  synthetic values only.
 - Synthetic sample text files in `tests/sample_data/`.
 - Synthetic example dictionary in `examples/sensitive_terms.example.txt`.
 - Project, user, security, roadmap, and module documentation.
@@ -72,7 +82,8 @@ replacement-map generation, or automatic deletion of originals.
 - Batch processing.
 - Drag and drop.
 - OCR, AI, API calls, cloud services, local LLMs, or databases.
-- Detailed report generation beyond safe counters and metadata.
+- Detailed report generation beyond safe counters, safe audit metadata, and
+  manual review notes.
 - Automatic names, surnames, cities, organizations, or context-based detection.
 - Anonymized PDF output.
 - Scanned PDF processing.
@@ -118,28 +129,34 @@ python -m unittest discover -s tests
   exact user-specified terms, but it is not automatic entity recognition.
 - The real private dictionary must stay outside git, either outside the
   repository or inside an ignored folder such as `private/`.
+- Post-anonymization audit matching is conservative and regex-based. It can
+  miss sensitive data and can warn on harmless text.
+- Audit status `ok` does not prove complete anonymization. Manual review is
+  still required.
+- Audit results and reports include only categories and counters, never source
+  values, snippets, dictionary terms, full document text, or replacement maps.
 
 ## Last Completed Stage
 
 Stage 8: private sensitive terms dictionary.
 
-Last committed implementation before the Stage 8 working tree:
+Last committed implementation before the Stage 9 working tree:
 
 ```text
-decc8ad Implement Stage 6 safe report output
+277037a Implement Stage 8 private sensitive terms dictionary
 ```
 
 Current working tree stage:
 
 ```text
-Stage 8: private sensitive terms dictionary
+Stage 9: post-anonymization audit
 ```
 
 ## Next Logical Step
 
-After Stage 8 review, the safest next step is a small implementation commit for
-the private dictionary stage. Later work should stay separate and require an
-explicit project decision, especially OCR, batch processing, installer work,
+After Stage 9 review, the safest next step is a small implementation commit for
+the post-anonymization audit stage. Later work should stay separate and require
+an explicit project decision, especially OCR, batch processing, installer work,
 better NLP, stronger entity detection, packaging, or release automation.
 
 ## Warning

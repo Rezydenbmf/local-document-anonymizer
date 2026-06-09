@@ -11,6 +11,7 @@ from docx import Document
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
+from audit import AUDIT_CATEGORY_ORDER, audit_text
 from anonymizer import SUPPORTED_LABELS, anonymize_docx_file, anonymize_file
 from anonymizer import anonymize_pdf_file, anonymize_txt_file
 from file_readers import read_docx_file
@@ -85,6 +86,8 @@ class ReportTests(unittest.TestCase):
             input_extension=".docx",
             output_extension=".docx",
             category_order=SUPPORTED_LABELS,
+            audit_result=audit_text("Clean [EMAIL] [DATA]."),
+            audit_category_order=AUDIT_CATEGORY_ORDER,
         )
 
         self.assertIn("Status: completed", report_text)
@@ -94,6 +97,9 @@ class ReportTests(unittest.TestCase):
         self.assertIn("* EMAIL: 1", report_text)
         self.assertIn("* TELEFON: 0", report_text)
         self.assertIn("* DATA: 2", report_text)
+        self.assertIn("Post-anonymization audit:", report_text)
+        self.assertIn("Status: ok", report_text)
+        self.assertIn("* none: 0", report_text)
         self.assertIn("Manual review required: yes", report_text)
 
     def test_report_does_not_contain_source_values_or_replacement_map(self) -> None:
@@ -117,6 +123,23 @@ class ReportTests(unittest.TestCase):
             self.assertNotIn(source_value, report_text)
         self.assertIn("Original sensitive values stored: no", report_text)
         self.assertIn("Replacement map created: no", report_text)
+
+    def test_report_audit_section_is_safe_when_warning_is_present(self) -> None:
+        source_value = "ABC/123/2026"
+
+        report_text = build_report_text(
+            counters={},
+            input_extension=".txt",
+            output_extension=".txt",
+            category_order=SUPPORTED_LABELS,
+            audit_result=audit_text(f"Reference {source_value} remains."),
+            audit_category_order=AUDIT_CATEGORY_ORDER,
+        )
+
+        self.assertIn("Post-anonymization audit:", report_text)
+        self.assertIn("Status: warning", report_text)
+        self.assertIn("* CASE_REFERENCE: 1", report_text)
+        self.assertNotIn(source_value, report_text)
 
     def test_report_path_is_built_as_raport_txt(self) -> None:
         with workspace_temp_dir() as temp_dir:
@@ -213,6 +236,8 @@ class ReportTests(unittest.TestCase):
 
         self.assertIn("Original sensitive values stored: no", report_text)
         self.assertIn("Replacement map created: no", report_text)
+        self.assertIn("Post-anonymization audit:", report_text)
+        self.assertIn("Possible remaining sensitive patterns:", report_text)
 
 
 if __name__ == "__main__":

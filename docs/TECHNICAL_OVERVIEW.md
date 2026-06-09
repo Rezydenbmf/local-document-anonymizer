@@ -8,6 +8,7 @@ input file
 -> optional private sensitive terms replacement
 -> anonymization
 -> output file
+-> post-anonymization audit
 -> safe report
 -> manual review outside the application
 ```
@@ -18,9 +19,10 @@ input file
 
 `gui.py` contains the Tkinter desktop interface. It lets the user select one
 supported file, optionally select a private sensitive terms file, run
-anonymization, and view selected path, status, category counters, output path,
-report path, and the manual review warning. It does not display dictionary
-contents.
+anonymization, and view selected path, status, category counters, audit status,
+audit counters, output path, report path, and the manual review warning. It
+does not display dictionary contents, original detected values, text snippets,
+or dictionary terms.
 
 `file_readers.py` reads UTF-8 TXT files, extracts basic text from local DOCX files, and extracts text from text-based PDFs. DOCX extraction covers normal paragraphs and simple table cells. PDF extraction requires an existing text layer and does not include OCR.
 
@@ -34,10 +36,16 @@ Python string, optionally applies private sensitive terms, replaces supported
 regex matches with placeholders, and returns category counters only. It also
 exposes the Stage 2 `anonymize_txt_file(...)` helper, the Stage 3
 `anonymize_docx_file(...)` helper, the Stage 4 `anonymize_pdf_file(...)`
-helper, and the Stage 5 `anonymize_file(...)` dispatcher. These helpers call
-the existing `anonymize_text(...)` engine, save anonymized output files, save
-safe reports after successful anonymization, and still return only the output
-path plus category counters.
+helper, and the Stage 5 `anonymize_file(...)` dispatcher. Stage 9 adds
+`_with_audit` variants for TXT, DOCX, PDF, and dispatcher workflows. The
+existing helpers still return only the output path plus category counters, but
+they also run the audit and save it into the safe report.
+
+`audit.py` contains the Stage 9 post-anonymization audit. It checks already
+anonymized output text for conservative suspicious remaining patterns and
+returns only status, category counters, and a manual review flag. It never
+returns source values, text snippets, private dictionary terms, document text,
+or replacement maps.
 
 `file_writers.py` saves anonymized TXT, DOCX, and PDF-to-TXT copies without modifying original files. The output filename receives the `_ANON` suffix. For example, `document.txt` becomes `document_ANON.txt`, `document.docx` becomes `document_ANON.docx`, and `document.pdf` becomes `document_ANON.txt`. It also builds safe report paths with the `_RAPORT.txt` suffix.
 
@@ -48,10 +56,10 @@ TXT output only. It does not create anonymized PDF files, does not preserve PDF
 layout, and does not modify the original PDF.
 
 `report.py` builds and saves safe TXT reports without original sensitive source
-values. It receives only status, input type, output type, category counters,
-and optional category ordering. Dictionary counters are labels only, such as
-`IMIE NAZWISKO: 2`; original dictionary terms are not passed to the report
-module.
+values. It receives only status, input type, output type, anonymization
+category counters, audit status, audit counters, and optional category
+ordering. Dictionary counters are labels only, such as `IMIE NAZWISKO: 2`;
+original dictionary terms are not passed to the report module.
 
 ## Safety Design
 
@@ -64,16 +72,21 @@ private dictionary terms in returned counters, report files, or GUI status. The
 real private dictionary must not be committed; it should live outside the
 repository or inside an ignored folder such as `private/`.
 
+Stage 9 audit results are safe metadata only. They include warning categories
+and counts, not original values, text snippets, dictionary terms, full document
+text, or replacement maps. Audit status `ok` does not prove complete
+anonymization; manual review remains required.
+
 The project still does not use internet calls, APIs, cloud services, AI
 services, OCR, local LLMs, databases, drag and drop, or batch processing.
 
 ## GUI Limitations
 
 The GUI is a simple workflow shell. It does not preview document content, edit
-output, display dictionary contents, process multiple files, write anonymized
-PDF files, or generate detailed audit reports beyond the safe counter report.
-It calls the existing file workflow helpers instead of parsing files inside the
-GUI layer.
+output, display dictionary contents, display audit snippets, process multiple
+files, write anonymized PDF files, or generate detailed audit reports beyond
+safe counters. It calls the existing file workflow helpers instead of parsing
+files inside the GUI layer.
 
 ## Private Dictionary Limitations
 

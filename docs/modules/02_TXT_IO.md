@@ -6,7 +6,8 @@ This module implements Stage 2: reading UTF-8 TXT files, anonymizing their
 content through the existing plain text engine, and saving a separate
 anonymized TXT copy. Stage 6 reuses the TXT workflow and adds safe report file
 output after successful anonymization. Stage 8 lets the workflow receive
-optional private sensitive terms.
+optional private sensitive terms. Stage 9 audits the anonymized TXT output
+before saving the safe report.
 
 ## Related files
 
@@ -27,6 +28,7 @@ build_report_path(source_path: str | Path) -> Path
 save_anonymized_txt_copy(source_path: str | Path, anonymized_text: str) -> Path
 save_anonymized_copy(source_path: str | Path, anonymized_text: str) -> str
 anonymize_txt_file(source_path: str | Path, sensitive_terms=None) -> tuple[Path, dict[str, int]]
+anonymize_txt_file_with_audit(source_path: str | Path, sensitive_terms=None)
 ```
 
 ## How it works
@@ -40,7 +42,9 @@ The file workflow is:
    private sensitive terms.
 3. `save_anonymized_txt_copy()` writes the anonymized text as UTF-8.
 4. The output file is saved next to the source with an `_ANON` suffix.
-5. A safe report file is saved next to the output with a `_RAPORT.txt` suffix.
+5. `audit_text()` checks the anonymized output text and returns safe audit
+   metadata.
+6. A safe report file is saved next to the output with a `_RAPORT.txt` suffix.
 
 Example:
 
@@ -76,6 +80,9 @@ TXT-specific helpers reject files without a `.txt` extension with a clear
 - Counters contain category names and counts only.
 - Private dictionary terms are not written to reports, counters, or returned
   metadata.
+- Audit results contain only status, category counters, and the manual review
+  flag. They do not contain source values, snippets, dictionary terms, or a
+  replacement map.
 - Tests use only synthetic data and temporary files.
 
 ## How to test
@@ -88,7 +95,8 @@ python -m unittest discover -s tests
 
 The Stage 2 tests cover TXT reading, anonymized copy writing, original file
 preservation, unsupported extension rejection, full TXT integration, and result
-safety.
+safety. Stage 9 tests cover TXT workflow audit metadata through report and
+dispatcher integration.
 
 ## Known limitations
 
@@ -97,6 +105,7 @@ safety.
 - Text-based PDF support exists in the separate Stage 4 PDF-to-TXT workflow.
 - The Stage 5 GUI supports one selected file only.
 - There is no OCR, AI, API integration, cloud service, database, batch
-  processing, or detailed audit report generation.
+  processing, or detailed audit report generation with source snippets.
 - Detection quality is still limited by the Stage 1 regex engine.
+- Audit quality is limited by conservative Stage 9 regex checks.
 - Manual review is still required before trusting anonymized output.

@@ -17,7 +17,8 @@ The current MVP workflow is:
 2. Select one supported file.
 3. Optionally select a private sensitive terms file.
 4. Click `Anonymize`.
-5. Check the status, category counters, output path, and report path.
+5. Check the status, category counters, audit status, output path, and report
+   path.
 6. Manually review the anonymized output file before using or sharing it.
 
 The application saves output files before manual review. It does not provide an
@@ -67,7 +68,7 @@ OCR is not included, and PDF layout preservation is not guaranteed.
 
 OCR, AI, APIs, cloud services, databases, batch processing, drag and drop,
 advanced document preview, PDF writing, automatic entity detection, and
-detailed audit reports are not supported.
+detailed audit reports with source snippets are not supported.
 
 ## 5. Report Files
 
@@ -80,12 +81,14 @@ The report contains:
 - input type,
 - output type,
 - category counters,
+- post-anonymization audit status and category counters,
 - manual review requirement,
 - confirmation that original sensitive values are not stored,
 - confirmation that no replacement map was created.
 
 The report does not contain document text, original sensitive values, full
-input paths, source filenames, private dictionary terms, or replacement maps.
+input paths, source filenames, private dictionary terms, text snippets, or
+replacement maps.
 
 ## 6. Safety Rules for Users
 
@@ -131,22 +134,42 @@ Private dictionary matching is literal and case-sensitive. It is not OCR, AI,
 automatic names or address detection, batch processing, a database, or automatic
 deletion of originals.
 
-## 9. Why Manual Review Is Required
+## 9. Post-Anonymization Audit
 
-Automatic detection may miss data or replace text incorrectly. Manual review is required before using the result.
+Stage 9 adds a safe audit after the `_ANON` output is generated. The audit
+checks the anonymized output text for conservative suspicious remaining
+patterns such as e-mail, PESEL, phone, date, private dictionary terms,
+case/reference numbers, postal codes, and simple address-like text.
 
-## 10. Where Output Files Are Saved
+The GUI shows audit status and counters by category only. The report includes a
+safe `Post-anonymization audit` section. The audit does not show or store
+original detected values, text snippets, dictionary terms, full document text,
+or replacement maps.
+
+`Audit status: OK` means the simple audit did not find supported suspicious
+patterns. It does not prove that the document is fully anonymized.
+
+`Audit status: WARNING` means the output may still contain suspicious
+sensitive-looking data and must be checked carefully.
+
+## 10. Why Manual Review Is Required
+
+Automatic detection and the audit may miss data or replace text incorrectly.
+Manual review is required before using the result.
+
+## 11. Where Output Files Are Saved
 
 The application saves anonymized TXT and DOCX copies next to the source file with the
 `_ANON` suffix. PDF input is saved next to the source as `_ANON.txt`. A safe
 report is saved next to the anonymized output with the `_RAPORT.txt` suffix.
 Original files must not be modified.
 
-## 11. What Is Not Implemented Yet
+## 12. What Is Not Implemented Yet
 
 The current MVP includes plain string anonymization, TXT file input/output, basic DOCX
 file input/output, text-based PDF input with TXT output, and a simple Tkinter
 GUI for one selected file. Safe reports and optional private dictionary input
-are implemented, but automatic names, addresses, cities, organizations, OCR, AI,
-APIs, drag and drop, batch processing, advanced preview, and anonymized PDF
-output are not implemented.
+are implemented, and Stage 9 adds a safe post-anonymization audit. Automatic
+names, broad addresses, cities, organizations, OCR, AI, APIs, drag and drop,
+batch processing, advanced preview, and anonymized PDF output are not
+implemented.

@@ -4,11 +4,13 @@ from collections.abc import Iterable
 from pathlib import Path
 import re
 
+from audit import AUDIT_CATEGORY_ORDER, audit_text
 from file_readers import (
     DOCX_EXTENSION,
     PDF_EXTENSION,
     SUPPORTED_EXTENSIONS,
     TXT_EXTENSION,
+    read_docx_file,
     read_pdf_file,
     read_txt_file,
 )
@@ -82,16 +84,37 @@ def anonymize_text(
     return anonymized, counters
 
 
+def _reusable_sensitive_terms(
+    sensitive_terms: Iterable[SensitiveTerm] | None,
+) -> list[SensitiveTerm] | None:
+    if sensitive_terms is None:
+        return None
+    return list(sensitive_terms)
+
+
 def anonymize_txt_file(
     source_path: str | Path,
     sensitive_terms: Iterable[SensitiveTerm] | None = None,
 ) -> tuple[Path, dict[str, int]]:
     """Anonymize a TXT file and save output plus a safe report."""
-    text = read_txt_file(source_path)
-    anonymized, counters = anonymize_text(text, sensitive_terms=sensitive_terms)
-    output_path = save_anonymized_txt_copy(source_path, anonymized)
-    _save_anonymization_report(source_path, output_path, counters)
+    output_path, counters, _ = anonymize_txt_file_with_audit(
+        source_path, sensitive_terms=sensitive_terms
+    )
     return output_path, counters
+
+
+def anonymize_txt_file_with_audit(
+    source_path: str | Path,
+    sensitive_terms: Iterable[SensitiveTerm] | None = None,
+) -> tuple[Path, dict[str, int], dict[str, object]]:
+    """Anonymize a TXT file and return safe audit metadata."""
+    terms = _reusable_sensitive_terms(sensitive_terms)
+    text = read_txt_file(source_path)
+    anonymized, counters = anonymize_text(text, sensitive_terms=terms)
+    output_path = save_anonymized_txt_copy(source_path, anonymized)
+    audit_result = audit_text(anonymized, sensitive_terms=terms)
+    _save_anonymization_report(source_path, output_path, counters, audit_result)
+    return output_path, counters, audit_result
 
 
 def anonymize_docx_file(
@@ -99,14 +122,29 @@ def anonymize_docx_file(
     sensitive_terms: Iterable[SensitiveTerm] | None = None,
 ) -> tuple[Path, dict[str, int]]:
     """Anonymize a DOCX file and save output plus a safe report."""
+    output_path, counters, _ = anonymize_docx_file_with_audit(
+        source_path, sensitive_terms=sensitive_terms
+    )
+    return output_path, counters
+
+
+def anonymize_docx_file_with_audit(
+    source_path: str | Path,
+    sensitive_terms: Iterable[SensitiveTerm] | None = None,
+) -> tuple[Path, dict[str, int], dict[str, object]]:
+    """Anonymize a DOCX file and return safe audit metadata."""
+    terms = _reusable_sensitive_terms(sensitive_terms)
+
     def anonymize_docx_text(text: str) -> tuple[str, dict[str, int]]:
-        return anonymize_text(text, sensitive_terms=sensitive_terms)
+        return anonymize_text(text, sensitive_terms=terms)
 
     output_path, counters = save_anonymized_docx_copy(
         source_path, anonymize_docx_text
     )
-    _save_anonymization_report(source_path, output_path, counters)
-    return output_path, counters
+    anonymized_text = read_docx_file(output_path)
+    audit_result = audit_text(anonymized_text, sensitive_terms=terms)
+    _save_anonymization_report(source_path, output_path, counters, audit_result)
+    return output_path, counters, audit_result
 
 
 def anonymize_pdf_file(
@@ -114,15 +152,31 @@ def anonymize_pdf_file(
     sensitive_terms: Iterable[SensitiveTerm] | None = None,
 ) -> tuple[Path, dict[str, int]]:
     """Anonymize text from a PDF and save TXT output plus a safe report."""
-    text = read_pdf_file(source_path)
-    anonymized, counters = anonymize_text(text, sensitive_terms=sensitive_terms)
-    output_path = save_anonymized_pdf_txt_copy(source_path, anonymized)
-    _save_anonymization_report(source_path, output_path, counters)
+    output_path, counters, _ = anonymize_pdf_file_with_audit(
+        source_path, sensitive_terms=sensitive_terms
+    )
     return output_path, counters
 
 
+def anonymize_pdf_file_with_audit(
+    source_path: str | Path,
+    sensitive_terms: Iterable[SensitiveTerm] | None = None,
+) -> tuple[Path, dict[str, int], dict[str, object]]:
+    """Anonymize text from a PDF and return safe audit metadata."""
+    terms = _reusable_sensitive_terms(sensitive_terms)
+    text = read_pdf_file(source_path)
+    anonymized, counters = anonymize_text(text, sensitive_terms=terms)
+    output_path = save_anonymized_pdf_txt_copy(source_path, anonymized)
+    audit_result = audit_text(anonymized, sensitive_terms=terms)
+    _save_anonymization_report(source_path, output_path, counters, audit_result)
+    return output_path, counters, audit_result
+
+
 def _save_anonymization_report(
-    source_path: str | Path, output_path: str | Path, counters: dict[str, int]
+    source_path: str | Path,
+    output_path: str | Path,
+    counters: dict[str, int],
+    audit_result: dict[str, object],
 ) -> Path:
     source = Path(source_path)
     output = Path(output_path)
@@ -133,6 +187,8 @@ def _save_anonymization_report(
         input_extension=source.suffix,
         output_extension=output.suffix,
         category_order=SUPPORTED_LABELS,
+        audit_result=audit_result,
+        audit_category_order=AUDIT_CATEGORY_ORDER,
     )
 
 
@@ -141,14 +197,25 @@ def anonymize_file(
     sensitive_terms: Iterable[SensitiveTerm] | None = None,
 ) -> tuple[Path, dict[str, int]]:
     """Anonymize one supported application file using existing workflows."""
+    output_path, counters, _ = anonymize_file_with_audit(
+        source_path, sensitive_terms=sensitive_terms
+    )
+    return output_path, counters
+
+
+def anonymize_file_with_audit(
+    source_path: str | Path,
+    sensitive_terms: Iterable[SensitiveTerm] | None = None,
+) -> tuple[Path, dict[str, int], dict[str, object]]:
+    """Anonymize one supported file and return safe audit metadata."""
     path = Path(source_path)
 
     if path.suffix.lower() == TXT_EXTENSION:
-        return anonymize_txt_file(path, sensitive_terms=sensitive_terms)
+        return anonymize_txt_file_with_audit(path, sensitive_terms=sensitive_terms)
     if path.suffix.lower() == DOCX_EXTENSION:
-        return anonymize_docx_file(path, sensitive_terms=sensitive_terms)
+        return anonymize_docx_file_with_audit(path, sensitive_terms=sensitive_terms)
     if path.suffix.lower() == PDF_EXTENSION:
-        return anonymize_pdf_file(path, sensitive_terms=sensitive_terms)
+        return anonymize_pdf_file_with_audit(path, sensitive_terms=sensitive_terms)
 
     suffix = path.suffix.lower() or "<none>"
     supported = ", ".join(SUPPORTED_EXTENSIONS)

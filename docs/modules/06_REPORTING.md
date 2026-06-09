@@ -4,7 +4,8 @@
 
 This module implements safe report file output without source values or
 replacement maps. Stage 8 allows reports to include private dictionary labels
-and counts, but never original dictionary terms.
+and counts, but never original dictionary terms. Stage 9 adds a safe
+post-anonymization audit section with audit status and counters only.
 
 ## Related files
 
@@ -57,6 +58,8 @@ The report contains only safe metadata:
 - output type,
 - counters by supported category,
 - optional private dictionary label counters,
+- post-anonymization audit status,
+- post-anonymization audit counters by warning category,
 - manual review requirement,
 - confirmation that original sensitive values are not stored,
 - confirmation that no replacement map was created.
@@ -72,6 +75,8 @@ The report must not contain:
 - original phone numbers,
 - original dates in source form,
 - original private dictionary terms,
+- text snippets,
+- audit source values,
 - replacement maps,
 - full input paths,
 - full input filenames,
@@ -79,12 +84,14 @@ The report must not contain:
 
 ## Safety Assumptions
 
-The report module receives only counters and file-type metadata. It does not
-read source documents and does not receive original source text or original
-private dictionary terms.
+The report module receives only counters, audit metadata, and file-type
+metadata. It does not read source documents and does not receive original
+source text, original private dictionary terms, text snippets, or replacement
+maps.
 
-Manual review is still required. A safe report confirms what the tool replaced,
-but it does not prove the whole document is anonymized.
+Manual review is still required. A safe report confirms what the tool replaced
+and what the audit warned about, but it does not prove the whole document is
+anonymized.
 
 ## How to Test
 
@@ -96,12 +103,14 @@ python -m unittest discover -s tests
 
 The tests cover report text generation, report path naming, safe report
 content, TXT integration, DOCX integration, PDF integration, dispatcher report
-safety, and private dictionary report safety.
+safety, private dictionary report safety, and post-anonymization audit report
+safety.
 
 ## Known Limitations
 
 - The report is a plain TXT file only.
-- The report contains counters only, not a detailed audit trail.
+- The report contains anonymization and audit counters only, not a detailed
+  audit trail.
 - No replacement map is created.
 - No original private dictionary terms are written to reports.
 - No source filename is written into the report body.

@@ -4,7 +4,8 @@
 
 This module implements the plain text anonymization engine for plain Python
 strings. Stage 8 extends the engine with optional private sensitive terms
-dictionary input.
+dictionary input. Stage 9 keeps the core text engine unchanged and adds
+workflow helpers that return safe post-anonymization audit metadata.
 
 ## Related files
 
@@ -18,6 +19,7 @@ dictionary input.
 ```python
 anonymize_text(text: str, sensitive_terms=None) -> tuple[str, dict[str, int]]
 anonymize_file(source_path: str | Path, sensitive_terms=None) -> tuple[Path, dict[str, int]]
+anonymize_file_with_audit(source_path: str | Path, sensitive_terms=None)
 ```
 
 The function returns:
@@ -36,7 +38,9 @@ Stage 4 adds `anonymize_pdf_file(...)`, documented in
 `docs/modules/05_GUI.md`, which dispatches one supported file to the existing
 TXT, DOCX, or PDF workflow. Stage 6 adds safe report output, documented in
 `docs/modules/06_REPORTING.md`. Stage 8 adds optional private dictionary
-support, documented in `docs/modules/08_PRIVATE_DICTIONARY.md`.
+support, documented in `docs/modules/08_PRIVATE_DICTIONARY.md`. Stage 9 adds
+post-anonymization audit workflow variants, documented in
+`docs/modules/09_POST_ANONYMIZATION_AUDIT.md`.
 
 ## Supported categories
 
@@ -112,6 +116,8 @@ Returns:
 - No source values are stored in the report.
 - No replacement map is created.
 - Private dictionary terms are not stored in counters or reports.
+- Post-anonymization audit results contain only status, categories, counters,
+  and a manual review flag.
 - Tests use only synthetic values.
 - No real documents or generated output files are added.
 - No network calls, APIs, AI services, OCR, local LLMs, databases, DOCX, PDF, or
@@ -128,7 +134,7 @@ python -m unittest discover -s tests
 
 The tests cover PESEL, email, phone, date, combined categories, repeated
 occurrences, unchanged text, private dictionary replacement, replacement order,
-regex integration, and report safety.
+regex integration, report safety, and post-anonymization audit integration.
 
 ## Known limitations
 
@@ -146,3 +152,4 @@ regex integration, and report safety.
   maps are not implemented.
 - Safe report files are created by the file workflows in Stage 6; the core
   engine itself still returns only anonymized text and counters.
+- Stage 9 audit is conservative and does not guarantee complete anonymization.

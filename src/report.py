@@ -34,6 +34,57 @@ def _ordered_categories(
     return ordered
 
 
+def _validate_count(value: int) -> None:
+    if not isinstance(value, int):
+        raise TypeError("counter values must be integers")
+    if value < 0:
+        raise ValueError("counter values must not be negative")
+
+
+def _audit_section_lines(
+    audit_result: Mapping[str, object] | None,
+    audit_category_order: Iterable[str] | None,
+) -> list[str]:
+    if audit_result is None:
+        return []
+
+    status = audit_result.get("status")
+    if status not in ("ok", "warning"):
+        raise ValueError("audit status must be ok or warning")
+
+    findings = audit_result.get("findings")
+    if not isinstance(findings, Mapping):
+        raise TypeError("audit findings must be a mapping")
+
+    manual_review_required = audit_result.get("manual_review_required")
+    if not isinstance(manual_review_required, bool):
+        raise TypeError("audit manual_review_required must be a boolean")
+
+    categories = _ordered_categories(findings, audit_category_order)
+    non_zero_categories: list[tuple[str, int]] = []
+    for label in categories:
+        count = findings.get(label, 0)
+        _validate_count(count)
+        if count:
+            non_zero_categories.append((label, count))
+
+    lines = [
+        "",
+        "Post-anonymization audit:",
+        f"Status: {status}",
+        "Possible remaining sensitive patterns:",
+    ]
+    if non_zero_categories:
+        for label, count in non_zero_categories:
+            lines.append(f"* {label}: {count}")
+    else:
+        lines.append("* none: 0")
+
+    manual_review_text = "yes" if manual_review_required else "no"
+    lines.append(f"Manual review required: {manual_review_text}")
+    return lines
+
+
 def build_report_text(
     *,
     counters: Mapping[str, int],
@@ -41,6 +92,8 @@ def build_report_text(
     output_extension: str,
     status: str = "completed",
     category_order: Iterable[str] | None = None,
+    audit_result: Mapping[str, object] | None = None,
+    audit_category_order: Iterable[str] | None = None,
 ) -> str:
     """Build a safe text report without source values or replacement maps."""
     if not isinstance(status, str):
@@ -60,13 +113,12 @@ def build_report_text(
     if categories:
         for label in categories:
             count = counters.get(label, 0)
-            if not isinstance(count, int):
-                raise TypeError("counter values must be integers")
-            if count < 0:
-                raise ValueError("counter values must not be negative")
+            _validate_count(count)
             lines.append(f"* {label}: {count}")
     else:
         lines.append("* none: 0")
+
+    lines.extend(_audit_section_lines(audit_result, audit_category_order))
 
     lines.extend(
         [
@@ -87,6 +139,8 @@ def save_report_file(
     output_extension: str,
     status: str = "completed",
     category_order: Iterable[str] | None = None,
+    audit_result: Mapping[str, object] | None = None,
+    audit_category_order: Iterable[str] | None = None,
 ) -> Path:
     """Save a safe anonymization report and return the report path."""
     path = Path(report_path)
@@ -96,6 +150,8 @@ def save_report_file(
         output_extension=output_extension,
         status=status,
         category_order=category_order,
+        audit_result=audit_result,
+        audit_category_order=audit_category_order,
     )
     path.write_text(report_text, encoding="utf-8")
     return path

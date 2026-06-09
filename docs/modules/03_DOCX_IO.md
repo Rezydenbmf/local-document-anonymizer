@@ -5,7 +5,8 @@
 This module implements Stage 3: local DOCX reading, anonymization through the
 existing plain text engine, and saving a separate anonymized DOCX copy. Stage 6
 adds safe report file output after successful anonymization. Stage 8 lets the
-workflow receive optional private sensitive terms.
+workflow receive optional private sensitive terms. Stage 9 audits the saved
+anonymized DOCX output text before saving the safe report.
 
 ## Related files
 
@@ -40,6 +41,7 @@ save_anonymized_docx_copy(
     anonymize: Callable[[str], tuple[str, dict[str, int]]],
 ) -> tuple[Path, dict[str, int]]
 anonymize_docx_file(source_path: str | Path, sensitive_terms=None) -> tuple[Path, dict[str, int]]
+anonymize_docx_file_with_audit(source_path: str | Path, sensitive_terms=None)
 ```
 
 `anonymize_docx_file(...)` passes DOCX text through the existing
@@ -56,7 +58,9 @@ The DOCX workflow is:
 3. `save_anonymized_docx_copy(...)` opens the source DOCX locally, anonymizes
    supported paragraph and simple table text, and saves a separate copy.
 4. The output file is saved next to the source with an `_ANON` suffix.
-5. A safe report file is saved next to the output with a `_RAPORT.txt` suffix.
+5. `audit_text()` checks text extracted from the saved `_ANON.docx` copy using
+   the same basic DOCX text scope.
+6. A safe report file is saved next to the output with a `_RAPORT.txt` suffix.
 
 Example:
 
@@ -79,6 +83,9 @@ The original DOCX file is not modified.
 - Counters contain category names and counts only.
 - Private dictionary terms are not written to reports, counters, or returned
   metadata.
+- Audit results contain only status, category counters, and the manual review
+  flag. They do not contain source values, snippets, dictionary terms, or a
+  replacement map.
 - Tests use only synthetic data and temporary files.
 
 ## Formatting behavior
@@ -120,7 +127,8 @@ python -m unittest discover -s tests
 
 The Stage 3 tests cover DOCX reading, `_ANON.docx` writing, original DOCX
 preservation, DOCX anonymization integration, safe counters without source
-values, TXT regression coverage, and unsupported extension errors.
+values, TXT regression coverage, and unsupported extension errors. Stage 9
+tests cover audit report safety and dispatcher audit metadata.
 
 ## Known limitations
 
@@ -130,5 +138,8 @@ values, TXT regression coverage, and unsupported extension errors.
 - Advanced DOCX elements are not scanned or rewritten.
 - The Stage 5 GUI supports one selected file only.
 - There is no OCR, AI, API integration, cloud service, database, batch
-  processing, replacement map, or detailed audit report generation.
+  processing, replacement map, or detailed audit report generation with source
+  snippets.
 - Text-based PDF input is handled by the separate Stage 4 PDF-to-TXT workflow.
+- Stage 9 audit uses the existing basic DOCX text extraction scope and does not
+  inspect unsupported DOCX elements.

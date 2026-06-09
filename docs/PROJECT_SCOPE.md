@@ -17,6 +17,7 @@ The current MVP supports:
 - Simple label-based anonymization.
 - A simple Tkinter GUI for one selected file.
 - Separate `_ANON` output files.
+- Safe post-anonymization audit status and counters.
 - Reports without original source values.
 - Manual review after output is generated.
 
@@ -33,6 +34,20 @@ Stage 8 also supports user-defined dictionary labels from a private local
 dictionary, for example `IMIE NAZWISKO` or `NAZWA PODMIOTU`. These labels are
 manually defined by the user and are not automatic entity detection.
 
+Stage 9 audit warning categories include:
+
+- `EMAIL`
+- `PESEL`
+- `TELEFON`
+- `DATA`
+- `SENSITIVE_DICTIONARY_TERM`
+- `CASE_REFERENCE`
+- `POSTAL_CODE`
+- `ADDRESS`
+
+Audit categories are warning counters only. They are not a guarantee that all
+sensitive values were found.
+
 ## Private Dictionary Safety
 
 Real private dictionaries must not be committed to the repository. They should
@@ -40,6 +55,10 @@ live outside the repository or inside an ignored folder such as `private/`.
 
 Reports may include only labels and counts from dictionary matches. They must
 not include original dictionary terms or a replacement map.
+
+Audit results and reports may include only categories and counters. They must
+not include original values, dictionary terms, text snippets, or a replacement
+map.
 
 ## Data Types Planned for Later Consideration
 
@@ -55,7 +74,9 @@ Potential future labels include:
 
 ## Why Manual Review Is Required
 
-Automated anonymization can miss sensitive values or replace non-sensitive text. The user must manually review the result before sharing or storing it.
+Automated anonymization and the audit can miss sensitive values or replace
+non-sensitive text. The user must manually review the result before sharing or
+storing it.
 
 ## Outside MVP Scope
 

@@ -4,7 +4,8 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, ttk
 
-from anonymizer import SUPPORTED_LABELS, anonymize_file
+from audit import AUDIT_CATEGORY_ORDER
+from anonymizer import SUPPORTED_LABELS, anonymize_file_with_audit
 from file_writers import build_report_path
 from sensitive_terms import SensitiveTerm, load_sensitive_terms
 
@@ -27,6 +28,39 @@ def format_counters(counters: dict[str, int]) -> str:
     return "\n".join(lines)
 
 
+def format_audit_result(audit_result: dict[str, object] | None) -> str:
+    """Format safe audit metadata for the GUI."""
+    if audit_result is None:
+        return "Audit status: not run"
+
+    status = audit_result.get("status")
+    if status == "warning":
+        lines = ["Audit status: WARNING - manual review required"]
+    elif status == "ok":
+        lines = ["Audit status: OK"]
+    else:
+        lines = ["Audit status: unknown"]
+
+    findings = audit_result.get("findings")
+    if not isinstance(findings, dict):
+        lines.append("Possible remaining sensitive patterns: unavailable")
+        return "\n".join(lines)
+
+    non_zero = [
+        (label, findings.get(label, 0))
+        for label in AUDIT_CATEGORY_ORDER
+        if findings.get(label, 0)
+    ]
+    if not non_zero:
+        lines.append("Possible remaining sensitive patterns: none")
+    else:
+        lines.append("Possible remaining sensitive patterns:")
+        for label, count in non_zero:
+            lines.append(f"{label}: {count}")
+
+    return "\n".join(lines)
+
+
 class AnonymizerGui:
     """Small Tkinter application for anonymizing one selected file."""
 
@@ -40,6 +74,7 @@ class AnonymizerGui:
         )
         self.status_var = tk.StringVar(value="Select a file to begin.")
         self.counters_var = tk.StringVar(value=format_counters({}))
+        self.audit_var = tk.StringVar(value=format_audit_result(None))
         self.output_path_var = tk.StringVar(value="No output yet.")
         self.report_path_var = tk.StringVar(value="No report yet.")
         self.anonymize_button: ttk.Button | None = None
@@ -114,21 +149,34 @@ class AnonymizerGui:
             justify="left",
         ).grid(row=0, column=0, sticky="w")
 
+        audit_frame = ttk.LabelFrame(
+            main, text="Post-anonymization audit", padding=10
+        )
+        audit_frame.grid(
+            row=8, column=0, columnspan=3, sticky="ew", pady=(0, 14)
+        )
+        audit_frame.columnconfigure(0, weight=1)
+        ttk.Label(
+            audit_frame,
+            textvariable=self.audit_var,
+            justify="left",
+        ).grid(row=0, column=0, sticky="w")
+
         ttk.Label(main, text="Output file:").grid(
-            row=8, column=0, sticky="nw", pady=(0, 10)
+            row=9, column=0, sticky="nw", pady=(0, 10)
         )
         output_label = ttk.Label(
             main, textvariable=self.output_path_var, wraplength=500
         )
-        output_label.grid(row=8, column=1, columnspan=2, sticky="ew", pady=(0, 10))
+        output_label.grid(row=9, column=1, columnspan=2, sticky="ew", pady=(0, 10))
 
         ttk.Label(main, text="Report file:").grid(
-            row=9, column=0, sticky="nw", pady=(0, 10)
+            row=10, column=0, sticky="nw", pady=(0, 10)
         )
         report_label = ttk.Label(
             main, textvariable=self.report_path_var, wraplength=500
         )
-        report_label.grid(row=9, column=1, columnspan=2, sticky="ew", pady=(0, 10))
+        report_label.grid(row=10, column=1, columnspan=2, sticky="ew", pady=(0, 10))
 
         warning_label = ttk.Label(
             main,
@@ -136,7 +184,7 @@ class AnonymizerGui:
             foreground="#9a3412",
             wraplength=580,
         )
-        warning_label.grid(row=10, column=0, columnspan=3, sticky="w", pady=(4, 0))
+        warning_label.grid(row=11, column=0, columnspan=3, sticky="w", pady=(4, 0))
 
     def select_file(self) -> None:
         file_path = filedialog.askopenfilename(
@@ -156,6 +204,7 @@ class AnonymizerGui:
         self.selected_path_var.set(str(self.selected_path))
         self.status_var.set("Ready to anonymize selected file.")
         self.counters_var.set(format_counters({}))
+        self.audit_var.set(format_audit_result(None))
         self.output_path_var.set("No output yet.")
         self.report_path_var.set("No report yet.")
         if self.anonymize_button is not None:
@@ -197,18 +246,24 @@ class AnonymizerGui:
         self.root.update_idletasks()
 
         try:
-            output_path, counters = anonymize_file(
+            output_path, counters, audit_result = anonymize_file_with_audit(
                 self.selected_path, sensitive_terms=self.sensitive_terms
             )
         except Exception as exc:
             self.status_var.set(f"Error: {exc}")
             self.counters_var.set(format_counters({}))
+            self.audit_var.set(format_audit_result(None))
             self.output_path_var.set("No output created.")
             self.report_path_var.set("No report created.")
             return
 
-        self.status_var.set("Completed. Review the anonymized output manually.")
+        audit_status = str(audit_result.get("status", "unknown")).upper()
+        self.status_var.set(
+            f"Completed. Audit status: {audit_status}. "
+            "Review the anonymized output manually."
+        )
         self.counters_var.set(format_counters(counters))
+        self.audit_var.set(format_audit_result(audit_result))
         self.output_path_var.set(str(output_path))
         self.report_path_var.set(str(build_report_path(self.selected_path)))
 

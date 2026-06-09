@@ -5,7 +5,8 @@
 This module implements a small local Tkinter desktop interface for anonymizing
 one selected `.txt`, `.docx`, or `.pdf` file. Stage 6 extends the GUI status
 area to show the saved report file path. Stage 8 adds optional private
-sensitive terms file selection.
+sensitive terms file selection. Stage 9 adds safe post-anonymization audit
+status and counters.
 
 ## Related files
 
@@ -21,6 +22,7 @@ sensitive terms file selection.
 ```python
 start_gui() -> None
 anonymize_file(source_path: str | Path, sensitive_terms=None) -> tuple[Path, dict[str, int]]
+anonymize_file_with_audit(source_path: str | Path, sensitive_terms=None)
 ```
 
 `start_gui()` opens the Tkinter application.
@@ -43,7 +45,8 @@ The GUI supports this flow:
 2. Select one file.
 3. Optionally select a private sensitive terms file.
 4. Click `Anonymize`.
-5. Review the status, category counters, output path, report path, and manual review warning.
+5. Review the status, category counters, audit status, audit counters, output
+   path, report path, and manual review warning.
 6. Manually inspect the anonymized output file before using or sharing it.
 
 The GUI shows:
@@ -52,6 +55,7 @@ The GUI shows:
 - whether a sensitive terms file is selected,
 - operation status,
 - category counters,
+- post-anonymization audit status and category counters,
 - output file path,
 - report file path,
 - clear errors from unsupported file types or PDFs without extractable text,
@@ -86,8 +90,10 @@ Original files are not modified.
 
 - The GUI processes one selected file only.
 - The GUI displays category names and counts only.
+- The GUI displays audit categories and counts only.
 - The GUI does not display original detected source values.
 - The GUI does not display private dictionary contents.
+- The GUI does not display private dictionary terms or audit text snippets.
 - The GUI displays report paths only, not report contents or source values.
 - No replacement map is created.
 - Safe report files are created by the existing file workflow helpers.
@@ -106,13 +112,17 @@ python -m unittest discover -s tests
 The Stage 5 test covers the non-Tk single-file integration dispatcher using
 synthetic TXT data and unsupported extension handling. Stage 6 report creation
 is covered by `tests/test_report.py`. Stage 8 dictionary integration is covered
-by `tests/test_sensitive_terms.py`. Fragile widget tests are not included.
+by `tests/test_sensitive_terms.py`. Stage 9 audit metadata safety is covered by
+`tests/test_gui_workflow.py` and `tests/test_audit.py`. Fragile widget tests
+are not included.
 
 ## Known limitations
 
 - The GUI has no document preview or editing view.
 - The GUI can select one private dictionary file but does not manage, edit, or
   display its contents.
+- The GUI audit display is a warning summary only and does not prove complete
+  anonymization.
 - The GUI does not support batch processing, drag and drop, OCR, scanned PDFs,
   or anonymized PDF output.
 - DOCX and PDF limitations from Stages 3 and 4 still apply.

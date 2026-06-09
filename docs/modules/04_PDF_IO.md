@@ -6,7 +6,8 @@ This module implements Stage 4: local text extraction from text-based PDF
 files, anonymization through the existing plain text engine, and saving the
 anonymized result as a TXT file. Stage 6 adds safe report file output after
 successful anonymization. Stage 8 lets the workflow receive optional private
-sensitive terms.
+sensitive terms. Stage 9 audits the anonymized PDF-to-TXT output before saving
+the safe report.
 
 ## Related files
 
@@ -38,6 +39,7 @@ build_anonymized_pdf_txt_path(source_path: str | Path) -> Path
 build_report_path(source_path: str | Path) -> Path
 save_anonymized_pdf_txt_copy(source_path: str | Path, anonymized_text: str) -> Path
 anonymize_pdf_file(source_path: str | Path, sensitive_terms=None) -> tuple[Path, dict[str, int]]
+anonymize_pdf_file_with_audit(source_path: str | Path, sensitive_terms=None)
 ```
 
 `anonymize_pdf_file(...)` passes extracted PDF text through the existing
@@ -52,7 +54,8 @@ The PDF workflow is:
 2. `anonymize_pdf_file()` passes that text to `anonymize_text()`.
 3. `save_anonymized_pdf_txt_copy()` writes the anonymized text as UTF-8 TXT.
 4. The output file is saved next to the source with an `_ANON.txt` suffix.
-5. A safe report file is saved next to the output with a `_RAPORT.txt` suffix.
+5. `audit_text()` checks the anonymized TXT output.
+6. A safe report file is saved next to the output with a `_RAPORT.txt` suffix.
 
 Example:
 
@@ -90,6 +93,9 @@ Stage 4 does not support:
 - Counters contain category names and counts only.
 - Private dictionary terms are not written to reports, counters, or returned
   metadata.
+- Audit results contain only status, category counters, and the manual review
+  flag. They do not contain source values, snippets, dictionary terms, or a
+  replacement map.
 - Tests use only generated synthetic temporary PDFs.
 
 ## How to test
@@ -103,7 +109,8 @@ python -m unittest discover -s tests
 The Stage 4 tests cover reading a simple text-based PDF, rejecting PDFs without
 extractable text, writing `_ANON.txt` output, preserving the original PDF,
 PDF-to-TXT anonymization integration, safe counters without source values, and
-the absence of `_ANON.pdf` output.
+the absence of `_ANON.pdf` output. Stage 9 tests cover audit report safety and
+dispatcher audit metadata.
 
 ## Known limitations
 
@@ -113,4 +120,6 @@ the absence of `_ANON.pdf` output.
 - Scanned PDFs are not supported.
 - OCR is not included.
 - No anonymized PDF output is created.
+- Stage 9 audit checks only the extracted anonymized TXT output and does not
+  add OCR or scanned PDF support.
 - Manual review is still required before trusting or sharing anonymized output.

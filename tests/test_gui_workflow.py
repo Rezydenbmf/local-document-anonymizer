@@ -9,7 +9,8 @@ import unittest
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from anonymizer import anonymize_file
+from anonymizer import anonymize_file, anonymize_file_with_audit
+from gui import format_audit_result
 
 
 def workspace_temp_dir():
@@ -45,6 +46,26 @@ class GuiWorkflowTests(unittest.TestCase):
 
             with self.assertRaisesRegex(ValueError, "Only .txt, .docx, .pdf"):
                 anonymize_file(source_path)
+
+    def test_dispatcher_audit_output_does_not_expose_source_values(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            source_value = "ABC/123/2026"
+            source_path = Path(temp_dir) / "document.txt"
+            source_path.write_text(
+                f"Reference {source_value} remains for review.",
+                encoding="utf-8",
+            )
+
+            output_path, counters, audit_result = anonymize_file_with_audit(source_path)
+            formatted_audit = format_audit_result(audit_result)
+
+            self.assertEqual(output_path, Path(temp_dir) / "document_ANON.txt")
+            self.assertEqual(counters, {})
+            self.assertEqual(audit_result["status"], "warning")
+            self.assertEqual(audit_result["findings"]["CASE_REFERENCE"], 1)
+            self.assertNotIn(source_value, repr(audit_result))
+            self.assertNotIn(source_value, formatted_audit)
+            self.assertIn("Audit status: WARNING", formatted_audit)
 
 
 if __name__ == "__main__":
