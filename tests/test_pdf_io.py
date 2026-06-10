@@ -161,6 +161,37 @@ class PdfIoTests(unittest.TestCase):
             )
             self.assertFalse((Path(temp_dir) / "document_ANON.pdf").exists())
 
+    def test_pdf_dictionary_path_flow_replaces_terms(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            source_term = "Person One Example"
+            dictionary_path = Path(temp_dir) / "sensitive_terms.txt"
+            dictionary_path.write_text(
+                f"{source_term} = [IMIE NAZWISKO]\n",
+                encoding="utf-8",
+            )
+            source_path = Path(temp_dir) / "document.pdf"
+            write_text_pdf(
+                source_path,
+                f"{source_term} contacted tester@example.test.",
+            )
+
+            output_path, counters = anonymize_pdf_file(
+                source_path,
+                sensitive_terms_path=dictionary_path,
+            )
+            report_text = (Path(temp_dir) / "document_RAPORT.txt").read_text(
+                encoding="utf-8"
+            )
+
+            self.assertEqual(output_path, Path(temp_dir) / "document_ANON.txt")
+            self.assertEqual(
+                output_path.read_text(encoding="utf-8").strip(),
+                "[IMIE NAZWISKO] contacted [EMAIL].",
+            )
+            self.assertEqual(counters, {"IMIE NAZWISKO": 1, "EMAIL": 1})
+            self.assertIn("Dictionary status: loaded", report_text)
+            self.assertNotIn(source_term, report_text)
+
     def test_pdf_result_does_not_return_map_or_source_values(self) -> None:
         with workspace_temp_dir() as temp_dir:
             source_path = Path(temp_dir) / "safe_input.pdf"

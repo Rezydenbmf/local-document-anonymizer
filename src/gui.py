@@ -1,5 +1,6 @@
 """Tkinter GUI for single-file anonymization."""
 
+from collections.abc import Mapping
 from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, ttk
@@ -7,7 +8,11 @@ from tkinter import filedialog, ttk
 from audit import AUDIT_CATEGORY_ORDER
 from anonymizer import SUPPORTED_LABELS, anonymize_file_with_audit
 from file_writers import build_report_path
-from sensitive_terms import SensitiveTerm, load_sensitive_terms
+from report import (
+    DICTIONARY_STATUS_INVALID,
+    DICTIONARY_STATUS_LOADED,
+    DICTIONARY_STATUS_NOT_SELECTED,
+)
 
 
 APP_TITLE = "Local Document Anonymizer"
@@ -61,17 +66,40 @@ def format_audit_result(audit_result: dict[str, object] | None) -> str:
     return "\n".join(lines)
 
 
+def format_dictionary_result(dictionary_result: Mapping[str, object] | None) -> str:
+    """Format safe dictionary workflow metadata for the GUI."""
+    if dictionary_result is None:
+        return "Dictionary status: not selected"
+
+    status = dictionary_result.get("status")
+    label_counters = dictionary_result.get("label_counters", {})
+    if not isinstance(label_counters, Mapping):
+        return "Dictionary status: unavailable"
+
+    matches_found = any(
+        isinstance(count, int) and count > 0 for count in label_counters.values()
+    )
+
+    if status == DICTIONARY_STATUS_NOT_SELECTED:
+        return "Dictionary status: not selected"
+    if status == DICTIONARY_STATUS_INVALID:
+        return "Dictionary status: invalid; dictionary replacements skipped"
+    if status == DICTIONARY_STATUS_LOADED:
+        match_text = "yes" if matches_found else "no"
+        return f"Dictionary status: loaded; matches found: {match_text}"
+
+    return "Dictionary status: unknown"
+
+
 class AnonymizerGui:
     """Small Tkinter application for anonymizing one selected file."""
 
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.selected_path: Path | None = None
-        self.sensitive_terms: list[SensitiveTerm] | None = None
+        self.sensitive_terms_path: Path | None = None
         self.selected_path_var = tk.StringVar(value="No file selected.")
-        self.sensitive_terms_var = tk.StringVar(
-            value="No sensitive terms file selected."
-        )
+        self.sensitive_terms_var = tk.StringVar(value=format_dictionary_result(None))
         self.status_var = tk.StringVar(value="Select a file to begin.")
         self.counters_var = tk.StringVar(value=format_counters({}))
         self.audit_var = tk.StringVar(value=format_audit_result(None))
@@ -221,20 +249,10 @@ class AnonymizerGui:
         if not file_path:
             return
 
-        try:
-            self.sensitive_terms = load_sensitive_terms(file_path)
-        except ValueError as exc:
-            self.sensitive_terms = None
-            self.sensitive_terms_var.set("No valid sensitive terms file selected.")
-            self.status_var.set(f"Sensitive terms file error: {exc}")
-            return
-        except Exception:
-            self.sensitive_terms = None
-            self.sensitive_terms_var.set("No valid sensitive terms file selected.")
-            self.status_var.set("Sensitive terms file error: could not load file.")
-            return
-
-        self.sensitive_terms_var.set("Sensitive terms file selected.")
+        self.sensitive_terms_path = Path(file_path)
+        self.sensitive_terms_var.set(
+            "Dictionary status: selected; will load during anonymization"
+        )
         self.status_var.set("Ready to anonymize with selected sensitive terms file.")
 
     def anonymize_selected_file(self) -> None:
@@ -247,7 +265,8 @@ class AnonymizerGui:
 
         try:
             output_path, counters, audit_result = anonymize_file_with_audit(
-                self.selected_path, sensitive_terms=self.sensitive_terms
+                self.selected_path,
+                sensitive_terms_path=self.sensitive_terms_path,
             )
         except Exception as exc:
             self.status_var.set(f"Error: {exc}")
@@ -258,12 +277,18 @@ class AnonymizerGui:
             return
 
         audit_status = str(audit_result.get("status", "unknown")).upper()
+        dictionary_result = audit_result.get("dictionary")
+        dictionary_status = format_dictionary_result(
+            dictionary_result if isinstance(dictionary_result, Mapping) else None
+        )
         self.status_var.set(
             f"Completed. Audit status: {audit_status}. "
+            f"{dictionary_status}. "
             "Review the anonymized output manually."
         )
         self.counters_var.set(format_counters(counters))
         self.audit_var.set(format_audit_result(audit_result))
+        self.sensitive_terms_var.set(dictionary_status)
         self.output_path_var.set(str(output_path))
         self.report_path_var.set(str(build_report_path(self.selected_path)))
 

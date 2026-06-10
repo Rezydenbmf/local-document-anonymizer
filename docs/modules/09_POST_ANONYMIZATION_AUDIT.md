@@ -6,7 +6,9 @@ This module implements Stage 9: a safe post-anonymization audit for text that
 has already been written to an `_ANON` output file.
 
 The audit is an additional safety layer before manual review. It is not a
-guarantee that a document is fully anonymized.
+guarantee that a document is fully anonymized. Stage 10.1 ensures that when a
+private dictionary loads successfully, its exact terms are also checked in the
+anonymized output.
 
 ## Related files
 
@@ -22,10 +24,10 @@ guarantee that a document is fully anonymized.
 
 ```python
 audit_text(text: str, sensitive_terms=None) -> dict[str, object]
-anonymize_txt_file_with_audit(source_path, sensitive_terms=None)
-anonymize_docx_file_with_audit(source_path, sensitive_terms=None)
-anonymize_pdf_file_with_audit(source_path, sensitive_terms=None)
-anonymize_file_with_audit(source_path, sensitive_terms=None)
+anonymize_txt_file_with_audit(source_path, sensitive_terms=None, sensitive_terms_path=None)
+anonymize_docx_file_with_audit(source_path, sensitive_terms=None, sensitive_terms_path=None)
+anonymize_pdf_file_with_audit(source_path, sensitive_terms=None, sensitive_terms_path=None)
+anonymize_file_with_audit(source_path, sensitive_terms=None, sensitive_terms_path=None)
 ```
 
 The existing Stage 2-5 helpers still return the original two-value tuple:
@@ -88,6 +90,12 @@ TXT and PDF workflows audit the anonymized text immediately after saving the
 DOCX workflow audits the text extracted from the saved `_ANON.docx` copy, using
 the same basic paragraph and simple-table scope as the existing DOCX reader.
 
+When a dictionary path is selected and parsed successfully, the workflow passes
+the loaded terms into the audit. Remaining exact dictionary terms are counted
+under `SENSITIVE_DICTIONARY_TERM`. If no dictionary is selected or the selected
+dictionary is invalid, the audit runs without dictionary terms and the report
+records the safe dictionary status separately.
+
 The report module receives only the audit result metadata and writes a safe
 `Post-anonymization audit` section to `_RAPORT.txt`.
 
@@ -102,6 +110,8 @@ original detected values, text snippets, or dictionary terms.
 - The audit does not store or return source values.
 - The audit does not store or return text snippets.
 - The audit does not store or return private dictionary terms.
+- Dictionary audit findings contain only `SENSITIVE_DICTIONARY_TERM` counters,
+  never the terms.
 - The audit does not inspect unsupported DOCX elements beyond the existing
   basic DOCX text scope.
 - Manual review remains required even when the audit status is `ok`.
@@ -117,7 +127,8 @@ python -m unittest discover -s tests
 The Stage 9 tests cover suspicious remaining email, PESEL, phone, date, private
 dictionary terms, case/reference patterns, postal codes, address-like patterns,
 OK status, report safety, and GUI/dispatcher audit metadata safety with
-synthetic values only.
+synthetic values only. Stage 10.1 tests add workflow coverage for loaded
+dictionary status and dictionary path integration across TXT, DOCX, and PDF.
 
 ## Known Limitations
 

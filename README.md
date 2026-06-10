@@ -3,12 +3,13 @@
 Local Document Anonymizer is a local-first desktop application for
 anonymizing text documents on a user's own computer.
 
-The project is currently in Stage 9: post-anonymization audit.
-The Stage 0-9 MVP includes a narrow regex-based plain text anonymization
+The project is currently in Stage 10.1: manual validation fixes.
+The Stage 0-10.1 MVP includes a narrow regex-based plain text anonymization
 engine, optional private exact-term dictionary support, TXT input/output, basic
 local DOCX input/output, text-based PDF input that saves anonymized TXT output,
 a simple Tkinter GUI for one selected file, safe TXT report output without
-source values, and a safe post-anonymization audit with category counters only.
+source values, explicit safe dictionary status reporting, and a safe
+post-anonymization audit with category counters only.
 
 ## Project Goal
 
@@ -26,7 +27,8 @@ Current MVP document flow:
 5. Replace detected values with labels such as `PESEL`, `EMAIL`, `TELEFON`,
    `DATA`, or user-defined dictionary labels.
 6. Save an anonymized copy with an `_ANON` suffix.
-7. Audit the anonymized output for suspicious remaining patterns.
+7. Audit the anonymized output for suspicious remaining patterns, including
+   remaining private dictionary terms when a dictionary loaded successfully.
 8. Save a safe report with a `_RAPORT.txt` suffix.
 9. Manually review the anonymized output outside the application.
 
@@ -42,6 +44,7 @@ The current MVP includes:
 - Simple label-based anonymization.
 - Simple GUI workflow for one selected file.
 - Reports without original sensitive values.
+- Safe dictionary status metadata in the GUI and reports.
 - Manual review as a required user step.
 
 ## Local-First and Offline
@@ -79,9 +82,10 @@ anonymized PDF.
 
 Report support is limited to safe TXT reports named `document_RAPORT.txt`.
 Reports include status, input and output type, anonymization category counters,
+dictionary used/status/match metadata, dictionary label counters,
 post-anonymization audit status and counters, and manual review/security notes.
 They do not include original source values, full input paths, source filenames,
-replacement maps, dictionary terms, text snippets, or document content.
+replacement maps, dictionary source terms, text snippets, or document content.
 
 Private dictionary support is limited to a user-maintained local text file with
 lines in this format:
@@ -94,7 +98,7 @@ The real dictionary must stay private and must not be committed. It can live
 outside the repository or inside an ignored `private/` folder. The repository
 contains only a synthetic example at `examples/sensitive_terms.example.txt`.
 Reports show only dictionary labels and counts, never original dictionary
-terms.
+terms. Dictionary status values are `not selected`, `loaded`, or `invalid`.
 
 Post-anonymization audit support is limited to conservative regex checks on the
 already anonymized output text. It can warn about suspicious remaining e-mail,
@@ -161,6 +165,11 @@ The original file is not modified. The `_RAPORT.txt` file contains
 anonymization counters, audit counters, and safety notes only, not source
 values.
 
+If a TXT and a PDF with the same base name are processed in the same folder,
+their TXT outputs and reports can be confusing because PDF input also produces
+TXT output. Keep manual test files clearly named or separated until a future
+approved output workflow changes this.
+
 ## Portfolio Summary
 
 GitHub repository description:
@@ -192,4 +201,6 @@ Local Document Anonymizer is a portfolio MVP for offline document anonymization.
 7. Reports without source values. Complete for Stage 6.
 8. Portfolio polish and release review. Complete for Stage 7.
 9. Private sensitive terms dictionary. Complete for Stage 8.
-10. Post-anonymization audit. Current Stage 9.
+10. Post-anonymization audit. Complete for Stage 9.
+11. Manual validation fixes for dictionary flow, status reporting, and audit
+    dictionary checks. Current Stage 10.1.

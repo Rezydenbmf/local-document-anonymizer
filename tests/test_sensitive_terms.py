@@ -9,7 +9,12 @@ import unittest
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from anonymizer import anonymize_text, anonymize_txt_file
+from anonymizer import anonymize_file_with_audit, anonymize_text, anonymize_txt_file
+from report import (
+    DICTIONARY_STATUS_INVALID,
+    DICTIONARY_STATUS_LOADED,
+    DICTIONARY_STATUS_NOT_SELECTED,
+)
 from sensitive_terms import (
     apply_sensitive_terms,
     load_sensitive_terms,
@@ -154,6 +159,142 @@ class SensitiveTermsTests(unittest.TestCase):
             self.assertNotIn(source_term, report_text)
             self.assertIn("* IMIE NAZWISKO: 1", report_text)
             self.assertIn("* EMAIL: 1", report_text)
+
+    def test_dictionary_path_flow_replaces_terms_and_reports_safe_status(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            source_term = "Person One Example"
+            dictionary_path = Path(temp_dir) / "sensitive_terms.txt"
+            dictionary_path.write_text(
+                f"{source_term} = [IMIE NAZWISKO]\n",
+                encoding="utf-8",
+            )
+            source_path = Path(temp_dir) / "document.txt"
+            source_path.write_text(
+                f"{source_term} contacted tester@example.test.",
+                encoding="utf-8",
+            )
+
+            output_path, counters, audit_result = anonymize_file_with_audit(
+                source_path,
+                sensitive_terms_path=dictionary_path,
+            )
+            report_text = (Path(temp_dir) / "document_RAPORT.txt").read_text(
+                encoding="utf-8"
+            )
+
+            self.assertEqual(
+                output_path.read_text(encoding="utf-8"),
+                "[IMIE NAZWISKO] contacted [EMAIL].",
+            )
+            self.assertEqual(counters, {"IMIE NAZWISKO": 1, "EMAIL": 1})
+            self.assertEqual(
+                audit_result["dictionary"]["status"],
+                DICTIONARY_STATUS_LOADED,
+            )
+            self.assertEqual(
+                audit_result["dictionary"]["label_counters"],
+                {"IMIE NAZWISKO": 1},
+            )
+            self.assertIn("Dictionary used: yes", report_text)
+            self.assertIn("Dictionary status: loaded", report_text)
+            self.assertIn("Dictionary matches found: yes", report_text)
+            self.assertIn("* IMIE NAZWISKO: 1", report_text)
+            self.assertNotIn(source_term, report_text)
+
+    def test_dictionary_path_loaded_without_matches_reports_no_matches(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            source_term = "Person One Example"
+            dictionary_path = Path(temp_dir) / "sensitive_terms.txt"
+            dictionary_path.write_text(
+                f"{source_term} = [IMIE NAZWISKO]\n",
+                encoding="utf-8",
+            )
+            source_path = Path(temp_dir) / "document.txt"
+            source_path.write_text(
+                "Plain synthetic note with no dictionary match.",
+                encoding="utf-8",
+            )
+
+            _, counters, audit_result = anonymize_file_with_audit(
+                source_path,
+                sensitive_terms_path=dictionary_path,
+            )
+            report_text = (Path(temp_dir) / "document_RAPORT.txt").read_text(
+                encoding="utf-8"
+            )
+
+            self.assertEqual(counters, {})
+            self.assertEqual(
+                audit_result["dictionary"]["status"],
+                DICTIONARY_STATUS_LOADED,
+            )
+            self.assertEqual(
+                audit_result["dictionary"]["label_counters"],
+                {"IMIE NAZWISKO": 0},
+            )
+            self.assertIn("Dictionary used: yes", report_text)
+            self.assertIn("Dictionary status: loaded", report_text)
+            self.assertIn("Dictionary matches found: no", report_text)
+            self.assertIn("* IMIE NAZWISKO: 0", report_text)
+            self.assertNotIn(source_term, report_text)
+
+    def test_invalid_dictionary_path_reports_invalid_safely(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            source_term = "Person One Example"
+            dictionary_path = Path(temp_dir) / "sensitive_terms.txt"
+            dictionary_path.write_text(
+                f"{source_term} [IMIE NAZWISKO]\n",
+                encoding="utf-8",
+            )
+            source_path = Path(temp_dir) / "document.txt"
+            source_path.write_text(
+                f"{source_term} contacted tester@example.test.",
+                encoding="utf-8",
+            )
+
+            output_path, counters, audit_result = anonymize_file_with_audit(
+                source_path,
+                sensitive_terms_path=dictionary_path,
+            )
+            report_text = (Path(temp_dir) / "document_RAPORT.txt").read_text(
+                encoding="utf-8"
+            )
+
+            self.assertEqual(
+                output_path.read_text(encoding="utf-8"),
+                f"{source_term} contacted [EMAIL].",
+            )
+            self.assertEqual(counters, {"EMAIL": 1})
+            self.assertEqual(
+                audit_result["dictionary"]["status"],
+                DICTIONARY_STATUS_INVALID,
+            )
+            self.assertEqual(audit_result["dictionary"]["label_counters"], {})
+            self.assertIn("Dictionary used: no", report_text)
+            self.assertIn("Dictionary status: invalid", report_text)
+            self.assertIn("Dictionary matches found: no", report_text)
+            self.assertNotIn(source_term, report_text)
+
+    def test_without_dictionary_report_status_is_not_selected(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            source_path = Path(temp_dir) / "document.txt"
+            source_path.write_text(
+                "Contact tester@example.test.",
+                encoding="utf-8",
+            )
+
+            _, counters, audit_result = anonymize_file_with_audit(source_path)
+            report_text = (Path(temp_dir) / "document_RAPORT.txt").read_text(
+                encoding="utf-8"
+            )
+
+            self.assertEqual(counters, {"EMAIL": 1})
+            self.assertEqual(
+                audit_result["dictionary"]["status"],
+                DICTIONARY_STATUS_NOT_SELECTED,
+            )
+            self.assertIn("Dictionary used: no", report_text)
+            self.assertIn("Dictionary status: not selected", report_text)
 
 
 if __name__ == "__main__":

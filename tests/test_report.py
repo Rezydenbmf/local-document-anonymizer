@@ -101,6 +101,8 @@ class ReportTests(unittest.TestCase):
         self.assertIn("Status: ok", report_text)
         self.assertIn("* none: 0", report_text)
         self.assertIn("Manual review required: yes", report_text)
+        self.assertIn("Dictionary:", report_text)
+        self.assertIn("Dictionary status: not selected", report_text)
 
     def test_report_does_not_contain_source_values_or_replacement_map(self) -> None:
         source_values = {
@@ -123,6 +125,43 @@ class ReportTests(unittest.TestCase):
             self.assertNotIn(source_value, report_text)
         self.assertIn("Original sensitive values stored: no", report_text)
         self.assertIn("Replacement map created: no", report_text)
+
+    def test_report_dictionary_section_is_safe_and_counts_labels_only(self) -> None:
+        source_term = "Person One Example"
+
+        report_text = build_report_text(
+            counters={"IMIE NAZWISKO": 1},
+            input_extension=".txt",
+            output_extension=".txt",
+            category_order=SUPPORTED_LABELS,
+            dictionary_result={
+                "status": "loaded",
+                "label_counters": {"IMIE NAZWISKO": 1},
+            },
+        )
+
+        self.assertIn("Dictionary used: yes", report_text)
+        self.assertIn("Dictionary status: loaded", report_text)
+        self.assertIn("Dictionary matches found: yes", report_text)
+        self.assertIn("* IMIE NAZWISKO: 1", report_text)
+        self.assertNotIn(source_term, report_text)
+
+    def test_report_dictionary_section_handles_invalid_dictionary(self) -> None:
+        report_text = build_report_text(
+            counters={"EMAIL": 1},
+            input_extension=".txt",
+            output_extension=".txt",
+            category_order=SUPPORTED_LABELS,
+            dictionary_result={
+                "status": "invalid",
+                "label_counters": {},
+            },
+        )
+
+        self.assertIn("Dictionary used: no", report_text)
+        self.assertIn("Dictionary status: invalid", report_text)
+        self.assertIn("Dictionary matches found: no", report_text)
+        self.assertIn("* none: 0", report_text)
 
     def test_report_audit_section_is_safe_when_warning_is_present(self) -> None:
         source_value = "ABC/123/2026"

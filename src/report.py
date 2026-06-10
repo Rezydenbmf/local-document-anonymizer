@@ -4,6 +4,16 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path
 
 
+DICTIONARY_STATUS_NOT_SELECTED = "not selected"
+DICTIONARY_STATUS_LOADED = "loaded"
+DICTIONARY_STATUS_INVALID = "invalid"
+DICTIONARY_STATUSES = (
+    DICTIONARY_STATUS_NOT_SELECTED,
+    DICTIONARY_STATUS_LOADED,
+    DICTIONARY_STATUS_INVALID,
+)
+
+
 def _safe_file_type(value: str) -> str:
     text = str(value).strip()
     if not text:
@@ -85,6 +95,51 @@ def _audit_section_lines(
     return lines
 
 
+def _dictionary_section_lines(
+    dictionary_result: Mapping[str, object] | None,
+) -> list[str]:
+    if dictionary_result is None:
+        status = DICTIONARY_STATUS_NOT_SELECTED
+        label_counters: Mapping[str, int] = {}
+    else:
+        status = dictionary_result.get("status")
+        if status not in DICTIONARY_STATUSES:
+            raise ValueError(
+                "dictionary status must be not selected, loaded, or invalid"
+            )
+
+        raw_label_counters = dictionary_result.get("label_counters", {})
+        if not isinstance(raw_label_counters, Mapping):
+            raise TypeError("dictionary label_counters must be a mapping")
+        label_counters = raw_label_counters
+
+    dictionary_used = status == DICTIONARY_STATUS_LOADED
+    has_label_match = False
+    for count in label_counters.values():
+        _validate_count(count)
+        if count:
+            has_label_match = True
+    matches_found = dictionary_used and has_label_match
+
+    lines = [
+        "",
+        "Dictionary:",
+        f"Dictionary used: {'yes' if dictionary_used else 'no'}",
+        f"Dictionary status: {status}",
+        f"Dictionary matches found: {'yes' if matches_found else 'no'}",
+        "Dictionary labels:",
+    ]
+
+    if label_counters:
+        for label in sorted(label_counters):
+            count = label_counters[label]
+            lines.append(f"* {label}: {count}")
+    else:
+        lines.append("* none: 0")
+
+    return lines
+
+
 def build_report_text(
     *,
     counters: Mapping[str, int],
@@ -94,6 +149,7 @@ def build_report_text(
     category_order: Iterable[str] | None = None,
     audit_result: Mapping[str, object] | None = None,
     audit_category_order: Iterable[str] | None = None,
+    dictionary_result: Mapping[str, object] | None = None,
 ) -> str:
     """Build a safe text report without source values or replacement maps."""
     if not isinstance(status, str):
@@ -118,6 +174,7 @@ def build_report_text(
     else:
         lines.append("* none: 0")
 
+    lines.extend(_dictionary_section_lines(dictionary_result))
     lines.extend(_audit_section_lines(audit_result, audit_category_order))
 
     lines.extend(
@@ -141,6 +198,7 @@ def save_report_file(
     category_order: Iterable[str] | None = None,
     audit_result: Mapping[str, object] | None = None,
     audit_category_order: Iterable[str] | None = None,
+    dictionary_result: Mapping[str, object] | None = None,
 ) -> Path:
     """Save a safe anonymization report and return the report path."""
     path = Path(report_path)
@@ -152,6 +210,7 @@ def save_report_file(
         category_order=category_order,
         audit_result=audit_result,
         audit_category_order=audit_category_order,
+        dictionary_result=dictionary_result,
     )
     path.write_text(report_text, encoding="utf-8")
     return path

@@ -144,7 +144,9 @@ def _replace_paragraph_text(paragraph, anonymized_text: str) -> None:
 
 
 def _anonymize_docx_paragraph(
-    paragraph, anonymize: AnonymizeFunction
+    paragraph,
+    anonymize: AnonymizeFunction,
+    anonymize_run: AnonymizeFunction | None = None,
 ) -> dict[str, int]:
     original_text = paragraph.text
     if not original_text:
@@ -154,8 +156,9 @@ def _anonymize_docx_paragraph(
     if not counters:
         return {}
 
+    run_anonymizer = anonymize_run or anonymize
     for run in paragraph.runs:
-        run_text, _ = anonymize(run.text)
+        run_text, _ = run_anonymizer(run.text)
         run.text = run_text
 
     if paragraph.text != anonymized_text:
@@ -165,11 +168,15 @@ def _anonymize_docx_paragraph(
 
 
 def save_anonymized_docx_copy(
-    source_path: str | Path, anonymize: AnonymizeFunction
+    source_path: str | Path,
+    anonymize: AnonymizeFunction,
+    anonymize_run: AnonymizeFunction | None = None,
 ) -> tuple[Path, dict[str, int]]:
     """Anonymize a local DOCX source and save a separate _ANON.docx copy."""
     if not callable(anonymize):
         raise TypeError("anonymize must be callable")
+    if anonymize_run is not None and not callable(anonymize_run):
+        raise TypeError("anonymize_run must be callable")
 
     path = _ensure_docx_path(source_path)
     output_path = build_anonymized_docx_path(path)
@@ -178,7 +185,14 @@ def save_anonymized_docx_copy(
     counters: dict[str, int] = {}
 
     for paragraph in _iter_docx_paragraphs(document):
-        _merge_counters(counters, _anonymize_docx_paragraph(paragraph, anonymize))
+        _merge_counters(
+            counters,
+            _anonymize_docx_paragraph(
+                paragraph,
+                anonymize,
+                anonymize_run=anonymize_run,
+            ),
+        )
 
     document.save(output_path)
     return output_path, counters

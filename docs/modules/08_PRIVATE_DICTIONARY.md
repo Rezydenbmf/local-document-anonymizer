@@ -20,6 +20,10 @@ Stage 9 can audit anonymized output for private dictionary terms that still
 remain, but the audit returns only the safe category
 `SENSITIVE_DICTIONARY_TERM` and a count.
 
+Stage 10.1 fixes the GUI/dispatcher path flow. The GUI stores the selected
+dictionary path, the workflow loads it centrally, and reports/GUI output show
+only safe dictionary status and label counters.
+
 ## Related files
 
 - `src/sensitive_terms.py`
@@ -37,16 +41,16 @@ parse_sensitive_terms(text: str) -> list[SensitiveTerm]
 load_sensitive_terms(file_path: str | Path) -> list[SensitiveTerm]
 apply_sensitive_terms(text: str, sensitive_terms) -> tuple[str, dict[str, int]]
 anonymize_text(text: str, sensitive_terms=None) -> tuple[str, dict[str, int]]
-anonymize_file(source_path: str | Path, sensitive_terms=None) -> tuple[Path, dict[str, int]]
-anonymize_file_with_audit(source_path: str | Path, sensitive_terms=None)
+anonymize_file(source_path: str | Path, sensitive_terms=None, sensitive_terms_path=None) -> tuple[Path, dict[str, int]]
+anonymize_file_with_audit(source_path: str | Path, sensitive_terms=None, sensitive_terms_path=None)
 ```
 
 The file workflows also accept optional `sensitive_terms`:
 
 ```python
-anonymize_txt_file(source_path, sensitive_terms=None)
-anonymize_docx_file(source_path, sensitive_terms=None)
-anonymize_pdf_file(source_path, sensitive_terms=None)
+anonymize_txt_file(source_path, sensitive_terms=None, sensitive_terms_path=None)
+anonymize_docx_file(source_path, sensitive_terms=None, sensitive_terms_path=None)
+anonymize_pdf_file(source_path, sensitive_terms=None, sensitive_terms_path=None)
 ```
 
 ## Dictionary Format
@@ -70,8 +74,8 @@ Malformed-line errors must not include the original private term.
 
 ## How It Works
 
-1. The user optionally selects a private dictionary file in the GUI, or a caller
-   passes parsed `SensitiveTerm` items to the engine.
+1. The user optionally selects a private dictionary file path in the GUI, or a
+   caller passes parsed `SensitiveTerm` items to the engine.
 2. The dictionary is loaded locally from UTF-8 text.
 3. Private terms are applied before the regex categories.
 4. Longer terms are processed before shorter terms.
@@ -92,12 +96,22 @@ The counter must never use original terms as keys.
 The GUI adds optional sensitive terms file selection. If no dictionary is
 selected, the app works as before.
 
-The GUI may show whether a dictionary file is selected, but it must not display
-dictionary contents. Counters shown in the GUI are labels and counts only.
+The GUI stores the selected dictionary path and passes it to the workflow. It
+may show safe dictionary status, but it must not display dictionary contents.
+Counters shown in the GUI are labels and counts only.
+
+Dictionary status values are:
+
+- `not selected`: no dictionary path was provided.
+- `loaded`: the selected dictionary was valid and loaded.
+- `invalid`: a selected dictionary could not be loaded or parsed.
+- loaded with no matches: the dictionary loaded, but no dictionary term was
+  replaced.
 
 ## Report Behavior
 
-Reports may contain dictionary labels and counts. Reports must not contain:
+Reports may contain dictionary used/status/matches-found metadata plus
+dictionary labels and counts. Reports must not contain:
 
 - original private dictionary terms,
 - original document text,
@@ -110,7 +124,8 @@ Reports may contain dictionary labels and counts. Reports must not contain:
 Stage 9 audit reports may contain `SENSITIVE_DICTIONARY_TERM: N`, but never the
 private term values.
 
-The report module receives counters only, not original private terms.
+The report module receives counters and safe dictionary metadata only, not
+original private terms.
 
 ## Safety Assumptions
 
@@ -122,6 +137,8 @@ The report module receives counters only, not original private terms.
 - No replacement map is created.
 - No source terms are written to reports or returned counters.
 - No source terms are written to audit results or audit report sections.
+- Invalid dictionary status does not expose the malformed line content or the
+  source term value.
 - No internet, APIs, cloud services, AI, OCR, local LLM, database, batch
   processing, or automatic deletion of originals is added.
 - Manual review of anonymized output is still required.
@@ -137,7 +154,9 @@ python -m unittest discover -s tests
 The Stage 8 tests cover valid parsing, ignored comments and empty lines,
 dictionary replacement, counters by label only, safe object representation,
 longer-term replacement order, malformed-line validation, behavior without a
-dictionary, regex integration, and safe report output.
+dictionary, regex integration, and safe report output. Stage 10.1 tests add
+path-based dispatcher flow, report status, invalid dictionary status,
+loaded-without-matches status, and TXT/DOCX/PDF dictionary-path compatibility.
 
 ## Known Limitations
 

@@ -17,8 +17,8 @@ The current MVP workflow is:
 2. Select one supported file.
 3. Optionally select a private sensitive terms file.
 4. Click `Anonymize`.
-5. Check the status, category counters, audit status, output path, and report
-   path.
+5. Check the status, dictionary status, category counters, audit status, output
+   path, and report path.
 6. Manually review the anonymized output file before using or sharing it.
 
 The application saves output files before manual review. It does not provide an
@@ -81,6 +81,8 @@ The report contains:
 - input type,
 - output type,
 - category counters,
+- dictionary used/status/matches-found information,
+- dictionary label counters,
 - post-anonymization audit status and category counters,
 - manual review requirement,
 - confirmation that original sensitive values are not stored,
@@ -125,10 +127,20 @@ examples/sensitive_terms.example.txt
 ```
 
 When a dictionary is selected, the app replaces matching terms with the
-specified labels and reports only label counters. It does not display
-dictionary contents, write original dictionary terms to reports, or create a
-replacement map. Longer terms are applied before shorter terms, so a term like
-`Person One Example` is handled before `Person`.
+specified labels and reports only status names, safe label counters, and
+whether dictionary matches were found. It does not display dictionary contents,
+write original dictionary terms to reports, or create a replacement map. Longer
+terms are applied before shorter terms, so a term like `Person One Example` is
+handled before `Person`.
+
+Dictionary status meanings:
+
+- `not selected`: no dictionary path was provided.
+- `loaded`: a dictionary path was provided and parsed successfully.
+- `invalid`: a dictionary path was provided but could not be loaded or parsed.
+
+If the dictionary is loaded but none of its terms appear in the document, the
+GUI and report show that no dictionary matches were found.
 
 Private dictionary matching is literal and case-sensitive. It is not OCR, AI,
 automatic names or address detection, batch processing, a database, or automatic
@@ -136,15 +148,17 @@ deletion of originals.
 
 ## 9. Post-Anonymization Audit
 
-Stage 9 adds a safe audit after the `_ANON` output is generated. The audit
-checks the anonymized output text for conservative suspicious remaining
-patterns such as e-mail, PESEL, phone, date, private dictionary terms,
-case/reference numbers, postal codes, and simple address-like text.
+Stage 9 adds a safe audit after the `_ANON` output is generated. Stage 10.1
+passes successfully loaded dictionary terms into that audit. The audit checks
+the anonymized output text for conservative suspicious remaining patterns such
+as e-mail, PESEL, phone, date, private dictionary terms, case/reference
+numbers, postal codes, and simple address-like text.
 
 The GUI shows audit status and counters by category only. The report includes a
-safe `Post-anonymization audit` section. The audit does not show or store
-original detected values, text snippets, dictionary terms, full document text,
-or replacement maps.
+safe `Post-anonymization audit` section. If loaded dictionary terms remain, the
+audit may show only a safe counter such as `SENSITIVE_DICTIONARY_TERM`. The
+audit does not show or store original detected values, text snippets,
+dictionary terms, full document text, or replacement maps.
 
 `Audit status: OK` means the simple audit did not find supported suspicious
 patterns. It does not prove that the document is fully anonymized.
@@ -159,17 +173,21 @@ Manual review is required before using the result.
 
 ## 11. Where Output Files Are Saved
 
-The application saves anonymized TXT and DOCX copies next to the source file with the
-`_ANON` suffix. PDF input is saved next to the source as `_ANON.txt`. A safe
-report is saved next to the anonymized output with the `_RAPORT.txt` suffix.
-Original files must not be modified.
+The application saves anonymized TXT and DOCX copies next to the source file
+with the `_ANON` suffix. PDF input is saved next to the source as `_ANON.txt`.
+A safe report is saved next to the anonymized output with the `_RAPORT.txt`
+suffix. Original files must not be modified.
+
+If a TXT file and a PDF file have the same base name in the same folder, their
+TXT output and report names can be confusing or collide. Use distinct test file
+names or separate folders until a future approved output workflow changes this.
 
 ## 12. What Is Not Implemented Yet
 
 The current MVP includes plain string anonymization, TXT file input/output, basic DOCX
 file input/output, text-based PDF input with TXT output, and a simple Tkinter
-GUI for one selected file. Safe reports and optional private dictionary input
-are implemented, and Stage 9 adds a safe post-anonymization audit. Automatic
-names, broad addresses, cities, organizations, OCR, AI, APIs, drag and drop,
-batch processing, advanced preview, and anonymized PDF output are not
-implemented.
+GUI for one selected file. Safe reports, optional private dictionary input,
+dictionary status reporting, and a safe post-anonymization audit are
+implemented. Automatic names, broad addresses, cities, organizations, OCR, AI,
+APIs, drag and drop, batch processing, advanced preview, and anonymized PDF
+output are not implemented.

@@ -5,7 +5,9 @@
 This module implements the plain text anonymization engine for plain Python
 strings. Stage 8 extends the engine with optional private sensitive terms
 dictionary input. Stage 9 keeps the core text engine unchanged and adds
-workflow helpers that return safe post-anonymization audit metadata.
+workflow helpers that return safe post-anonymization audit metadata. Stage 10.1
+adds optional dictionary-path loading to the file workflows and dispatcher while
+keeping the plain text engine API unchanged.
 
 ## Related files
 
@@ -18,8 +20,8 @@ workflow helpers that return safe post-anonymization audit metadata.
 
 ```python
 anonymize_text(text: str, sensitive_terms=None) -> tuple[str, dict[str, int]]
-anonymize_file(source_path: str | Path, sensitive_terms=None) -> tuple[Path, dict[str, int]]
-anonymize_file_with_audit(source_path: str | Path, sensitive_terms=None)
+anonymize_file(source_path: str | Path, sensitive_terms=None, sensitive_terms_path=None) -> tuple[Path, dict[str, int]]
+anonymize_file_with_audit(source_path: str | Path, sensitive_terms=None, sensitive_terms_path=None)
 ```
 
 The function returns:
@@ -40,7 +42,8 @@ TXT, DOCX, or PDF workflow. Stage 6 adds safe report output, documented in
 `docs/modules/06_REPORTING.md`. Stage 8 adds optional private dictionary
 support, documented in `docs/modules/08_PRIVATE_DICTIONARY.md`. Stage 9 adds
 post-anonymization audit workflow variants, documented in
-`docs/modules/09_POST_ANONYMIZATION_AUDIT.md`.
+`docs/modules/09_POST_ANONYMIZATION_AUDIT.md`. Stage 10.1 adds safe dictionary
+status metadata to those workflows and reports.
 
 ## Supported categories
 
@@ -77,7 +80,9 @@ Counters are based on actual replacements performed by `re.subn`.
 
 The module accepts only a plain Python string. Passing another type raises
 `TypeError`. The optional `sensitive_terms` argument accepts parsed
-`SensitiveTerm` items from `src/sensitive_terms.py`.
+`SensitiveTerm` items from `src/sensitive_terms.py`. File workflows and the
+single-file dispatcher also accept `sensitive_terms_path`; they load the
+dictionary centrally before calling the engine.
 
 ## Outputs
 
@@ -116,8 +121,10 @@ Returns:
 - No source values are stored in the report.
 - No replacement map is created.
 - Private dictionary terms are not stored in counters or reports.
+- Workflow dictionary metadata contains only status names, labels, and
+  counters.
 - Post-anonymization audit results contain only status, categories, counters,
-  and a manual review flag.
+  safe dictionary metadata, and a manual review flag.
 - Tests use only synthetic values.
 - No real documents or generated output files are added.
 - No network calls, APIs, AI services, OCR, local LLMs, databases, DOCX, PDF, or
@@ -135,6 +142,7 @@ python -m unittest discover -s tests
 The tests cover PESEL, email, phone, date, combined categories, repeated
 occurrences, unchanged text, private dictionary replacement, replacement order,
 regex integration, report safety, and post-anonymization audit integration.
+Stage 10.1 tests also cover dictionary-path workflow status and report safety.
 
 ## Known limitations
 

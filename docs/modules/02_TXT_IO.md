@@ -7,7 +7,8 @@ content through the existing plain text engine, and saving a separate
 anonymized TXT copy. Stage 6 reuses the TXT workflow and adds safe report file
 output after successful anonymization. Stage 8 lets the workflow receive
 optional private sensitive terms. Stage 9 audits the anonymized TXT output
-before saving the safe report.
+before saving the safe report. Stage 10.1 lets the workflow receive a
+dictionary path and report safe dictionary status.
 
 ## Related files
 
@@ -27,8 +28,8 @@ build_anonymized_txt_path(source_path: str | Path) -> Path
 build_report_path(source_path: str | Path) -> Path
 save_anonymized_txt_copy(source_path: str | Path, anonymized_text: str) -> Path
 save_anonymized_copy(source_path: str | Path, anonymized_text: str) -> str
-anonymize_txt_file(source_path: str | Path, sensitive_terms=None) -> tuple[Path, dict[str, int]]
-anonymize_txt_file_with_audit(source_path: str | Path, sensitive_terms=None)
+anonymize_txt_file(source_path: str | Path, sensitive_terms=None, sensitive_terms_path=None) -> tuple[Path, dict[str, int]]
+anonymize_txt_file_with_audit(source_path: str | Path, sensitive_terms=None, sensitive_terms_path=None)
 ```
 
 ## How it works
@@ -38,13 +39,14 @@ The TXT-specific helpers support only `.txt` files.
 The file workflow is:
 
 1. `read_txt_file()` reads the source file as UTF-8 text.
-2. `anonymize_txt_file()` passes that text to `anonymize_text()` with optional
-   private sensitive terms.
+2. `anonymize_txt_file()` loads an optional dictionary path and passes that
+   text to `anonymize_text()` with optional private sensitive terms.
 3. `save_anonymized_txt_copy()` writes the anonymized text as UTF-8.
 4. The output file is saved next to the source with an `_ANON` suffix.
 5. `audit_text()` checks the anonymized output text and returns safe audit
    metadata.
 6. A safe report file is saved next to the output with a `_RAPORT.txt` suffix.
+   The report includes safe dictionary status and label counters only.
 
 Example:
 
@@ -80,6 +82,8 @@ TXT-specific helpers reject files without a `.txt` extension with a clear
 - Counters contain category names and counts only.
 - Private dictionary terms are not written to reports, counters, or returned
   metadata.
+- Dictionary workflow metadata contains only status names, labels, and
+  counters.
 - Audit results contain only status, category counters, and the manual review
   flag. They do not contain source values, snippets, dictionary terms, or a
   replacement map.
@@ -96,7 +100,8 @@ python -m unittest discover -s tests
 The Stage 2 tests cover TXT reading, anonymized copy writing, original file
 preservation, unsupported extension rejection, full TXT integration, and result
 safety. Stage 9 tests cover TXT workflow audit metadata through report and
-dispatcher integration.
+dispatcher integration. Stage 10.1 tests cover dictionary path status, invalid
+dictionary handling, and loaded-without-matches report output.
 
 ## Known limitations
 

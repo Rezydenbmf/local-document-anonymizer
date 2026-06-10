@@ -6,7 +6,8 @@ This module implements a small local Tkinter desktop interface for anonymizing
 one selected `.txt`, `.docx`, or `.pdf` file. Stage 6 extends the GUI status
 area to show the saved report file path. Stage 8 adds optional private
 sensitive terms file selection. Stage 9 adds safe post-anonymization audit
-status and counters.
+status and counters. Stage 10.1 keeps the GUI path-based for dictionaries and
+shows safe dictionary status after the workflow runs.
 
 ## Related files
 
@@ -21,8 +22,8 @@ status and counters.
 
 ```python
 start_gui() -> None
-anonymize_file(source_path: str | Path, sensitive_terms=None) -> tuple[Path, dict[str, int]]
-anonymize_file_with_audit(source_path: str | Path, sensitive_terms=None)
+anonymize_file(source_path: str | Path, sensitive_terms=None, sensitive_terms_path=None) -> tuple[Path, dict[str, int]]
+anonymize_file_with_audit(source_path: str | Path, sensitive_terms=None, sensitive_terms_path=None)
 ```
 
 `start_gui()` opens the Tkinter application.
@@ -43,16 +44,17 @@ The GUI supports this flow:
 
 1. Open the application with `python src/main.py`.
 2. Select one file.
-3. Optionally select a private sensitive terms file.
+3. Optionally select a private sensitive terms file. The GUI stores the path
+   and the workflow loads the dictionary.
 4. Click `Anonymize`.
-5. Review the status, category counters, audit status, audit counters, output
-   path, report path, and manual review warning.
+5. Review the status, safe dictionary status, category counters, audit status,
+   audit counters, output path, report path, and manual review warning.
 6. Manually inspect the anonymized output file before using or sharing it.
 
 The GUI shows:
 
 - selected file path,
-- whether a sensitive terms file is selected,
+- safe dictionary status,
 - operation status,
 - category counters,
 - post-anonymization audit status and category counters,
@@ -60,6 +62,14 @@ The GUI shows:
 - report file path,
 - clear errors from unsupported file types or PDFs without extractable text,
 - a reminder that manual review is required.
+
+Dictionary status values shown by the GUI are:
+
+- `not selected`: no dictionary path was provided.
+- `loaded`: the selected dictionary loaded successfully.
+- `invalid`: the selected dictionary could not be loaded or parsed.
+- `loaded; matches found: no`: the dictionary loaded but no dictionary terms
+  were replaced.
 
 ## Supported inputs and outputs
 
@@ -91,6 +101,7 @@ Original files are not modified.
 - The GUI processes one selected file only.
 - The GUI displays category names and counts only.
 - The GUI displays audit categories and counts only.
+- The GUI displays dictionary status names and safe match metadata only.
 - The GUI does not display original detected source values.
 - The GUI does not display private dictionary contents.
 - The GUI does not display private dictionary terms or audit text snippets.
@@ -119,8 +130,8 @@ are not included.
 ## Known limitations
 
 - The GUI has no document preview or editing view.
-- The GUI can select one private dictionary file but does not manage, edit, or
-  display its contents.
+- The GUI can select one private dictionary file path but does not manage,
+  edit, validate before run, or display its contents.
 - The GUI audit display is a warning summary only and does not prove complete
   anonymization.
 - The GUI does not support batch processing, drag and drop, OCR, scanned PDFs,

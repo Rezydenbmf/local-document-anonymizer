@@ -2,9 +2,9 @@
 
 ## Current Status
 
-The project is in Stage 9: post-anonymization audit.
+The project is in Stage 10.1: manual validation fixes.
 
-The Stage 0-9 MVP implementation contains a narrow regex-based engine that
+The Stage 0-10.1 MVP implementation contains a narrow regex-based engine that
 accepts a Python string and returns anonymized text plus category counters. It
 also contains optional private exact-term dictionary support, TXT file readers
 and writers, basic DOCX readers and writers, text-based PDF text extraction,
@@ -13,10 +13,13 @@ PDF-to-TXT outputs, a simple Tkinter GUI for anonymizing one selected supported
 file, safe TXT report generation without source values, and a safe
 post-anonymization audit with category counters only.
 
-Stage 9 adds a conservative audit of anonymized output text after `_ANON`
-outputs are generated. It does not add OCR, AI, cloud services, APIs, local
-LLMs, databases, batch processing, automatic replacement-map generation,
-source-value logging, or automatic deletion of originals.
+Stage 10.1 fixes manual validation findings around the private dictionary flow.
+The GUI stores the selected dictionary path, the workflow loads it centrally,
+reports include safe dictionary status and label counters, and the audit checks
+remaining dictionary terms when a dictionary loaded successfully. It does not
+add OCR, AI, cloud services, APIs, local LLMs, databases, batch processing,
+automatic replacement-map generation, source-value logging, or automatic
+deletion of originals.
 
 ## What Exists
 
@@ -41,14 +44,18 @@ source-value logging, or automatic deletion of originals.
   reports next to anonymized outputs.
 - Private sensitive terms parsing and replacement in `src/sensitive_terms.py`.
 - Post-anonymization audit in `src/audit.py`.
-- Optional `sensitive_terms` arguments in the plain text, TXT, DOCX, PDF, and
-  single-file dispatcher workflows.
+- Optional `sensitive_terms_path` arguments in the TXT, DOCX, PDF, and
+  single-file dispatcher workflows, while the plain text engine still accepts
+  preloaded `sensitive_terms`.
 - `_with_audit` TXT, DOCX, PDF, and dispatcher helpers that return safe audit
   metadata while existing helpers keep their Stage 2-5 return shape.
-- Optional GUI selection of a private sensitive terms file without displaying
-  dictionary contents.
+- Optional GUI selection of a private sensitive terms file path without
+  displaying dictionary contents.
 - GUI display of post-anonymization audit status and category counters only.
+- GUI display of safe dictionary status: not selected, loaded, invalid, or
+  loaded with no dictionary matches.
 - Safe report counters for dictionary labels only.
+- Safe report dictionary section with used/status/matches-found metadata.
 - Safe report section for post-anonymization audit status and counters only.
 - TXT, DOCX, PDF, and dispatcher flows that create safe reports after
   successful anonymization.
@@ -68,6 +75,9 @@ source-value logging, or automatic deletion of originals.
 - Unit tests for Stage 9 post-anonymization audit detection, report safety,
   workflow integration, and GUI/dispatcher audit metadata safety using
   synthetic values only.
+- Unit tests for Stage 10.1 dictionary path flow, dictionary report status,
+  invalid dictionary handling, loaded-without-matches status, and TXT/DOCX/PDF
+  dictionary-path compatibility using synthetic values only.
 - Synthetic sample text files in `tests/sample_data/`.
 - Synthetic example dictionary in `examples/sensitive_terms.example.txt`.
 - Project, user, security, roadmap, and module documentation.
@@ -111,9 +121,12 @@ python -m unittest discover -s tests
 - DOCX outputs are written next to the source with an `_ANON` suffix.
 - PDF input is extracted as text and saved as `_ANON.txt`; no anonymized PDF is
   created.
+- TXT and PDF inputs with the same base name in the same folder can still
+  create confusing or colliding `_ANON.txt` and `_RAPORT.txt` paths. Stage 10.1
+  documents this limitation rather than adding a new output folder workflow.
 - Reports contain only safe metadata, category counters, and manual review
-  notices. They do not contain source values, full input paths, filenames, or
-  replacement maps.
+  notices. They do not contain source values, full input paths, filenames,
+  dictionary source terms, or replacement maps.
 - Date detection is limited to high-confidence numeric formats.
 - Phone detection is intentionally conservative.
 - Address and postal-code detection are not implemented in Stage 1.
@@ -136,27 +149,27 @@ python -m unittest discover -s tests
 - Audit results and reports include only categories and counters, never source
   values, snippets, dictionary terms, full document text, or replacement maps.
 
-## Last Completed Stage
+## Last Completed Committed Stage
 
-Stage 8: private sensitive terms dictionary.
+Stage 9: post-anonymization audit.
 
-Last committed implementation before the Stage 9 working tree:
+Last committed implementation before the Stage 10.1 working tree:
 
 ```text
-277037a Implement Stage 8 private sensitive terms dictionary
+782eee1 Implement Stage 9 post-anonymization audit
 ```
 
 Current working tree stage:
 
 ```text
-Stage 9: post-anonymization audit
+Stage 10.1: manual validation fixes
 ```
 
 ## Next Logical Step
 
-After Stage 9 review, the safest next step is a small implementation commit for
-the post-anonymization audit stage. Later work should stay separate and require
-an explicit project decision, especially OCR, batch processing, installer work,
+After Stage 10.1 review, the safest next step is a small implementation commit
+for the manual validation fixes. Later work should stay separate and require an
+explicit project decision, especially OCR, batch processing, installer work,
 better NLP, stronger entity detection, packaging, or release automation.
 
 ## Warning

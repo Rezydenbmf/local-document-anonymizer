@@ -6,7 +6,8 @@ This module implements Stage 3: local DOCX reading, anonymization through the
 existing plain text engine, and saving a separate anonymized DOCX copy. Stage 6
 adds safe report file output after successful anonymization. Stage 8 lets the
 workflow receive optional private sensitive terms. Stage 9 audits the saved
-anonymized DOCX output text before saving the safe report.
+anonymized DOCX output text before saving the safe report. Stage 10.1 lets the
+workflow receive a dictionary path and report safe dictionary status.
 
 ## Related files
 
@@ -39,9 +40,10 @@ build_report_path(source_path: str | Path) -> Path
 save_anonymized_docx_copy(
     source_path: str | Path,
     anonymize: Callable[[str], tuple[str, dict[str, int]]],
+    anonymize_run: Callable[[str], tuple[str, dict[str, int]]] | None = None,
 ) -> tuple[Path, dict[str, int]]
-anonymize_docx_file(source_path: str | Path, sensitive_terms=None) -> tuple[Path, dict[str, int]]
-anonymize_docx_file_with_audit(source_path: str | Path, sensitive_terms=None)
+anonymize_docx_file(source_path: str | Path, sensitive_terms=None, sensitive_terms_path=None) -> tuple[Path, dict[str, int]]
+anonymize_docx_file_with_audit(source_path: str | Path, sensitive_terms=None, sensitive_terms_path=None)
 ```
 
 `anonymize_docx_file(...)` passes DOCX text through the existing
@@ -53,14 +55,16 @@ create a separate DOCX anonymization engine.
 The DOCX workflow is:
 
 1. `read_docx_file()` extracts basic paragraph text and simple table cell text.
-2. `anonymize_docx_file()` calls `save_anonymized_docx_copy(...)` with the
-   existing `anonymize_text(...)` function.
+2. `anonymize_docx_file()` loads an optional dictionary path, then calls
+   `save_anonymized_docx_copy(...)` with the existing `anonymize_text(...)`
+   function.
 3. `save_anonymized_docx_copy(...)` opens the source DOCX locally, anonymizes
    supported paragraph and simple table text, and saves a separate copy.
 4. The output file is saved next to the source with an `_ANON` suffix.
 5. `audit_text()` checks text extracted from the saved `_ANON.docx` copy using
    the same basic DOCX text scope.
 6. A safe report file is saved next to the output with a `_RAPORT.txt` suffix.
+   The report includes safe dictionary status and label counters only.
 
 Example:
 
@@ -83,6 +87,8 @@ The original DOCX file is not modified.
 - Counters contain category names and counts only.
 - Private dictionary terms are not written to reports, counters, or returned
   metadata.
+- Dictionary workflow metadata contains only status names, labels, and
+  counters.
 - Audit results contain only status, category counters, and the manual review
   flag. They do not contain source values, snippets, dictionary terms, or a
   replacement map.
@@ -128,7 +134,8 @@ python -m unittest discover -s tests
 The Stage 3 tests cover DOCX reading, `_ANON.docx` writing, original DOCX
 preservation, DOCX anonymization integration, safe counters without source
 values, TXT regression coverage, and unsupported extension errors. Stage 9
-tests cover audit report safety and dispatcher audit metadata.
+tests cover audit report safety and dispatcher audit metadata. Stage 10.1 tests
+cover dictionary path replacement and report safety for DOCX.
 
 ## Known limitations
 
