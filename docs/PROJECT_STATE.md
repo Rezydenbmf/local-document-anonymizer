@@ -21,6 +21,9 @@ add OCR, AI, cloud services, APIs, local LLMs, databases, batch processing,
 automatic replacement-map generation, source-value logging, or automatic
 deletion of originals.
 
+Stage 10.2 manually confirmed the Stage 10.1 dictionary fix with a GUI smoke
+test using small synthetic UTF-8 files.
+
 ## What Exists
 
 - Repository structure.

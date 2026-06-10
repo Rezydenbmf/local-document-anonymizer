@@ -72,6 +72,14 @@ Rules:
 
 Malformed-line errors must not include the original private term.
 
+## Implementation and User Notes
+
+Dictionary files are expected to be UTF-8 text files. The GUI/pipeline
+dictionary flow was manually validated in Stage 10.2 with small synthetic
+UTF-8 TXT and dictionary files. Reports and GUI output must show only safe
+dictionary status, labels, and counters; they must not expose original
+dictionary terms.
+
 ## How It Works
 
 1. The user optionally selects a private dictionary file path in the GUI, or a

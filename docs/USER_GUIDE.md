@@ -142,6 +142,11 @@ Dictionary status meanings:
 If the dictionary is loaded but none of its terms appear in the document, the
 GUI and report show that no dictionary matches were found.
 
+Save private dictionary files as UTF-8 text. If a dictionary is selected but no
+replacements appear, check file encoding first, then verify the dictionary
+status in the GUI, dictionary counters in `_RAPORT`, and dictionary
+replacements in `_ANON`. Use small synthetic files for the first check.
+
 Private dictionary matching is literal and case-sensitive. It is not OCR, AI,
 automatic names or address detection, batch processing, a database, or automatic
 deletion of originals.

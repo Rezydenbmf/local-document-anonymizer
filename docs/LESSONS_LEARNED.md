@@ -50,3 +50,12 @@ and limits with the same clarity as the implemented features.
 Large document-processing features increase safety and testing risk. They should
 come after the narrow local workflow, reports, documentation, and review checks
 are stable.
+
+## 13. Manual GUI smoke tests are required for file-based workflows.
+
+Automated tests are necessary, but GUI and pipeline features still need a
+small manual smoke test when they depend on real file selection. Use small
+synthetic TXT and private dictionary files before trying real documents. Save
+those files as UTF-8, especially when creating them from PowerShell, because
+incompatible encoding can create false negatives where the workflow appears to
+fail even though the feature works with correctly encoded files.
