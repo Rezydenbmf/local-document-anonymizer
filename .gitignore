@@ -21,5 +21,6 @@ data/
 local_config.*
 *_ANON.*
 *_RAPORT.*
+*_BATCH_SUMMARY*.txt
 .DS_Store
 Thumbs.db

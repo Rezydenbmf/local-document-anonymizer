@@ -1,7 +1,7 @@
 """Safe anonymization report generation."""
 
 from collections.abc import Iterable, Mapping
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 
 DICTIONARY_STATUS_NOT_SELECTED = "not selected"
@@ -11,6 +11,20 @@ DICTIONARY_STATUSES = (
     DICTIONARY_STATUS_NOT_SELECTED,
     DICTIONARY_STATUS_LOADED,
     DICTIONARY_STATUS_INVALID,
+)
+BATCH_ERROR_UNSUPPORTED_FILE_TYPE = "unsupported file type"
+BATCH_ERROR_EMPTY_TEXT_PDF = "PDF has no extractable text"
+BATCH_ERROR_TEXT_DECODING = "TXT file could not be decoded as UTF-8"
+BATCH_ERROR_FILE_IO = "file could not be read or written"
+BATCH_ERROR_MISSING_DEPENDENCY = "required local document dependency is unavailable"
+BATCH_ERROR_PROCESSING_FAILED = "file processing failed"
+BATCH_ERROR_DESCRIPTIONS = (
+    BATCH_ERROR_UNSUPPORTED_FILE_TYPE,
+    BATCH_ERROR_EMPTY_TEXT_PDF,
+    BATCH_ERROR_TEXT_DECODING,
+    BATCH_ERROR_FILE_IO,
+    BATCH_ERROR_MISSING_DEPENDENCY,
+    BATCH_ERROR_PROCESSING_FAILED,
 )
 
 
@@ -49,6 +63,22 @@ def _validate_count(value: int) -> None:
         raise TypeError("counter values must be integers")
     if value < 0:
         raise ValueError("counter values must not be negative")
+
+
+def _safe_filename(value: object) -> str:
+    text = str(value).strip()
+    if not text:
+        return "unknown"
+
+    windows_name = PureWindowsPath(text).name
+    return PurePosixPath(windows_name).name or "unknown"
+
+
+def _safe_batch_error(value: object) -> str:
+    text = str(value).strip()
+    if text in BATCH_ERROR_DESCRIPTIONS:
+        return text
+    return BATCH_ERROR_PROCESSING_FAILED
 
 
 def _audit_section_lines(
@@ -211,6 +241,112 @@ def save_report_file(
         audit_result=audit_result,
         audit_category_order=audit_category_order,
         dictionary_result=dictionary_result,
+    )
+    path.write_text(report_text, encoding="utf-8")
+    return path
+
+
+def build_batch_summary_text(
+    *,
+    input_count: int,
+    success_count: int,
+    error_count: int,
+    counters: Mapping[str, int],
+    audit_status_counts: Mapping[str, int],
+    results: Iterable[Mapping[str, object]],
+    category_order: Iterable[str] | None = None,
+    status: str = "completed",
+    manual_review_required: bool = True,
+) -> str:
+    """Build a safe batch report without paths, source values, or aliases."""
+    for count in (input_count, success_count, error_count):
+        _validate_count(count)
+    if success_count + error_count != input_count:
+        raise ValueError("success_count plus error_count must equal input_count")
+    if not isinstance(manual_review_required, bool):
+        raise TypeError("manual_review_required must be a boolean")
+
+    manual_review_text = "yes" if manual_review_required else "no"
+    lines = [
+        "Batch summary report",
+        "",
+        f"Status: {status}",
+        f"Input files: {input_count}",
+        f"Successful files: {success_count}",
+        f"Errors: {error_count}",
+        f"Manual review required: {manual_review_text}",
+        "",
+        "Detected categories:",
+    ]
+
+    categories = _ordered_categories(counters, category_order)
+    if categories:
+        for label in categories:
+            count = counters.get(label, 0)
+            _validate_count(count)
+            lines.append(f"* {label}: {count}")
+    else:
+        lines.append("* none: 0")
+
+    lines.extend(["", "Audit statuses:"])
+    for audit_status in ("ok", "warning", "not run"):
+        count = audit_status_counts.get(audit_status, 0)
+        _validate_count(count)
+        lines.append(f"* {audit_status}: {count}")
+
+    lines.extend(["", "Files:"])
+    for result in results:
+        file_status = str(result.get("status", "error"))
+        input_name = _safe_filename(result.get("input_name", "unknown"))
+        lines.append(f"* input: {input_name}")
+        lines.append(f"  status: {file_status}")
+        if file_status == "success":
+            lines.append(f"  output: {_safe_filename(result.get('output_name', 'unknown'))}")
+            lines.append(f"  report: {_safe_filename(result.get('report_name', 'unknown'))}")
+            lines.append(f"  audit status: {result.get('audit_status', 'unknown')}")
+        else:
+            lines.append(f"  error: {_safe_batch_error(result.get('error', ''))}")
+            lines.append("  output: not created")
+            lines.append("  report: not created")
+
+    lines.extend(
+        [
+            "",
+            "Original sensitive values stored: no",
+            "Replacement map created: no",
+            "Source paths stored: no",
+            "Dictionary aliases stored: no",
+            "Dictionary private terms stored: no",
+        ]
+    )
+    return "\n".join(lines) + "\n"
+
+
+def save_batch_summary_file(
+    summary_path: str | Path,
+    *,
+    input_count: int,
+    success_count: int,
+    error_count: int,
+    counters: Mapping[str, int],
+    audit_status_counts: Mapping[str, int],
+    results: Iterable[Mapping[str, object]],
+    category_order: Iterable[str] | None = None,
+    status: str = "completed",
+    manual_review_required: bool = True,
+) -> Path:
+    """Save a safe batch summary report and return its path."""
+    path = Path(summary_path)
+    report_text = build_batch_summary_text(
+        input_count=input_count,
+        success_count=success_count,
+        error_count=error_count,
+        counters=counters,
+        audit_status_counts=audit_status_counts,
+        results=results,
+        category_order=category_order,
+        status=status,
+        manual_review_required=manual_review_required,
     )
     path.write_text(report_text, encoding="utf-8")
     return path

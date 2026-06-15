@@ -9,6 +9,8 @@ workflow helpers that return safe post-anonymization audit metadata. Stage 10.1
 adds optional dictionary-path loading to the file workflows and dispatcher while
 keeping the plain text engine API unchanged. Stage 11 improves private
 dictionary matching while preserving that API.
+Stage 12 adds optional output-directory support to file workflows and a
+sequential batch workflow while keeping the plain text engine API unchanged.
 
 ## Related files
 
@@ -21,8 +23,9 @@ dictionary matching while preserving that API.
 
 ```python
 anonymize_text(text: str, sensitive_terms=None) -> tuple[str, dict[str, int]]
-anonymize_file(source_path: str | Path, sensitive_terms=None, sensitive_terms_path=None) -> tuple[Path, dict[str, int]]
-anonymize_file_with_audit(source_path: str | Path, sensitive_terms=None, sensitive_terms_path=None)
+anonymize_file(source_path: str | Path, sensitive_terms=None, sensitive_terms_path=None, output_dir=None) -> tuple[Path, dict[str, int]]
+anonymize_file_with_audit(source_path: str | Path, sensitive_terms=None, sensitive_terms_path=None, output_dir=None)
+anonymize_batch(source_paths, output_dir, sensitive_terms=None, sensitive_terms_path=None)
 ```
 
 The function returns:
@@ -44,7 +47,8 @@ TXT, DOCX, or PDF workflow. Stage 6 adds safe report output, documented in
 support, documented in `docs/modules/08_PRIVATE_DICTIONARY.md`. Stage 9 adds
 post-anonymization audit workflow variants, documented in
 `docs/modules/09_POST_ANONYMIZATION_AUDIT.md`. Stage 10.1 adds safe dictionary
-status metadata to those workflows and reports.
+status metadata to those workflows and reports. Stage 12 adds
+`docs/modules/10_BATCH_OUTPUT_WORKSPACE.md`.
 
 ## Supported categories
 
@@ -126,6 +130,8 @@ Returns:
   counters.
 - Post-anonymization audit results contain only status, categories, counters,
   safe dictionary metadata, and a manual review flag.
+- Batch summary metadata contains safe filenames, counters, audit status
+  counts, and controlled error descriptions only.
 - Tests use only synthetic values.
 - No real documents or generated output files are added.
 - No network calls, APIs, AI services, OCR, local LLMs, databases, DOCX, PDF, or
@@ -145,7 +151,8 @@ occurrences, unchanged text, private dictionary replacement, replacement order,
 regex integration, report safety, and post-anonymization audit integration.
 Stage 10.1 tests also cover dictionary-path workflow status and report safety.
 Stage 11 tests cover aliases, case-insensitive matching, whitespace
-normalization, label-only counters, and audit dictionary matching.
+normalization, label-only counters, and audit dictionary matching. Stage 12
+tests cover output workspace dispatch and batch processing.
 
 ## Known limitations
 
@@ -166,3 +173,5 @@ normalization, label-only counters, and audit dictionary matching.
 - Safe report files are created by the file workflows in Stage 6; the core
   engine itself still returns only anonymized text and counters.
 - Stage 9 audit is conservative and does not guarantee complete anonymization.
+- Stage 12 batch processing is sequential and does not add OCR, AI, NER, APIs,
+  cloud services, local LLMs, databases, preview, or editing.

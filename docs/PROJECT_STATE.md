@@ -2,23 +2,22 @@
 
 ## Current Status
 
-The project is in Stage 11: smart dictionary foundation and portfolio README
-polish.
+The project is in Stage 12: safe output workspace and batch processing.
 
-The Stage 0-11 MVP implementation contains a narrow regex-based engine that
+The Stage 0-12 MVP implementation contains a narrow regex-based engine that
 accepts a Python string and returns anonymized text plus category counters. It
 also contains optional private dictionary support with aliases,
 case-insensitive matching, and whitespace-tolerant term matching, TXT file
 readers and writers, basic DOCX readers and writers, text-based PDF text
 extraction, small integration helpers for saving separate anonymized TXT, DOCX,
-and PDF-to-TXT outputs, a simple Tkinter GUI for anonymizing one selected
-supported file, safe TXT report generation without source values, and a safe
-post-anonymization audit with category counters only.
+and PDF-to-TXT outputs, a simple Tkinter GUI for anonymizing selected
+supported files into a chosen output folder, safe TXT report generation without
+source values, and a safe post-anonymization audit with category counters only.
 
 Stage 10.1 fixes manual validation findings around the private dictionary flow.
 The GUI stores the selected dictionary path, the workflow loads it centrally,
 reports include safe dictionary status and label counters, and the audit checks
-remaining dictionary terms when a dictionary loaded successfully. It does not
+remaining dictionary terms when a dictionary loaded successfully. It did not
 add OCR, AI, cloud services, APIs, local LLMs, databases, batch processing,
 automatic replacement-map generation, source-value logging, or automatic
 deletion of originals.
@@ -26,11 +25,19 @@ deletion of originals.
 Stage 10.2 manually confirmed the Stage 10.1 dictionary fix with a GUI smoke
 test using small synthetic UTF-8 files.
 
-Stage 11 keeps the existing local workflow and improves the private dictionary
-foundation. Dictionary lines can now contain multiple aliases separated by `|`,
+Stage 11 kept the existing local workflow and improved the private dictionary
+foundation. Dictionary lines can contain multiple aliases separated by `|`,
 matching is case-insensitive, excessive internal whitespace is tolerated, and
 longer aliases are still applied before shorter aliases. Reports, GUI status,
 audit metadata, and counters continue to expose labels and counts only.
+
+Stage 12 adds a safe output workspace and batch processing. The GUI now lets
+the user select multiple supported files and an output folder. `_ANON`,
+`_RAPORT`, and `_BATCH_SUMMARY` files are written to that output folder with
+collision-safe numbered names. Batch processing is sequential; an error for one
+file is recorded in a safe form and does not stop later files. The batch
+summary stores safe filenames, aggregate counters, audit status counts, and
+controlled error descriptions only.
 
 ## What Exists
 
@@ -47,19 +54,24 @@ audit metadata, and counters continue to expose labels and counts only.
 - Text-based PDF extraction in `src/file_readers.py`.
 - PDF integration helper `anonymize_pdf_file(...)`, which saves anonymized PDF
   text as `_ANON.txt`.
-- Single-file application dispatcher `anonymize_file(...)`.
-- Simple Tkinter GUI in `src/gui.py`.
+- Single-file application dispatcher `anonymize_file(...)`, with optional
+  output directory support.
+- Batch workflow `anonymize_batch(...)`.
+- Simple Tkinter GUI in `src/gui.py` for selecting multiple input files, an
+  output folder, and an optional private dictionary.
 - Default GUI entry point in `src/main.py`.
 - Safe report text generation in `src/report.py`.
-- Report path helper `build_report_path(...)`, which saves `_RAPORT.txt`
-  reports next to anonymized outputs.
+- Report path helper `build_report_path(...)`, which can target the selected
+  output folder.
+- Collision-safe path helper for `_ANON`, `_RAPORT`, and `_BATCH_SUMMARY`
+  outputs.
 - Private sensitive terms parsing and replacement in `src/sensitive_terms.py`.
 - Dictionary alias parsing with `alias | alias = [LABEL]` support.
 - Case-insensitive and whitespace-tolerant private dictionary matching.
 - Post-anonymization audit in `src/audit.py`.
 - Optional `sensitive_terms_path` arguments in the TXT, DOCX, PDF, and
-  single-file dispatcher workflows, while the plain text engine still accepts
-  preloaded `sensitive_terms`.
+single-file dispatcher and batch workflows, while the plain text engine still
+accepts preloaded `sensitive_terms`.
 - `_with_audit` TXT, DOCX, PDF, and dispatcher helpers that return safe audit
   metadata while existing helpers keep their Stage 2-5 return shape.
 - Optional GUI selection of a private sensitive terms file path without
@@ -74,6 +86,7 @@ audit metadata, and counters continue to expose labels and counts only.
   checks.
 - TXT, DOCX, PDF, and dispatcher flows that create safe reports after
   successful anonymization.
+- Batch summary report generation with safe filenames and no private paths.
 - Runtime dependency on `python-docx`.
 - Runtime dependency on `pypdf`.
 - Unit tests for the Stage 1 anonymizer using synthetic values only.
@@ -97,6 +110,9 @@ audit metadata, and counters continue to expose labels and counts only.
   case-insensitive matching, whitespace normalization, longer aliases before
   shorter aliases, label-only counters, safe alias reports, and audit
   dictionary matching using synthetic values only.
+- Unit tests for Stage 12 collision-safe naming, output workspace behavior,
+  batch TXT/DOCX/PDF processing, safe error continuation, and safe batch
+  summary content using synthetic values only.
 - Synthetic sample text files in `tests/sample_data/`.
 - Synthetic example dictionary in `examples/sensitive_terms.example.txt`.
 - Synthetic seed dictionary example in `examples/sensitive_terms.seed.example.txt`.
@@ -111,7 +127,6 @@ audit metadata, and counters continue to expose labels and counts only.
 ## What Does Not Exist Yet
 
 - Advanced GUI preview or editing workflow.
-- Batch processing.
 - Drag and drop.
 - OCR, AI, API calls, cloud services, local LLMs, or databases.
 - Detailed report generation beyond safe counters, safe audit metadata, and
@@ -139,13 +154,14 @@ python -m unittest discover -s tests
 - The core engine processes only a plain Python string.
 - File input/output supports `.txt` files, basic `.docx` files, and
   text-based `.pdf` input.
-- TXT outputs are written next to the source with an `_ANON` suffix.
-- DOCX outputs are written next to the source with an `_ANON` suffix.
+- TXT outputs are written to the selected output folder with an `_ANON` suffix.
+- DOCX outputs are written to the selected output folder with an `_ANON` suffix.
 - PDF input is extracted as text and saved as `_ANON.txt`; no anonymized PDF is
   created.
-- TXT and PDF inputs with the same base name in the same folder can still
-  create confusing or colliding `_ANON.txt` and `_RAPORT.txt` paths. Stage 10.1
-  documents this limitation rather than adding a new output folder workflow.
+- Existing output files are not overwritten silently; numbered suffixes such as
+  `_2` and `_3` are used when needed.
+- Batch processing is sequential and records per-file errors in the safe batch
+  summary.
 - Reports contain only safe metadata, category counters, and manual review
   notices. They do not contain source values, full input paths, filenames,
   dictionary source aliases or terms, or replacement maps.
@@ -157,8 +173,8 @@ python -m unittest discover -s tests
   advanced elements are not handled.
 - PDF support requires an existing text layer. Scanned PDFs are not supported,
   OCR is not included, and PDF layout preservation is not guaranteed.
-- The GUI processes one selected file at a time and does not include document
-  preview, editing, drag and drop, or batch processing.
+- The GUI processes selected files sequentially and does not include document
+  preview, editing, or drag and drop.
 - Report files are plain TXT only and do not include a detailed audit trail.
 - Private dictionary matching is deterministic, case-insensitive, and tolerant
   of extra internal spaces, but it is not fuzzy matching, inflection handling,
@@ -185,16 +201,15 @@ Last committed implementation before the Stage 10.1/Stage 11 working tree:
 Current working tree stage:
 
 ```text
-Stage 11: smart dictionary foundation and portfolio README polish
+Stage 12: safe output workspace and batch processing
 ```
 
 ## Next Logical Step
 
-After Stage 11 review, the safest next step is a small implementation commit
-for the smart dictionary foundation and README/documentation polish. Later work
-should stay separate and require an explicit project decision, especially OCR,
-batch processing, installer work, better NLP, stronger entity detection,
-packaging, or release automation.
+After Stage 12 review, the safest next step is a small implementation commit
+for the safe output workspace and batch processing work. Later work should stay
+separate and require an explicit project decision, especially OCR, installer
+work, better NLP, stronger entity detection, packaging, or release automation.
 
 ## Warning
 

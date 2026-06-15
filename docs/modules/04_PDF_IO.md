@@ -8,7 +8,8 @@ anonymized result as a TXT file. Stage 6 adds safe report file output after
 successful anonymization. Stage 8 lets the workflow receive optional private
 sensitive terms. Stage 9 audits the anonymized PDF-to-TXT output before saving
 the safe report. Stage 10.1 lets the workflow receive a dictionary path and
-report safe dictionary status.
+report safe dictionary status. Stage 12 lets the workflow write to a selected
+output folder with collision-safe names.
 
 ## Related files
 
@@ -29,7 +30,7 @@ pypdf
 
 The dependency is used locally to read extractable text from PDF files. It does
 not add internet calls, APIs, cloud services, AI, OCR, local LLMs, databases, or
-batch processing.
+batch-specific PDF logic.
 
 ## Public API
 
@@ -38,9 +39,9 @@ read_pdf_file(file_path: str | Path) -> str
 extract_text(file_path: str | Path) -> str
 build_anonymized_pdf_txt_path(source_path: str | Path) -> Path
 build_report_path(source_path: str | Path) -> Path
-save_anonymized_pdf_txt_copy(source_path: str | Path, anonymized_text: str) -> Path
-anonymize_pdf_file(source_path: str | Path, sensitive_terms=None, sensitive_terms_path=None) -> tuple[Path, dict[str, int]]
-anonymize_pdf_file_with_audit(source_path: str | Path, sensitive_terms=None, sensitive_terms_path=None)
+save_anonymized_pdf_txt_copy(source_path: str | Path, anonymized_text: str, output_dir=None) -> Path
+anonymize_pdf_file(source_path: str | Path, sensitive_terms=None, sensitive_terms_path=None, output_dir=None) -> tuple[Path, dict[str, int]]
+anonymize_pdf_file_with_audit(source_path: str | Path, sensitive_terms=None, sensitive_terms_path=None, output_dir=None)
 ```
 
 `anonymize_pdf_file(...)` passes extracted PDF text through the existing
@@ -55,19 +56,21 @@ The PDF workflow is:
 2. `anonymize_pdf_file()` loads an optional dictionary path and passes the
    extracted text to `anonymize_text()`.
 3. `save_anonymized_pdf_txt_copy()` writes the anonymized text as UTF-8 TXT.
-4. The output file is saved next to the source with an `_ANON.txt` suffix.
+4. The output file is saved with an `_ANON.txt` suffix, in the selected output
+   folder when one is provided.
 5. `audit_text()` checks the anonymized TXT output.
-6. A safe report file is saved next to the output with a `_RAPORT.txt` suffix.
-   The report includes safe dictionary status and label counters only.
+6. A safe report file is saved with a `_RAPORT.txt` suffix. The report includes
+   safe dictionary status and label counters only.
 
 Example:
 
 ```text
-document.pdf -> document_ANON.txt
-document.pdf -> document_RAPORT.txt
+output folder / document_ANON.txt
+output folder / document_RAPORT.txt
 ```
 
-The original PDF file is not modified.
+The original PDF file is not modified. Existing generated files are not
+overwritten silently; numbered names are used when needed.
 
 ## Unsupported PDFs
 
@@ -90,6 +93,8 @@ Stage 4 does not support:
 - PDF input produces TXT output only.
 - No anonymized PDF file is created.
 - The safe report file receives the `_RAPORT.txt` suffix.
+- Generated files can be written to a selected output folder.
+- Existing generated files are not overwritten silently.
 - No replacement map is created.
 - No source values are written to reports, metadata, or counters.
 - The integration helper returns only the output path and category counters.
@@ -116,7 +121,8 @@ extractable text, writing `_ANON.txt` output, preserving the original PDF,
 PDF-to-TXT anonymization integration, safe counters without source values, and
 the absence of `_ANON.pdf` output. Stage 9 tests cover audit report safety and
 dispatcher audit metadata. Stage 10.1 tests cover dictionary path replacement
-and report safety for PDF-to-TXT output.
+and report safety for PDF-to-TXT output. Stage 12 tests cover text-based PDF
+processing through the batch workflow.
 
 ## Known limitations
 
@@ -127,8 +133,8 @@ and report safety for PDF-to-TXT output.
 - Scanned PDFs are not supported.
 - OCR is not included.
 - No anonymized PDF output is created.
-- PDF input still writes `document_ANON.txt`; a same-base TXT file in the same
-  folder can create confusing or colliding output/report paths.
+- PDF input still writes `document_ANON.txt`, but Stage 12 collision-safe
+  naming prevents silent overwrites in the output folder.
 - Stage 9 audit checks only the extracted anonymized TXT output and does not
   add OCR or scanned PDF support.
 - Manual review is still required before trusting or sharing anonymized output.

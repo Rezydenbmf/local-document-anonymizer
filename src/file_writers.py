@@ -9,6 +9,7 @@ DOCX_EXTENSION = ".docx"
 PDF_EXTENSION = ".pdf"
 ANON_SUFFIX = "_ANON"
 REPORT_SUFFIX = "_RAPORT"
+BATCH_SUMMARY_FILENAME = "_BATCH_SUMMARY.txt"
 AnonymizeFunction = Callable[[str], tuple[str, dict[str, int]]]
 
 
@@ -54,53 +55,94 @@ def _ensure_pdf_path(file_path: str | Path) -> Path:
     return path
 
 
-def build_anonymized_txt_path(source_path: str | Path) -> Path:
+def build_collision_safe_path(candidate_path: str | Path) -> Path:
+    """Return candidate path or the next numbered path if it already exists."""
+    path = Path(candidate_path)
+    if not path.exists():
+        return path
+
+    index = 2
+    while True:
+        next_path = path.with_name(f"{path.stem}_{index}{path.suffix}")
+        if not next_path.exists():
+            return next_path
+        index += 1
+
+
+def _output_directory(source_path: str | Path, output_dir: str | Path | None) -> Path:
+    if output_dir is None:
+        return Path(source_path).parent
+    return Path(output_dir)
+
+
+def build_anonymized_txt_path(
+    source_path: str | Path, output_dir: str | Path | None = None
+) -> Path:
     """Return the anonymized output path for a TXT source file."""
     path = _ensure_txt_path(source_path)
-    return path.with_name(f"{path.stem}{ANON_SUFFIX}{path.suffix}")
+    return _output_directory(path, output_dir) / f"{path.stem}{ANON_SUFFIX}{TXT_EXTENSION}"
 
 
-def build_anonymized_docx_path(source_path: str | Path) -> Path:
+def build_anonymized_docx_path(
+    source_path: str | Path, output_dir: str | Path | None = None
+) -> Path:
     """Return the anonymized output path for a DOCX source file."""
     path = _ensure_docx_path(source_path)
-    return path.with_name(f"{path.stem}{ANON_SUFFIX}{path.suffix}")
+    return _output_directory(path, output_dir) / f"{path.stem}{ANON_SUFFIX}{DOCX_EXTENSION}"
 
 
-def build_anonymized_pdf_txt_path(source_path: str | Path) -> Path:
+def build_anonymized_pdf_txt_path(
+    source_path: str | Path, output_dir: str | Path | None = None
+) -> Path:
     """Return the anonymized TXT output path for a PDF source file."""
     path = _ensure_pdf_path(source_path)
-    return path.with_name(f"{path.stem}{ANON_SUFFIX}{TXT_EXTENSION}")
+    return _output_directory(path, output_dir) / f"{path.stem}{ANON_SUFFIX}{TXT_EXTENSION}"
 
 
-def build_report_path(source_path: str | Path) -> Path:
+def build_report_path(
+    source_path: str | Path, output_dir: str | Path | None = None
+) -> Path:
     """Return the safe report output path for a supported source file."""
     path = Path(source_path)
     if path.suffix.lower() not in (TXT_EXTENSION, DOCX_EXTENSION, PDF_EXTENSION):
         raise _unsupported_extension_error(path)
 
-    return path.with_name(f"{path.stem}{REPORT_SUFFIX}{TXT_EXTENSION}")
+    return _output_directory(path, output_dir) / f"{path.stem}{REPORT_SUFFIX}{TXT_EXTENSION}"
+
+
+def build_batch_summary_path(output_dir: str | Path) -> Path:
+    """Return the default batch summary path in an output workspace."""
+    return Path(output_dir) / BATCH_SUMMARY_FILENAME
 
 
 def save_anonymized_txt_copy(
-    source_path: str | Path, anonymized_text: str
+    source_path: str | Path,
+    anonymized_text: str,
+    output_dir: str | Path | None = None,
 ) -> Path:
     """Write anonymized UTF-8 TXT content without modifying the source file."""
     if not isinstance(anonymized_text, str):
         raise TypeError("anonymized_text must be a string")
 
-    output_path = build_anonymized_txt_path(source_path)
+    output_path = build_collision_safe_path(
+        build_anonymized_txt_path(source_path, output_dir=output_dir)
+    )
     output_path.write_text(anonymized_text, encoding="utf-8")
     return output_path
 
 
 def save_anonymized_pdf_txt_copy(
-    source_path: str | Path, anonymized_text: str
+    source_path: str | Path,
+    anonymized_text: str,
+    output_dir: str | Path | None = None,
 ) -> Path:
     """Write anonymized PDF text as UTF-8 TXT without modifying the PDF."""
     if not isinstance(anonymized_text, str):
         raise TypeError("anonymized_text must be a string")
 
-    output_path = build_anonymized_pdf_txt_path(source_path)
+    output_path = build_collision_safe_path(
+        build_anonymized_pdf_txt_path(source_path, output_dir=output_dir)
+    )
     output_path.write_text(anonymized_text, encoding="utf-8")
     return output_path
 
@@ -171,6 +213,7 @@ def save_anonymized_docx_copy(
     source_path: str | Path,
     anonymize: AnonymizeFunction,
     anonymize_run: AnonymizeFunction | None = None,
+    output_dir: str | Path | None = None,
 ) -> tuple[Path, dict[str, int]]:
     """Anonymize a local DOCX source and save a separate _ANON.docx copy."""
     if not callable(anonymize):
@@ -179,7 +222,9 @@ def save_anonymized_docx_copy(
         raise TypeError("anonymize_run must be callable")
 
     path = _ensure_docx_path(source_path)
-    output_path = build_anonymized_docx_path(path)
+    output_path = build_collision_safe_path(
+        build_anonymized_docx_path(path, output_dir=output_dir)
+    )
     Document = _load_document_class()
     document = Document(path)
     counters: dict[str, int] = {}
@@ -198,18 +243,24 @@ def save_anonymized_docx_copy(
     return output_path, counters
 
 
-def save_anonymized_copy(source_path: str | Path, anonymized_text: str) -> str:
+def save_anonymized_copy(
+    source_path: str | Path,
+    anonymized_text: str,
+    output_dir: str | Path | None = None,
+) -> str:
     """Save an anonymized copy and return its path as text."""
     path = Path(source_path)
 
     if path.suffix.lower() == TXT_EXTENSION:
-        return str(save_anonymized_txt_copy(path, anonymized_text))
+        return str(save_anonymized_txt_copy(path, anonymized_text, output_dir=output_dir))
     if path.suffix.lower() == DOCX_EXTENSION:
         raise ValueError(
             "DOCX output requires save_anonymized_docx_copy(...), which "
             "uses the existing anonymization engine on the source DOCX."
         )
     if path.suffix.lower() == PDF_EXTENSION:
-        return str(save_anonymized_pdf_txt_copy(path, anonymized_text))
+        return str(
+            save_anonymized_pdf_txt_copy(path, anonymized_text, output_dir=output_dir)
+        )
 
     raise _unsupported_extension_error(path)

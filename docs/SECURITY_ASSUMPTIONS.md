@@ -26,6 +26,12 @@ only. They must not include document text, detected source values, full input
 paths, full input filenames, text snippets, dictionary source aliases, or logs
 containing document content.
 
+Batch summary reports may include safe input filenames, safe generated output
+filenames, safe generated report filenames, aggregate category counters, audit
+status counts, and controlled error descriptions. They must not include full
+paths, source document text, detected source values, dictionary aliases,
+private dictionary terms, raw exception messages, or replacement maps.
+
 ## No Replacement Map
 
 The application must not store a map from original sensitive values to replacement labels.
@@ -71,14 +77,18 @@ output.
 
 ## Original Files Are Not Modified
 
-Original user files must remain unchanged. Future output should be saved as a separate anonymized copy.
+Original user files must remain unchanged. Generated files are saved as
+separate anonymized copies in the output folder selected by the user. Existing
+generated files must not be silently overwritten; numbered suffixes are used
+when a target name already exists.
 
 ## Synthetic Test Data Only
 
 The repository may contain only synthetic examples and tests. Real documents and personal data must stay out of the repository.
 
 Generated `_ANON` and `_RAPORT` files from real data must not be committed.
-Logs, local configuration files, `.env` files, private folders, real private
+Generated `_BATCH_SUMMARY` files from real data must not be committed. Logs,
+local configuration files, `.env` files, private folders, real private
 dictionaries, and real input documents must also stay out of git.
 
 ## Manual Review Required

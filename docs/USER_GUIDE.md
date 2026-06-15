@@ -7,19 +7,21 @@ sensitive values in documents with general labels.
 
 ## 2. What This Application Is Not For
 
-It is not a cloud service, compliance guarantee, OCR tool, batch processor, or automatic privacy solution.
+It is not a cloud service, compliance guarantee, OCR tool, document editor, or
+automatic privacy solution.
 
 ## 3. Basic Workflow
 
 The current MVP workflow is:
 
 1. Run `python src/main.py`.
-2. Select one supported file.
-3. Optionally select a private sensitive terms file.
-4. Click `Anonymize`.
-5. Check the status, dictionary status, category counters, audit status, output
-   path, and report path.
-6. Manually review the anonymized output file before using or sharing it.
+2. Select one or more supported files.
+3. Select an output folder.
+4. Optionally select a private sensitive terms file.
+5. Click `Anonymize batch`.
+6. Check the status, dictionary status, category counters, aggregate audit
+   status, generated filenames, and batch summary filename.
+7. Manually review each anonymized output file before using or sharing it.
 
 The application saves output files before manual review. It does not provide an
 in-app document preview or editing screen.
@@ -66,14 +68,14 @@ range.
 PDF support requires an existing text layer. Scanned PDFs are not supported,
 OCR is not included, and PDF layout preservation is not guaranteed.
 
-OCR, AI, APIs, cloud services, databases, batch processing, drag and drop,
-advanced document preview, PDF writing, automatic entity detection, and
-detailed audit reports with source snippets are not supported.
+OCR, AI, APIs, cloud services, databases, drag and drop, advanced document
+preview, PDF writing, automatic entity detection, and detailed audit reports
+with source snippets are not supported.
 
 ## 5. Report Files
 
 For every successful TXT, DOCX, or text-based PDF anonymization, the
-application writes a separate `_RAPORT.txt` file next to the anonymized output.
+application writes a separate `_RAPORT.txt` file in the selected output folder.
 
 The report contains:
 
@@ -91,6 +93,22 @@ The report contains:
 The report does not contain document text, original sensitive values, full
 input paths, source filenames, private dictionary terms, text snippets, or
 replacement maps.
+
+For each batch run, the application writes `_BATCH_SUMMARY.txt` in the selected
+output folder. If that name already exists, it writes `_BATCH_SUMMARY_2.txt`,
+`_BATCH_SUMMARY_3.txt`, and so on. The batch summary contains:
+
+- number of input files,
+- number of successful files,
+- number of errors,
+- aggregate category counters,
+- audit status counts,
+- safe input, output, and report filenames,
+- controlled safe error descriptions.
+
+The batch summary does not contain source document text, original sensitive
+values, private dictionary terms, aliases, replacement maps, full paths, or raw
+exception messages.
 
 ## 6. Safety Rules for Users
 
@@ -159,8 +177,8 @@ replacements in `_ANON`. Use small synthetic files for the first check.
 
 Private dictionary matching is deterministic, case-insensitive, and tolerant of
 extra spaces inside matched terms. It is not fuzzy matching, inflection
-handling, OCR, AI, automatic names or address detection, NER, batch processing,
-a database, or automatic deletion of originals.
+handling, OCR, AI, automatic names or address detection, NER, a database, or
+automatic deletion of originals.
 
 ## 9. Post-Anonymization Audit
 
@@ -190,21 +208,29 @@ Manual review is required before using the result.
 
 ## 11. Where Output Files Are Saved
 
-The application saves anonymized TXT and DOCX copies next to the source file
-with the `_ANON` suffix. PDF input is saved next to the source as `_ANON.txt`.
-A safe report is saved next to the anonymized output with the `_RAPORT.txt`
-suffix. Original files must not be modified.
+The application saves anonymized TXT and DOCX copies in the output folder
+selected by the user with the `_ANON` suffix. PDF input is saved in the output
+folder as `_ANON.txt`. A safe report is saved in the same output folder with
+the `_RAPORT.txt` suffix. A batch summary is saved as `_BATCH_SUMMARY.txt`.
+Original files must not be modified.
 
-If a TXT file and a PDF file have the same base name in the same folder, their
-TXT output and report names can be confusing or collide. Use distinct test file
-names or separate folders until a future approved output workflow changes this.
+The application does not silently overwrite existing generated files. If a
+target name already exists, the next numbered name is used:
+
+```text
+document_ANON.txt
+document_ANON_2.txt
+document_ANON_3.txt
+```
+
+The same rule applies to `_RAPORT.txt` reports and `_BATCH_SUMMARY.txt`.
 
 ## 12. What Is Not Implemented Yet
 
 The current MVP includes plain string anonymization, TXT file input/output, basic DOCX
-file input/output, text-based PDF input with TXT output, and a simple Tkinter
-GUI for one selected file. Safe reports, optional private dictionary input,
-dictionary status reporting, and a safe post-anonymization audit are
-implemented. Automatic names, broad addresses, cities, organizations, OCR, AI,
-APIs, drag and drop, batch processing, advanced preview, and anonymized PDF
-output are not implemented.
+file input/output, text-based PDF input with TXT output, a simple Tkinter GUI,
+batch processing, an output folder workflow, collision-safe output names, safe
+reports, optional private dictionary input, dictionary status reporting, and a
+safe post-anonymization audit. Automatic names, broad addresses, cities,
+organizations, OCR, AI, APIs, drag and drop, advanced preview, editing workflow,
+and anonymized PDF output are not implemented.

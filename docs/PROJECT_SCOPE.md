@@ -17,8 +17,12 @@ The current MVP supports:
 - Private dictionary aliases, case-insensitive matching, and
   whitespace-tolerant term matching.
 - Simple label-based anonymization.
-- A simple Tkinter GUI for one selected file.
+- A simple Tkinter GUI for selected supported files.
+- A selected output folder for generated files.
+- Sequential batch processing.
+- Collision-safe generated filenames.
 - Separate `_ANON` output files.
+- Safe `_BATCH_SUMMARY` batch reports.
 - Safe post-anonymization audit status and counters.
 - Reports without original source values.
 - Manual review after output is generated.
@@ -87,12 +91,12 @@ The MVP will not include:
 - OCR.
 - Scanned PDF support.
 - Excel support.
-- Batch processing.
 - Local AI models.
 - Cloud services.
 - APIs.
 - Databases.
 - Fuzzy matching, inflection handling, NER, or automatic entity extraction.
+- Drag and drop, document preview, or document editing.
 - Automatic deletion of original files.
 
 ## What the Application Does Not Guarantee

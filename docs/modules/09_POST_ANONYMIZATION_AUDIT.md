@@ -11,6 +11,7 @@ private dictionary loads successfully, its terms are also checked in the
 anonymized output. Stage 11 makes dictionary audit matching case-insensitive
 and whitespace-tolerant, using the same private dictionary matcher as
 anonymization.
+Stage 12 aggregates per-file audit statuses into the safe batch summary.
 
 ## Related files
 
@@ -21,15 +22,17 @@ anonymization.
 - `tests/test_audit.py`
 - `tests/test_report.py`
 - `tests/test_gui_workflow.py`
+- `tests/test_batch_processing.py`
 
 ## Public API
 
 ```python
 audit_text(text: str, sensitive_terms=None) -> dict[str, object]
-anonymize_txt_file_with_audit(source_path, sensitive_terms=None, sensitive_terms_path=None)
-anonymize_docx_file_with_audit(source_path, sensitive_terms=None, sensitive_terms_path=None)
-anonymize_pdf_file_with_audit(source_path, sensitive_terms=None, sensitive_terms_path=None)
-anonymize_file_with_audit(source_path, sensitive_terms=None, sensitive_terms_path=None)
+anonymize_txt_file_with_audit(source_path, sensitive_terms=None, sensitive_terms_path=None, output_dir=None)
+anonymize_docx_file_with_audit(source_path, sensitive_terms=None, sensitive_terms_path=None, output_dir=None)
+anonymize_pdf_file_with_audit(source_path, sensitive_terms=None, sensitive_terms_path=None, output_dir=None)
+anonymize_file_with_audit(source_path, sensitive_terms=None, sensitive_terms_path=None, output_dir=None)
+anonymize_batch(source_paths, output_dir, sensitive_terms=None, sensitive_terms_path=None)
 ```
 
 The existing Stage 2-5 helpers still return the original two-value tuple:
@@ -102,14 +105,15 @@ separately.
 The report module receives only the audit result metadata and writes a safe
 `Post-anonymization audit` section to `_RAPORT.txt`.
 
-The GUI shows audit status and counters by category only. It does not display
-original detected values, text snippets, or dictionary terms.
+The batch workflow counts per-file audit statuses in `_BATCH_SUMMARY.txt`. The
+GUI shows aggregate audit status counts. It does not display original detected
+values, text snippets, or dictionary terms.
 
 ## Safety Assumptions
 
 - The audit runs locally only.
-- No internet, API, cloud, AI, OCR, local LLM, database, batch processing, or
-  replacement map is added.
+- No internet, API, cloud, AI, OCR, local LLM, database, NER, or replacement
+  map is added.
 - The audit does not store or return source values.
 - The audit does not store or return text snippets.
 - The audit does not store or return private dictionary terms.
@@ -132,7 +136,8 @@ dictionary terms, Stage 11 dictionary audit matching, case/reference patterns,
 postal codes, address-like patterns, OK status, report safety, and
 GUI/dispatcher audit metadata safety with synthetic values only. Stage 10.1
 tests add workflow coverage for loaded dictionary status and dictionary path
-integration across TXT, DOCX, and PDF.
+integration across TXT, DOCX, and PDF. Stage 12 tests cover audit status
+aggregation in the batch summary.
 
 ## Known Limitations
 
@@ -142,4 +147,4 @@ integration across TXT, DOCX, and PDF.
 - It does not prove that anonymization is complete.
 - It does not add automatic names, cities, organizations, broad addresses,
   context-aware detection, OCR, AI, APIs, cloud services, local LLMs,
-  databases, batch processing, or automatic deletion of originals.
+  databases, NER, or automatic deletion of originals.

@@ -1,6 +1,7 @@
 """Regex-based plain text anonymization engine."""
 
 from collections.abc import Iterable
+from dataclasses import dataclass
 from pathlib import Path
 import re
 
@@ -15,21 +16,53 @@ from file_readers import (
     read_txt_file,
 )
 from file_writers import (
+    build_batch_summary_path,
+    build_collision_safe_path,
     build_report_path,
     save_anonymized_docx_copy,
     save_anonymized_pdf_txt_copy,
     save_anonymized_txt_copy,
 )
 from report import (
+    BATCH_ERROR_EMPTY_TEXT_PDF,
+    BATCH_ERROR_FILE_IO,
+    BATCH_ERROR_MISSING_DEPENDENCY,
+    BATCH_ERROR_PROCESSING_FAILED,
+    BATCH_ERROR_TEXT_DECODING,
+    BATCH_ERROR_UNSUPPORTED_FILE_TYPE,
     DICTIONARY_STATUS_INVALID,
     DICTIONARY_STATUS_LOADED,
     DICTIONARY_STATUS_NOT_SELECTED,
+    save_batch_summary_file,
     save_report_file,
 )
 from sensitive_terms import SensitiveTerm, apply_sensitive_terms, load_sensitive_terms
 
 
 SUPPORTED_LABELS = ("PESEL", "EMAIL", "TELEFON", "DATA")
+
+
+@dataclass(frozen=True)
+class FileWorkflowResult:
+    """Internal single-file workflow result including safe output paths."""
+
+    output_path: Path
+    report_path: Path
+    counters: dict[str, int]
+    audit_result: dict[str, object]
+
+
+@dataclass(frozen=True)
+class BatchResult:
+    """Public batch workflow result with paths plus safe summary metadata."""
+
+    summary_path: Path
+    input_count: int
+    success_count: int
+    error_count: int
+    counters: dict[str, int]
+    audit_status_counts: dict[str, int]
+    results: list[dict[str, object]]
 
 _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
@@ -171,12 +204,14 @@ def anonymize_txt_file(
     source_path: str | Path,
     sensitive_terms: Iterable[SensitiveTerm] | None = None,
     sensitive_terms_path: str | Path | None = None,
+    output_dir: str | Path | None = None,
 ) -> tuple[Path, dict[str, int]]:
     """Anonymize a TXT file and save output plus a safe report."""
     output_path, counters, _ = anonymize_txt_file_with_audit(
         source_path,
         sensitive_terms=sensitive_terms,
         sensitive_terms_path=sensitive_terms_path,
+        output_dir=output_dir,
     )
     return output_path, counters
 
@@ -185,8 +220,25 @@ def anonymize_txt_file_with_audit(
     source_path: str | Path,
     sensitive_terms: Iterable[SensitiveTerm] | None = None,
     sensitive_terms_path: str | Path | None = None,
+    output_dir: str | Path | None = None,
 ) -> tuple[Path, dict[str, int], dict[str, object]]:
     """Anonymize a TXT file and return safe audit metadata."""
+    result = _anonymize_txt_file_result(
+        source_path,
+        sensitive_terms=sensitive_terms,
+        sensitive_terms_path=sensitive_terms_path,
+        output_dir=output_dir,
+    )
+    return result.output_path, result.counters, result.audit_result
+
+
+def _anonymize_txt_file_result(
+    source_path: str | Path,
+    sensitive_terms: Iterable[SensitiveTerm] | None = None,
+    sensitive_terms_path: str | Path | None = None,
+    output_dir: str | Path | None = None,
+) -> FileWorkflowResult:
+    """Anonymize a TXT file and return paths needed by batch processing."""
     terms, dictionary_status = _prepare_workflow_dictionary(
         sensitive_terms, sensitive_terms_path
     )
@@ -194,7 +246,9 @@ def anonymize_txt_file_with_audit(
     anonymized, counters, dictionary_counters = (
         _anonymize_text_with_dictionary_counters(text, sensitive_terms=terms)
     )
-    output_path = save_anonymized_txt_copy(source_path, anonymized)
+    output_path = save_anonymized_txt_copy(
+        source_path, anonymized, output_dir=output_dir
+    )
     dictionary_result = _dictionary_result(
         status=dictionary_status,
         sensitive_terms=terms,
@@ -204,22 +258,29 @@ def anonymize_txt_file_with_audit(
         audit_text(anonymized, sensitive_terms=terms),
         dictionary_result,
     )
-    _save_anonymization_report(
-        source_path, output_path, counters, audit_result, dictionary_result
+    report_path = _save_anonymization_report(
+        source_path,
+        output_path,
+        counters,
+        audit_result,
+        dictionary_result,
+        output_dir=output_dir,
     )
-    return output_path, counters, audit_result
+    return FileWorkflowResult(output_path, report_path, counters, audit_result)
 
 
 def anonymize_docx_file(
     source_path: str | Path,
     sensitive_terms: Iterable[SensitiveTerm] | None = None,
     sensitive_terms_path: str | Path | None = None,
+    output_dir: str | Path | None = None,
 ) -> tuple[Path, dict[str, int]]:
     """Anonymize a DOCX file and save output plus a safe report."""
     output_path, counters, _ = anonymize_docx_file_with_audit(
         source_path,
         sensitive_terms=sensitive_terms,
         sensitive_terms_path=sensitive_terms_path,
+        output_dir=output_dir,
     )
     return output_path, counters
 
@@ -228,8 +289,25 @@ def anonymize_docx_file_with_audit(
     source_path: str | Path,
     sensitive_terms: Iterable[SensitiveTerm] | None = None,
     sensitive_terms_path: str | Path | None = None,
+    output_dir: str | Path | None = None,
 ) -> tuple[Path, dict[str, int], dict[str, object]]:
     """Anonymize a DOCX file and return safe audit metadata."""
+    result = _anonymize_docx_file_result(
+        source_path,
+        sensitive_terms=sensitive_terms,
+        sensitive_terms_path=sensitive_terms_path,
+        output_dir=output_dir,
+    )
+    return result.output_path, result.counters, result.audit_result
+
+
+def _anonymize_docx_file_result(
+    source_path: str | Path,
+    sensitive_terms: Iterable[SensitiveTerm] | None = None,
+    sensitive_terms_path: str | Path | None = None,
+    output_dir: str | Path | None = None,
+) -> FileWorkflowResult:
+    """Anonymize a DOCX file and return paths needed by batch processing."""
     terms, dictionary_status = _prepare_workflow_dictionary(
         sensitive_terms, sensitive_terms_path
     )
@@ -252,6 +330,7 @@ def anonymize_docx_file_with_audit(
         source_path,
         anonymize_docx_text,
         anonymize_run=anonymize_docx_run,
+        output_dir=output_dir,
     )
     anonymized_text = read_docx_file(output_path)
     dictionary_result = _dictionary_result(
@@ -263,22 +342,29 @@ def anonymize_docx_file_with_audit(
         audit_text(anonymized_text, sensitive_terms=terms),
         dictionary_result,
     )
-    _save_anonymization_report(
-        source_path, output_path, counters, audit_result, dictionary_result
+    report_path = _save_anonymization_report(
+        source_path,
+        output_path,
+        counters,
+        audit_result,
+        dictionary_result,
+        output_dir=output_dir,
     )
-    return output_path, counters, audit_result
+    return FileWorkflowResult(output_path, report_path, counters, audit_result)
 
 
 def anonymize_pdf_file(
     source_path: str | Path,
     sensitive_terms: Iterable[SensitiveTerm] | None = None,
     sensitive_terms_path: str | Path | None = None,
+    output_dir: str | Path | None = None,
 ) -> tuple[Path, dict[str, int]]:
     """Anonymize text from a PDF and save TXT output plus a safe report."""
     output_path, counters, _ = anonymize_pdf_file_with_audit(
         source_path,
         sensitive_terms=sensitive_terms,
         sensitive_terms_path=sensitive_terms_path,
+        output_dir=output_dir,
     )
     return output_path, counters
 
@@ -287,8 +373,25 @@ def anonymize_pdf_file_with_audit(
     source_path: str | Path,
     sensitive_terms: Iterable[SensitiveTerm] | None = None,
     sensitive_terms_path: str | Path | None = None,
+    output_dir: str | Path | None = None,
 ) -> tuple[Path, dict[str, int], dict[str, object]]:
     """Anonymize text from a PDF and return safe audit metadata."""
+    result = _anonymize_pdf_file_result(
+        source_path,
+        sensitive_terms=sensitive_terms,
+        sensitive_terms_path=sensitive_terms_path,
+        output_dir=output_dir,
+    )
+    return result.output_path, result.counters, result.audit_result
+
+
+def _anonymize_pdf_file_result(
+    source_path: str | Path,
+    sensitive_terms: Iterable[SensitiveTerm] | None = None,
+    sensitive_terms_path: str | Path | None = None,
+    output_dir: str | Path | None = None,
+) -> FileWorkflowResult:
+    """Anonymize a PDF file and return paths needed by batch processing."""
     terms, dictionary_status = _prepare_workflow_dictionary(
         sensitive_terms, sensitive_terms_path
     )
@@ -296,7 +399,9 @@ def anonymize_pdf_file_with_audit(
     anonymized, counters, dictionary_counters = (
         _anonymize_text_with_dictionary_counters(text, sensitive_terms=terms)
     )
-    output_path = save_anonymized_pdf_txt_copy(source_path, anonymized)
+    output_path = save_anonymized_pdf_txt_copy(
+        source_path, anonymized, output_dir=output_dir
+    )
     dictionary_result = _dictionary_result(
         status=dictionary_status,
         sensitive_terms=terms,
@@ -306,10 +411,15 @@ def anonymize_pdf_file_with_audit(
         audit_text(anonymized, sensitive_terms=terms),
         dictionary_result,
     )
-    _save_anonymization_report(
-        source_path, output_path, counters, audit_result, dictionary_result
+    report_path = _save_anonymization_report(
+        source_path,
+        output_path,
+        counters,
+        audit_result,
+        dictionary_result,
+        output_dir=output_dir,
     )
-    return output_path, counters, audit_result
+    return FileWorkflowResult(output_path, report_path, counters, audit_result)
 
 
 def _save_anonymization_report(
@@ -318,10 +428,13 @@ def _save_anonymization_report(
     counters: dict[str, int],
     audit_result: dict[str, object],
     dictionary_result: dict[str, object],
+    output_dir: str | Path | None = None,
 ) -> Path:
     source = Path(source_path)
     output = Path(output_path)
-    report_path = build_report_path(source)
+    report_path = build_collision_safe_path(
+        build_report_path(source, output_dir=output_dir)
+    )
     return save_report_file(
         report_path,
         counters=counters,
@@ -338,12 +451,14 @@ def anonymize_file(
     source_path: str | Path,
     sensitive_terms: Iterable[SensitiveTerm] | None = None,
     sensitive_terms_path: str | Path | None = None,
+    output_dir: str | Path | None = None,
 ) -> tuple[Path, dict[str, int]]:
     """Anonymize one supported application file using existing workflows."""
     output_path, counters, _ = anonymize_file_with_audit(
         source_path,
         sensitive_terms=sensitive_terms,
         sensitive_terms_path=sensitive_terms_path,
+        output_dir=output_dir,
     )
     return output_path, counters
 
@@ -352,27 +467,47 @@ def anonymize_file_with_audit(
     source_path: str | Path,
     sensitive_terms: Iterable[SensitiveTerm] | None = None,
     sensitive_terms_path: str | Path | None = None,
+    output_dir: str | Path | None = None,
 ) -> tuple[Path, dict[str, int], dict[str, object]]:
     """Anonymize one supported file and return safe audit metadata."""
+    result = _anonymize_file_result(
+        source_path,
+        sensitive_terms=sensitive_terms,
+        sensitive_terms_path=sensitive_terms_path,
+        output_dir=output_dir,
+    )
+    return result.output_path, result.counters, result.audit_result
+
+
+def _anonymize_file_result(
+    source_path: str | Path,
+    sensitive_terms: Iterable[SensitiveTerm] | None = None,
+    sensitive_terms_path: str | Path | None = None,
+    output_dir: str | Path | None = None,
+) -> FileWorkflowResult:
+    """Anonymize one supported file and return paths needed by batch processing."""
     path = Path(source_path)
 
     if path.suffix.lower() == TXT_EXTENSION:
-        return anonymize_txt_file_with_audit(
+        return _anonymize_txt_file_result(
             path,
             sensitive_terms=sensitive_terms,
             sensitive_terms_path=sensitive_terms_path,
+            output_dir=output_dir,
         )
     if path.suffix.lower() == DOCX_EXTENSION:
-        return anonymize_docx_file_with_audit(
+        return _anonymize_docx_file_result(
             path,
             sensitive_terms=sensitive_terms,
             sensitive_terms_path=sensitive_terms_path,
+            output_dir=output_dir,
         )
     if path.suffix.lower() == PDF_EXTENSION:
-        return anonymize_pdf_file_with_audit(
+        return _anonymize_pdf_file_result(
             path,
             sensitive_terms=sensitive_terms,
             sensitive_terms_path=sensitive_terms_path,
+            output_dir=output_dir,
         )
 
     suffix = path.suffix.lower() or "<none>"
@@ -380,4 +515,122 @@ def anonymize_file_with_audit(
     raise ValueError(
         f"Unsupported file extension for anonymize_file: {suffix}. "
         f"Only {supported} files are supported."
+    )
+
+
+def _safe_batch_error_description(error: Exception) -> str:
+    if isinstance(error, UnicodeDecodeError):
+        return BATCH_ERROR_TEXT_DECODING
+    if isinstance(error, ValueError) and "no extractable text" in str(error):
+        return BATCH_ERROR_EMPTY_TEXT_PDF
+    if isinstance(error, OSError):
+        return BATCH_ERROR_FILE_IO
+    if isinstance(error, RuntimeError):
+        return BATCH_ERROR_MISSING_DEPENDENCY
+    return BATCH_ERROR_PROCESSING_FAILED
+
+
+def _merge_audit_status_count(
+    audit_status_counts: dict[str, int],
+    audit_result: dict[str, object],
+) -> None:
+    status = audit_result.get("status")
+    if status not in ("ok", "warning"):
+        status = "not run"
+    audit_status_counts[str(status)] = audit_status_counts.get(str(status), 0) + 1
+
+
+def anonymize_batch(
+    source_paths: Iterable[str | Path],
+    output_dir: str | Path,
+    sensitive_terms: Iterable[SensitiveTerm] | None = None,
+    sensitive_terms_path: str | Path | None = None,
+) -> BatchResult:
+    """Anonymize supported files sequentially into one output workspace."""
+    if sensitive_terms is not None and sensitive_terms_path is not None:
+        raise ValueError(
+            "Provide either sensitive_terms or sensitive_terms_path, not both."
+        )
+
+    paths = [Path(path) for path in source_paths]
+    reusable_terms = _reusable_sensitive_terms(sensitive_terms)
+    aggregate_counters: dict[str, int] = {}
+    audit_status_counts = {"ok": 0, "warning": 0, "not run": 0}
+    results: list[dict[str, object]] = []
+    success_count = 0
+    error_count = 0
+
+    for path in paths:
+        if path.suffix.lower() not in SUPPORTED_EXTENSIONS:
+            error_count += 1
+            audit_status_counts["not run"] += 1
+            results.append(
+                {
+                    "input_name": path.name,
+                    "status": "error",
+                    "error": BATCH_ERROR_UNSUPPORTED_FILE_TYPE,
+                }
+            )
+            continue
+
+        try:
+            result = _anonymize_file_result(
+                path,
+                sensitive_terms=reusable_terms,
+                sensitive_terms_path=sensitive_terms_path,
+                output_dir=output_dir,
+            )
+        except Exception as error:
+            error_count += 1
+            audit_status_counts["not run"] += 1
+            results.append(
+                {
+                    "input_name": path.name,
+                    "status": "error",
+                    "error": _safe_batch_error_description(error),
+                }
+            )
+            continue
+
+        success_count += 1
+        _merge_counters(aggregate_counters, result.counters)
+        _merge_audit_status_count(audit_status_counts, result.audit_result)
+        dictionary_result = result.audit_result.get("dictionary", {})
+        dictionary_status = (
+            dictionary_result.get("status")
+            if isinstance(dictionary_result, dict)
+            else "unknown"
+        )
+        results.append(
+            {
+                "input_name": path.name,
+                "status": "success",
+                "output_name": result.output_path.name,
+                "report_name": result.report_path.name,
+                "audit_status": result.audit_result.get("status", "unknown"),
+                "dictionary_status": dictionary_status,
+            }
+        )
+
+    summary_path = build_collision_safe_path(build_batch_summary_path(output_dir))
+    save_batch_summary_file(
+        summary_path,
+        input_count=len(paths),
+        success_count=success_count,
+        error_count=error_count,
+        counters=aggregate_counters,
+        audit_status_counts=audit_status_counts,
+        results=results,
+        category_order=SUPPORTED_LABELS,
+        manual_review_required=True,
+    )
+
+    return BatchResult(
+        summary_path=summary_path,
+        input_count=len(paths),
+        success_count=success_count,
+        error_count=error_count,
+        counters=aggregate_counters,
+        audit_status_counts=audit_status_counts,
+        results=results,
     )

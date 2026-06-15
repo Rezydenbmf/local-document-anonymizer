@@ -7,7 +7,7 @@ replacement maps. Stage 8 allows reports to include private dictionary labels
 and counts, but never original dictionary terms or aliases. Stage 9 adds a safe
 post-anonymization audit section with audit status and counters only. Stage
 10.1 adds a safe dictionary section with used/status/matches-found metadata and
-dictionary label counters only.
+dictionary label counters only. Stage 12 adds safe batch summary reports.
 
 ## Related files
 
@@ -25,15 +25,17 @@ dictionary label counters only.
 build_report_text(...) -> str
 save_report_file(...) -> Path
 build_report_path(source_path: str | Path) -> Path
+build_batch_summary_text(...) -> str
+save_batch_summary_file(...) -> Path
 ```
 
 The existing anonymization helpers keep their Stage 2-5 return values:
 
 ```python
-anonymize_txt_file(source_path, sensitive_terms=None, sensitive_terms_path=None) -> tuple[Path, dict[str, int]]
-anonymize_docx_file(source_path, sensitive_terms=None, sensitive_terms_path=None) -> tuple[Path, dict[str, int]]
-anonymize_pdf_file(source_path, sensitive_terms=None, sensitive_terms_path=None) -> tuple[Path, dict[str, int]]
-anonymize_file(source_path, sensitive_terms=None, sensitive_terms_path=None) -> tuple[Path, dict[str, int]]
+anonymize_txt_file(source_path, sensitive_terms=None, sensitive_terms_path=None, output_dir=None) -> tuple[Path, dict[str, int]]
+anonymize_docx_file(source_path, sensitive_terms=None, sensitive_terms_path=None, output_dir=None) -> tuple[Path, dict[str, int]]
+anonymize_pdf_file(source_path, sensitive_terms=None, sensitive_terms_path=None, output_dir=None) -> tuple[Path, dict[str, int]]
+anonymize_file(source_path, sensitive_terms=None, sensitive_terms_path=None, output_dir=None) -> tuple[Path, dict[str, int]]
 ```
 
 After a successful anonymized output is saved, these helpers also save a report
@@ -49,12 +51,17 @@ document.docx -> document_ANON.docx + document_RAPORT.txt
 document.pdf -> document_ANON.txt + document_RAPORT.txt
 ```
 
-Original files are not modified.
+Stage 12 saves these generated files in the selected output folder. Original
+files are not modified. Existing generated files are not overwritten silently;
+numbered names such as `document_RAPORT_2.txt` are used when needed.
 
-Stage 10.1 does not change output naming. A TXT file and PDF file with the
-same base name in the same folder can still produce confusing or colliding
-`_ANON.txt` and `_RAPORT.txt` paths, so manual tests should use distinct names
-or folders.
+Batch summary reports are saved as:
+
+```text
+_BATCH_SUMMARY.txt
+_BATCH_SUMMARY_2.txt
+_BATCH_SUMMARY_3.txt
+```
 
 ## Report Contents
 
@@ -71,6 +78,19 @@ The report contains only safe metadata:
 - manual review requirement,
 - confirmation that original sensitive values are not stored,
 - confirmation that no replacement map was created.
+
+The batch summary contains only safe metadata:
+
+- input file count,
+- success count,
+- error count,
+- aggregate category counters,
+- audit status counts,
+- manual review requirement,
+- safe input filenames,
+- safe generated output filenames,
+- safe generated report filenames,
+- controlled safe error descriptions.
 
 ## Deliberately Excluded
 
@@ -90,6 +110,10 @@ The report must not contain:
 - full input filenames,
 - logs containing document content.
 
+Batch summary reports may contain safe filenames, but they must not contain
+full paths, source document text, private dictionary terms, dictionary aliases,
+raw exception messages, or replacement maps.
+
 Dictionary status meanings:
 
 - `not selected`: no dictionary path was provided.
@@ -103,9 +127,10 @@ counters are grouped by dictionary label/category only.
 ## Safety Assumptions
 
 The report module receives only counters, safe dictionary metadata, audit
-metadata, and file-type metadata. It does not read source documents and does
-not receive original source text, original private dictionary aliases or terms,
-text snippets, or replacement maps.
+metadata, file-type metadata, safe filenames, and controlled batch error
+descriptions. It does not read source documents and does not receive original
+source text, original private dictionary aliases or terms, text snippets, raw
+exception text, or replacement maps.
 
 Manual review is still required. A safe report confirms what the tool replaced
 and what the audit warned about, but it does not prove the whole document is
@@ -121,8 +146,8 @@ python -m unittest discover -s tests
 
 The tests cover report text generation, report path naming, safe report
 content, TXT integration, DOCX integration, PDF integration, dispatcher report
-safety, private dictionary report safety, and post-anonymization audit report
-safety.
+safety, private dictionary report safety, post-anonymization audit report
+safety, and Stage 12 batch summary safety.
 
 ## Known Limitations
 
@@ -131,5 +156,6 @@ safety.
   audit trail.
 - No replacement map is created.
 - No original private dictionary aliases or terms are written to reports.
-- No source filename is written into the report body.
+- Per-file reports do not write source filenames into the report body.
+- Batch summaries write safe filenames only, not full paths.
 - The report does not guarantee complete anonymization.

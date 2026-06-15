@@ -8,9 +8,10 @@ input file
 -> optional dictionary path loading
 -> optional private sensitive terms replacement
 -> anonymization
--> output file
+-> collision-safe output file in selected output folder
 -> post-anonymization audit
 -> safe report
+-> optional batch summary
 -> manual review outside the application
 ```
 
@@ -18,10 +19,11 @@ input file
 
 `main.py` is the application entry point. It starts the Stage 5 Tkinter GUI.
 
-`gui.py` contains the Tkinter desktop interface. It lets the user select one
-supported file, optionally select a private sensitive terms file, run
-anonymization, and view selected path, safe dictionary status, category
-counters, audit status, audit counters, output path, report path, and the
+`gui.py` contains the Tkinter desktop interface. It lets the user select one or
+more supported files, select an output folder, optionally select a private
+sensitive terms file, run sequential batch anonymization, and view safe
+filenames, safe dictionary status, aggregate category counters, aggregate audit
+status counts, output/report filenames, the batch summary filename, and the
 manual review warning. It stores only the selected dictionary path and lets the
 workflow load the file. It does not display dictionary contents, original
 detected values, text snippets, or dictionary terms.
@@ -39,15 +41,17 @@ dictionary aliases.
 `anonymizer.py` contains the plain text anonymization engine. It accepts a
 Python string, optionally applies private sensitive terms, replaces supported
 regex matches with placeholders, and returns category counters only. The file
-workflows and dispatcher can also accept `sensitive_terms_path`; they load the
-dictionary centrally, build safe dictionary metadata, and keep invalid
-dictionaries non-fatal while marking the dictionary status as `invalid`. It
-also exposes the Stage 2 `anonymize_txt_file(...)` helper, the Stage 3
-`anonymize_docx_file(...)` helper, the Stage 4 `anonymize_pdf_file(...)`
-helper, and the Stage 5 `anonymize_file(...)` dispatcher. Stage 9 adds
-`_with_audit` variants for TXT, DOCX, PDF, and dispatcher workflows. The
-existing helpers still return only the output path plus category counters, but
-they also run the audit and save it into the safe report.
+workflows, dispatcher, and batch workflow can also accept
+`sensitive_terms_path`; they load the dictionary centrally, build safe
+dictionary metadata, and keep invalid dictionaries non-fatal while marking the
+dictionary status as `invalid`. It also exposes the Stage 2
+`anonymize_txt_file(...)` helper, the Stage 3 `anonymize_docx_file(...)`
+helper, the Stage 4 `anonymize_pdf_file(...)` helper, the Stage 5
+`anonymize_file(...)` dispatcher, and the Stage 12 `anonymize_batch(...)`
+workflow. Stage 9 adds `_with_audit` variants for TXT, DOCX, PDF, and
+dispatcher workflows. The existing helpers still return only the output path
+plus category counters, but they also run the audit and save it into the safe
+report.
 
 `audit.py` contains the Stage 9 post-anonymization audit. It checks already
 anonymized output text for conservative suspicious remaining patterns. When a
@@ -58,7 +62,14 @@ semantics as anonymization. The audit returns only status, category counters,
 and a manual review flag. It never returns source values, text snippets,
 private dictionary terms, document text, or replacement maps.
 
-`file_writers.py` saves anonymized TXT, DOCX, and PDF-to-TXT copies without modifying original files. The output filename receives the `_ANON` suffix. For example, `document.txt` becomes `document_ANON.txt`, `document.docx` becomes `document_ANON.docx`, and `document.pdf` becomes `document_ANON.txt`. It also builds safe report paths with the `_RAPORT.txt` suffix.
+`file_writers.py` saves anonymized TXT, DOCX, and PDF-to-TXT copies without
+modifying original files. The output filename receives the `_ANON` suffix. For
+example, `document.txt` becomes `document_ANON.txt`, `document.docx` becomes
+`document_ANON.docx`, and `document.pdf` becomes `document_ANON.txt`. Stage 12
+allows these paths to target a selected output folder and uses numbered
+collision-safe names when a generated file already exists. It also builds safe
+report paths with the `_RAPORT.txt` suffix and the default
+`_BATCH_SUMMARY.txt` path.
 
 DOCX writing uses `python-docx` locally. It updates supported paragraph and simple table text in a copy of the original document. Basic paragraph and run formatting is preserved when possible, but full DOCX fidelity is not guaranteed.
 
@@ -71,7 +82,9 @@ values. It receives only status, input type, output type, anonymization
 category counters, safe dictionary status metadata, dictionary label counters,
 audit status, audit counters, and optional category ordering. Dictionary
 counters are labels only, such as `IMIE NAZWISKO: 2`; original dictionary
-terms are not passed to the report module.
+terms are not passed to the report module. Stage 12 also adds safe batch
+summary text generation with safe filenames, aggregate counters, audit status
+counts, and controlled error descriptions only.
 
 ## Safety Design
 
@@ -95,15 +108,16 @@ implied by status, label names, and counters. It does not contain dictionary
 source aliases, document fragments, source file paths, or replacement maps.
 
 The project still does not use internet calls, APIs, cloud services, AI
-services, OCR, local LLMs, databases, drag and drop, or batch processing.
+services, OCR, local LLMs, databases, drag and drop, document preview, or an
+editing workflow.
 
 ## GUI Limitations
 
 The GUI is a simple workflow shell. It does not preview document content, edit
-output, display dictionary contents, display audit snippets, process multiple
-files, write anonymized PDF files, or generate detailed audit reports beyond
-safe counters. It calls the existing file workflow helpers instead of parsing
-files inside the GUI layer.
+output, display dictionary contents, display audit snippets, write anonymized
+PDF files, or generate detailed audit reports beyond safe counters and the
+safe batch summary. It calls the batch workflow instead of parsing files inside
+the GUI layer.
 
 ## Private Dictionary Limitations
 
@@ -124,7 +138,4 @@ using any anonymized DOCX output.
 
 Stage 4 supports only PDFs that already contain extractable text. Scanned PDFs
 are not supported, OCR is not included, PDF layout preservation is not
-guaranteed, and PDF input produces TXT output only. A TXT and PDF with the same
-base name in the same folder can still produce confusing or colliding
-`_ANON.txt` and `_RAPORT.txt` paths; Stage 10.1 documents this rather than
-adding a new output-folder workflow.
+guaranteed, and PDF input produces TXT output only.

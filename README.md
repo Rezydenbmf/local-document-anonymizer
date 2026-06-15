@@ -9,21 +9,24 @@ a safe report, and expects manual review before any result is trusted.
 ## Key Features
 
 - Local desktop GUI built with Tkinter.
-- One selected input file per run.
+- Multiple selected input files per batch run.
+- User-selected output folder for all generated files.
 - TXT input and UTF-8 TXT output.
 - Basic DOCX input and output for paragraphs and simple tables.
 - Text-based PDF input with anonymized TXT output.
+- Collision-safe `_ANON`, `_RAPORT`, and `_BATCH_SUMMARY` naming.
 - Regex anonymization for `PESEL`, `EMAIL`, `TELEFON`, and `DATA`.
 - Optional private dictionary with aliases, case-insensitive matching, and
   whitespace-tolerant term matching.
 - Safe post-anonymization audit with category counters only.
 - Safe `_RAPORT.txt` reports without source personal data.
+- Safe `_BATCH_SUMMARY.txt` reports with batch counts and safe filenames only.
 - Synthetic examples and tests only.
 
 ## Privacy And Local-First Assumptions
 
 The application is designed to run locally. It does not use AI, APIs, cloud
-services, network calls, OCR, local LLMs, databases, or batch processing.
+services, network calls, OCR, local LLMs, or databases.
 
 The repository must not contain real documents, real personal data, private
 dictionaries, generated `_ANON` files, generated `_RAPORT` files, logs, local
@@ -42,8 +45,11 @@ review-support tool. Manual review is required for every anonymized output.
 | `document.docx` | `document_ANON.docx` | `document_RAPORT.txt` |
 | `document.pdf` | `document_ANON.txt` | `document_RAPORT.txt` |
 
+All generated files are saved in the output folder selected by the user.
 Original files are not modified. PDF support requires an existing extractable
-text layer and does not create anonymized PDF files.
+text layer and does not create anonymized PDF files. If an output name already
+exists, the app writes the next safe numbered name, such as
+`document_ANON_2.txt` or `document_RAPORT_2.txt`.
 
 ## How Anonymization Works
 
@@ -52,9 +58,10 @@ The core engine processes plain text deterministically:
 1. Load an optional private dictionary from a UTF-8 text file.
 2. Replace dictionary aliases with their configured labels.
 3. Replace supported regex categories: `EMAIL`, `PESEL`, `TELEFON`, `DATA`.
-4. Save an anonymized output copy.
+4. Save an anonymized output copy in the selected output folder.
 5. Audit the anonymized output for suspicious remaining patterns.
-6. Save a safe report.
+6. Save a safe per-file report.
+7. For batch runs, save a safe batch summary report.
 
 Counters contain labels and counts only. The app does not create or store a
 replacement map from original values to labels.
@@ -108,7 +115,7 @@ current audit checks did not find supported warning patterns.
 
 ## Reports
 
-Each successful workflow writes a safe `_RAPORT.txt` report containing:
+Each successful file workflow writes a safe `_RAPORT.txt` report containing:
 
 - status,
 - input and output type,
@@ -120,9 +127,14 @@ Each successful workflow writes a safe `_RAPORT.txt` report containing:
 - confirmation that original sensitive values are not stored,
 - confirmation that no replacement map was created.
 
-Reports do not include document text, original sensitive values, source
-filenames, full input paths, dictionary aliases, text snippets, logs, or
-replacement maps.
+Reports do not include document text, original sensitive values, full input
+paths, dictionary aliases, text snippets, logs, or replacement maps.
+
+Batch runs also write `_BATCH_SUMMARY.txt` in the selected output folder. The
+summary contains batch counts, aggregate category counters, audit status
+counts, safe input/output/report filenames, and controlled safe error
+descriptions. It does not include source text, private dictionary terms,
+aliases, full paths, exception messages, or a replacement map.
 
 ## Installation
 
@@ -151,38 +163,45 @@ python -m unittest discover -s tests
 ## Basic Usage
 
 1. Start the app with `python src/main.py`.
-2. Select one `.txt`, `.docx`, or text-based `.pdf` file.
-3. Optionally select a private dictionary file.
-4. Click `Anonymize`.
-5. Check the GUI status, counters, audit result, output path, and report path.
-6. Manually review the anonymized output before using or sharing it.
+2. Select one or more `.txt`, `.docx`, or text-based `.pdf` files.
+3. Select an output folder.
+4. Optionally select a private dictionary file.
+5. Click `Anonymize batch`.
+6. Check the GUI status, counters, audit summary, generated filenames, and
+   batch summary filename.
+7. Manually review every anonymized output before using or sharing it.
 
 ## Example Workflow
 
 For a TXT file:
 
 ```text
-document.txt -> document_ANON.txt
-document.txt -> document_RAPORT.txt
+output folder / document_ANON.txt
+output folder / document_RAPORT.txt
 ```
 
 For a DOCX file:
 
 ```text
-document.docx -> document_ANON.docx
-document.docx -> document_RAPORT.txt
+output folder / document_ANON.docx
+output folder / document_RAPORT.txt
 ```
 
 For a text-based PDF file:
 
 ```text
-document.pdf -> document_ANON.txt
-document.pdf -> document_RAPORT.txt
+output folder / document_ANON.txt
+output folder / document_RAPORT.txt
 ```
 
-If a TXT and PDF with the same base name are processed in the same folder, their
-TXT outputs and reports can be confusing or collide. Use distinct names or
-separate folders for manual tests.
+For a batch run:
+
+```text
+output folder / _BATCH_SUMMARY.txt
+```
+
+If a generated filename already exists, the app adds `_2`, `_3`, and so on
+before the extension instead of overwriting it.
 
 ## Project Structure
 
@@ -203,9 +222,10 @@ docs/                  Project and module documentation
 
 ## Tests
 
-The test suite uses synthetic data only. It covers the regex engine, TXT/DOCX/PDF
-workflows, GUI dispatcher layer, private dictionary parsing and matching, safe
-reports, and post-anonymization audit metadata.
+The test suite uses synthetic data only. It covers the regex engine,
+TXT/DOCX/PDF workflows, GUI dispatcher layer, private dictionary parsing and
+matching, safe reports, post-anonymization audit metadata, collision-safe
+output naming, output workspace behavior, and batch processing.
 
 Run:
 
@@ -222,25 +242,29 @@ python -m unittest discover -s tests
   ML, or LLM-based detection.
 - No OCR or scanned PDF support.
 - No anonymized PDF output.
-- No batch processing or drag and drop.
+- Batch processing is sequential; one file's error is recorded safely and does
+  not stop later files.
+- No drag and drop.
 - No advanced preview or editing workflow.
 - DOCX support is limited to basic paragraphs and simple tables.
 - DOCX headers, footers, comments, footnotes, form fields, text in images, and
   advanced elements are not handled.
 - PDF support requires an extractable text layer and does not preserve layout.
 - Reports contain safe counters and metadata only, not a detailed audit trail.
+- Batch summary reports use safe filenames and controlled error descriptions
+  only; they do not include private paths or exception text.
 
 ## Roadmap
 
 Completed MVP stages include repository setup, regex anonymization, TXT IO,
 basic DOCX IO, text-based PDF input, Tkinter GUI, safe reports, private
-dictionary support, post-anonymization audit, manual validation fixes, and the
-Stage 11 smart dictionary foundation.
+dictionary support, post-anonymization audit, manual validation fixes, the
+Stage 11 smart dictionary foundation, and Stage 12 safe output workspace with
+batch processing.
 
 Potential future work requires explicit approval, especially OCR, scanned PDF
-support, batch processing, stronger entity detection, installer packaging,
-release automation, AI/API integration, local LLMs, databases, or broad NLP
-features.
+support, stronger entity detection, installer packaging, release automation,
+AI/API integration, local LLMs, databases, or broad NLP features.
 
 ## Portfolio Note
 

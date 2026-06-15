@@ -7,7 +7,8 @@ existing plain text engine, and saving a separate anonymized DOCX copy. Stage 6
 adds safe report file output after successful anonymization. Stage 8 lets the
 workflow receive optional private sensitive terms. Stage 9 audits the saved
 anonymized DOCX output text before saving the safe report. Stage 10.1 lets the
-workflow receive a dictionary path and report safe dictionary status.
+workflow receive a dictionary path and report safe dictionary status. Stage 12
+lets the workflow write to a selected output folder with collision-safe names.
 
 ## Related files
 
@@ -28,7 +29,7 @@ python-docx
 
 The dependency is used locally for DOCX reading and writing. It does not add
 internet calls, APIs, cloud services, AI, OCR, local LLMs, databases, or batch
-processing.
+logic.
 
 ## Public API
 
@@ -41,9 +42,10 @@ save_anonymized_docx_copy(
     source_path: str | Path,
     anonymize: Callable[[str], tuple[str, dict[str, int]]],
     anonymize_run: Callable[[str], tuple[str, dict[str, int]]] | None = None,
+    output_dir=None,
 ) -> tuple[Path, dict[str, int]]
-anonymize_docx_file(source_path: str | Path, sensitive_terms=None, sensitive_terms_path=None) -> tuple[Path, dict[str, int]]
-anonymize_docx_file_with_audit(source_path: str | Path, sensitive_terms=None, sensitive_terms_path=None)
+anonymize_docx_file(source_path: str | Path, sensitive_terms=None, sensitive_terms_path=None, output_dir=None) -> tuple[Path, dict[str, int]]
+anonymize_docx_file_with_audit(source_path: str | Path, sensitive_terms=None, sensitive_terms_path=None, output_dir=None)
 ```
 
 `anonymize_docx_file(...)` passes DOCX text through the existing
@@ -60,20 +62,22 @@ The DOCX workflow is:
    function.
 3. `save_anonymized_docx_copy(...)` opens the source DOCX locally, anonymizes
    supported paragraph and simple table text, and saves a separate copy.
-4. The output file is saved next to the source with an `_ANON` suffix.
+4. The output file is saved with an `_ANON` suffix, in the selected output
+   folder when one is provided.
 5. `audit_text()` checks text extracted from the saved `_ANON.docx` copy using
    the same basic DOCX text scope.
-6. A safe report file is saved next to the output with a `_RAPORT.txt` suffix.
-   The report includes safe dictionary status and label counters only.
+6. A safe report file is saved with a `_RAPORT.txt` suffix. The report includes
+   safe dictionary status and label counters only.
 
 Example:
 
 ```text
-document.docx -> document_ANON.docx
-document.docx -> document_RAPORT.txt
+output folder / document_ANON.docx
+output folder / document_RAPORT.txt
 ```
 
-The original DOCX file is not modified.
+The original DOCX file is not modified. Existing generated files are not
+overwritten silently; numbered names are used when needed.
 
 ## Safety assumptions
 
@@ -81,6 +85,8 @@ The original DOCX file is not modified.
 - The original source file is left unchanged.
 - The output file receives the `_ANON` suffix.
 - The safe report file receives the `_RAPORT.txt` suffix.
+- Generated files can be written to a selected output folder.
+- Existing generated files are not overwritten silently.
 - No replacement map is created.
 - No source values are written to reports, metadata, or counters.
 - The integration helper returns only the output path and category counters.
@@ -135,7 +141,8 @@ The Stage 3 tests cover DOCX reading, `_ANON.docx` writing, original DOCX
 preservation, DOCX anonymization integration, safe counters without source
 values, TXT regression coverage, and unsupported extension errors. Stage 9
 tests cover audit report safety and dispatcher audit metadata. Stage 10.1 tests
-cover dictionary path replacement and report safety for DOCX.
+cover dictionary path replacement and report safety for DOCX. Stage 12 tests
+cover DOCX processing through the batch workflow.
 
 ## Known limitations
 
@@ -144,10 +151,9 @@ cover dictionary path replacement and report safety for DOCX.
   whitespace-tolerant, but not fuzzy matching or automatic entity detection.
 - DOCX formatting preservation is basic only.
 - Advanced DOCX elements are not scanned or rewritten.
-- The Stage 5 GUI supports one selected file only.
-- There is no OCR, AI, API integration, cloud service, database, batch
-  processing, replacement map, or detailed audit report generation with source
-  snippets.
+- There is no OCR, AI, API integration, cloud service, database, drag and drop,
+  preview, editing, replacement map, or detailed audit report generation with
+  source snippets.
 - Text-based PDF input is handled by the separate Stage 4 PDF-to-TXT workflow.
 - Stage 9 audit uses the existing basic DOCX text extraction scope and does not
   inspect unsupported DOCX elements.
