@@ -48,6 +48,10 @@ Reports must never contain original sensitive source values. The application mus
 
 - Update documentation when a module or project stage changes.
 - Update `docs/PROJECT_STATE.md` after meaningful changes.
+- After meaningful feature changes, review and update `README.md` if
+  user-facing behavior, supported formats, workflow, limitations, installation,
+  or usage changed.
+- `README.md` is part of the portfolio and must remain accurate.
 - Update `docs/MODULE_INDEX.md` when modules are added or changed.
 - Update the relevant `docs/modules/*.md` file.
 - Update `docs/LESSONS_LEARNED.md` only when there is a reusable lesson.

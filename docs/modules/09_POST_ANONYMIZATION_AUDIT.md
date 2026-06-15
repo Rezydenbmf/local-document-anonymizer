@@ -7,8 +7,10 @@ has already been written to an `_ANON` output file.
 
 The audit is an additional safety layer before manual review. It is not a
 guarantee that a document is fully anonymized. Stage 10.1 ensures that when a
-private dictionary loads successfully, its exact terms are also checked in the
-anonymized output.
+private dictionary loads successfully, its terms are also checked in the
+anonymized output. Stage 11 makes dictionary audit matching case-insensitive
+and whitespace-tolerant, using the same private dictionary matcher as
+anonymization.
 
 ## Related files
 
@@ -91,10 +93,11 @@ DOCX workflow audits the text extracted from the saved `_ANON.docx` copy, using
 the same basic paragraph and simple-table scope as the existing DOCX reader.
 
 When a dictionary path is selected and parsed successfully, the workflow passes
-the loaded terms into the audit. Remaining exact dictionary terms are counted
-under `SENSITIVE_DICTIONARY_TERM`. If no dictionary is selected or the selected
-dictionary is invalid, the audit runs without dictionary terms and the report
-records the safe dictionary status separately.
+the loaded aliases into the audit. Remaining dictionary aliases are counted
+under `SENSITIVE_DICTIONARY_TERM` using Stage 11 matching semantics. If no
+dictionary is selected or the selected dictionary is invalid, the audit runs
+without dictionary terms and the report records the safe dictionary status
+separately.
 
 The report module receives only the audit result metadata and writes a safe
 `Post-anonymization audit` section to `_RAPORT.txt`.
@@ -111,7 +114,7 @@ original detected values, text snippets, or dictionary terms.
 - The audit does not store or return text snippets.
 - The audit does not store or return private dictionary terms.
 - Dictionary audit findings contain only `SENSITIVE_DICTIONARY_TERM` counters,
-  never the terms.
+  never the aliases or terms.
 - The audit does not inspect unsupported DOCX elements beyond the existing
   basic DOCX text scope.
 - Manual review remains required even when the audit status is `ok`.
@@ -124,11 +127,12 @@ Run:
 python -m unittest discover -s tests
 ```
 
-The Stage 9 tests cover suspicious remaining email, PESEL, phone, date, private
-dictionary terms, case/reference patterns, postal codes, address-like patterns,
-OK status, report safety, and GUI/dispatcher audit metadata safety with
-synthetic values only. Stage 10.1 tests add workflow coverage for loaded
-dictionary status and dictionary path integration across TXT, DOCX, and PDF.
+The tests cover suspicious remaining email, PESEL, phone, date, private
+dictionary terms, Stage 11 dictionary audit matching, case/reference patterns,
+postal codes, address-like patterns, OK status, report safety, and
+GUI/dispatcher audit metadata safety with synthetic values only. Stage 10.1
+tests add workflow coverage for loaded dictionary status and dictionary path
+integration across TXT, DOCX, and PDF.
 
 ## Known Limitations
 

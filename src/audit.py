@@ -3,7 +3,7 @@
 from collections.abc import Iterable
 import re
 
-from sensitive_terms import SensitiveTerm
+from sensitive_terms import SensitiveTerm, count_sensitive_term_matches
 
 
 AUDIT_STATUS_OK = "ok"
@@ -89,42 +89,10 @@ _AUDIT_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
 )
 
 
-def _term_regex(term: str) -> str:
-    escaped = re.escape(term)
-    if term[0].isalnum() or term[0] == "_":
-        escaped = rf"(?<!\w){escaped}"
-    if term[-1].isalnum() or term[-1] == "_":
-        escaped = rf"{escaped}(?!\w)"
-    return escaped
-
-
-def _prepare_sensitive_terms(
-    sensitive_terms: Iterable[SensitiveTerm] | None,
-) -> list[SensitiveTerm]:
-    if sensitive_terms is None:
-        return []
-
-    terms = list(sensitive_terms)
-    seen_terms: set[str] = set()
-    for term in terms:
-        if not isinstance(term, SensitiveTerm):
-            raise TypeError("sensitive_terms must contain SensitiveTerm items")
-        if term.term in seen_terms:
-            raise ValueError("sensitive_terms must not contain duplicate terms")
-        seen_terms.add(term.term)
-
-    return sorted(terms, key=lambda item: len(item.term), reverse=True)
-
-
 def _count_sensitive_dictionary_terms(
     text: str, sensitive_terms: Iterable[SensitiveTerm] | None
 ) -> int:
-    terms = _prepare_sensitive_terms(sensitive_terms)
-    if not terms:
-        return 0
-
-    pattern = re.compile("|".join(_term_regex(term.term) for term in terms))
-    return sum(1 for _ in pattern.finditer(text))
+    return count_sensitive_term_matches(text, sensitive_terms)
 
 
 def audit_text(

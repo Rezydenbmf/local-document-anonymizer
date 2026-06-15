@@ -1,4 +1,5 @@
-# Synthetic example sensitive terms file
+# Synthetic seed private dictionary example.
+# Copy outside the repository before adapting it for real private terms.
 
 Person One Example | P. One Example | PERSON ONE EXAMPLE = [IMIE NAZWISKO]
 Example Institution | Example Inst. | EXAMPLE INSTITUTION = [NAZWA PODMIOTU]
@@ -6,3 +7,4 @@ Example Department | Dept. Example = [KOMORKA ORGANIZACYJNA]
 Exampletown = [MIEJSCOWOSC]
 Example Street | Example St. = [ULICA]
 CASE-EXAMPLE-001 | Example Case 001 = [NUMER SPRAWY]
+Example Abbreviation | Ex. Abbrev. = [SKROT]

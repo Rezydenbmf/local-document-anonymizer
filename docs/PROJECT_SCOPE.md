@@ -14,6 +14,8 @@ The current MVP supports:
 - DOCX files.
 - Text-based PDF files.
 - Optional private sensitive terms dictionary support.
+- Private dictionary aliases, case-insensitive matching, and
+  whitespace-tolerant term matching.
 - Simple label-based anonymization.
 - A simple Tkinter GUI for one selected file.
 - Separate `_ANON` output files.
@@ -30,7 +32,7 @@ Built-in regex labels are:
 - `TELEFON`
 - `EMAIL`
 
-Stage 8 also supports user-defined dictionary labels from a private local
+The private dictionary also supports user-defined labels from a private local
 dictionary, for example `IMIE NAZWISKO` or `NAZWA PODMIOTU`. These labels are
 manually defined by the user and are not automatic entity detection.
 
@@ -54,7 +56,7 @@ Real private dictionaries must not be committed to the repository. They should
 live outside the repository or inside an ignored folder such as `private/`.
 
 Reports may include only labels and counts from dictionary matches. They must
-not include original dictionary terms or a replacement map.
+not include original dictionary aliases, source terms, or a replacement map.
 
 Audit results and reports may include only categories and counters. They must
 not include original values, dictionary terms, text snippets, or a replacement
@@ -90,6 +92,7 @@ The MVP will not include:
 - Cloud services.
 - APIs.
 - Databases.
+- Fuzzy matching, inflection handling, NER, or automatic entity extraction.
 - Automatic deletion of original files.
 
 ## What the Application Does Not Guarantee

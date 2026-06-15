@@ -59,3 +59,10 @@ synthetic TXT and private dictionary files before trying real documents. Save
 those files as UTF-8, especially when creating them from PowerShell, because
 incompatible encoding can create false negatives where the workflow appears to
 fail even though the feature works with correctly encoded files.
+
+## 14. README must move with user-facing behavior.
+
+The README is the portfolio entry point. After meaningful feature changes,
+review it for accuracy around supported formats, workflow, limitations,
+installation, usage, privacy assumptions, and current stage before presenting
+the work for commit.

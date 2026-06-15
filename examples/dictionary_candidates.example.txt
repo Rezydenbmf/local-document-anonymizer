@@ -1,0 +1,6 @@
+# Candidate terms found during manual review.
+# Review manually before moving to the private dictionary.
+# Synthetic examples only. Do not store real sensitive data in the repository.
+
+Example Missing Department = [KOMORKA ORGANIZACYJNA]
+Example Case Name = [NAZWA SPRAWY]

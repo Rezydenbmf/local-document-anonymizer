@@ -28,10 +28,13 @@ detected values, text snippets, or dictionary terms.
 
 `file_readers.py` reads UTF-8 TXT files, extracts basic text from local DOCX files, and extracts text from text-based PDFs. DOCX extraction covers normal paragraphs and simple table cells. PDF extraction requires an existing text layer and does not include OCR.
 
-`sensitive_terms.py` contains Stage 8 private dictionary support. It loads a
-UTF-8 local dictionary file, parses `term = [LABEL]` lines, ignores blank lines
-and comments, validates malformed lines with safe line-number errors, applies
-longer exact terms before shorter terms, and returns counters by label only.
+`sensitive_terms.py` contains private dictionary support. It loads a UTF-8
+local dictionary file, parses `term = [LABEL]` and
+`alias | alias = [LABEL]` lines, ignores blank lines and comments, validates
+malformed lines with safe line-number errors, applies longer aliases before
+shorter aliases, and returns counters by label only. Stage 11 matching is
+case-insensitive and tolerates extra internal whitespace inside matched
+dictionary aliases.
 
 `anonymizer.py` contains the plain text anonymization engine. It accepts a
 Python string, optionally applies private sensitive terms, replaces supported
@@ -49,8 +52,9 @@ they also run the audit and save it into the safe report.
 `audit.py` contains the Stage 9 post-anonymization audit. It checks already
 anonymized output text for conservative suspicious remaining patterns. When a
 dictionary loaded successfully, the workflow passes those terms into the audit
-so remaining exact dictionary terms are counted as
-`SENSITIVE_DICTIONARY_TERM`. The audit returns only status, category counters,
+so remaining dictionary aliases are counted as `SENSITIVE_DICTIONARY_TERM`
+using the same Stage 11 case-insensitive and whitespace-tolerant matching
+semantics as anonymization. The audit returns only status, category counters,
 and a manual review flag. It never returns source values, text snippets,
 private dictionary terms, document text, or replacement maps.
 
@@ -75,20 +79,20 @@ The project is local-first and offline. It must not add cloud services, APIs, ne
 
 Reports must not include original sensitive source values. The application must not store replacement maps containing original values.
 
-Stage 8 does not create a replacement map and does not include source values or
-private dictionary terms in returned counters, report files, or GUI status. The
-real private dictionary must not be committed; it should live outside the
-repository or inside an ignored folder such as `private/`.
+Private dictionary support does not create a replacement map and does not
+include source values, aliases, or private dictionary terms in returned
+counters, report files, or GUI status. The real private dictionary must not be
+committed; it should live outside the repository or inside an ignored folder
+such as `private/`.
 
 Stage 9 audit results are safe metadata only. They include warning categories
 and counts, not original values, text snippets, dictionary terms, full document
 text, or replacement maps. Audit status `ok` does not prove complete
 anonymization; manual review remains required.
 
-Stage 10.1 dictionary metadata is safe metadata only. It contains status names,
-booleans implied by status, label names, and counters. It does not contain
-dictionary source terms, document fragments, source file paths, or replacement
-maps.
+Dictionary metadata is safe metadata only. It contains status names, booleans
+implied by status, label names, and counters. It does not contain dictionary
+source aliases, document fragments, source file paths, or replacement maps.
 
 The project still does not use internet calls, APIs, cloud services, AI
 services, OCR, local LLMs, databases, drag and drop, or batch processing.
@@ -103,10 +107,12 @@ files inside the GUI layer.
 
 ## Private Dictionary Limitations
 
-Stage 8 private dictionary matching is literal and case-sensitive. It helps the
-user manually specify exact terms but does not add automatic names, cities,
-organizations, addresses, context-based detection, OCR, AI, APIs, local LLMs,
-cloud services, databases, or a replacement map.
+Stage 11 private dictionary matching is deterministic, case-insensitive, and
+whitespace-tolerant for user-specified aliases. It helps the user manually
+specify known terms and variants, but it does not add fuzzy matching,
+inflection handling, automatic names, cities, organizations, addresses,
+context-based detection, OCR, AI, APIs, local LLMs, cloud services, databases,
+or a replacement map.
 
 ## DOCX Limitations
 

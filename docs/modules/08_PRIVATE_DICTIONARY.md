@@ -2,14 +2,17 @@
 
 ## Purpose
 
-This module implements Stage 8: optional private local sensitive terms
-dictionary support.
+This module documents optional private local sensitive terms dictionary
+support. Stage 8 introduced the dictionary. Stage 11 adds aliases,
+case-insensitive matching, whitespace-tolerant term matching, and synthetic
+candidate/seed examples.
 
-The dictionary lets the user manually specify exact terms that should be
+The dictionary lets the user manually specify terms and aliases that should be
 anonymized, for example:
 
 ```text
 Person One Example = [IMIE NAZWISKO]
+Person One Example | P. One Example = [IMIE NAZWISKO]
 ```
 
 The real dictionary is private user input. It must not be committed to the
@@ -17,8 +20,9 @@ repository. The repository contains only a synthetic example dictionary at
 `examples/sensitive_terms.example.txt`.
 
 Stage 9 can audit anonymized output for private dictionary terms that still
-remain, but the audit returns only the safe category
-`SENSITIVE_DICTIONARY_TERM` and a count.
+remain. Stage 11 makes the audit use the same case-insensitive and
+whitespace-tolerant dictionary matching semantics as anonymization. The audit
+still returns only the safe category `SENSITIVE_DICTIONARY_TERM` and a count.
 
 Stage 10.1 fixes the GUI/dispatcher path flow. The GUI stores the selected
 dictionary path, the workflow loads it centrally, and reports/GUI output show
@@ -31,6 +35,8 @@ only safe dictionary status and label counters.
 - `src/gui.py`
 - `src/report.py`
 - `examples/sensitive_terms.example.txt`
+- `examples/sensitive_terms.seed.example.txt`
+- `examples/dictionary_candidates.example.txt`
 - `tests/test_sensitive_terms.py`
 
 ## Public API
@@ -55,22 +61,39 @@ anonymize_pdf_file(source_path, sensitive_terms=None, sensitive_terms_path=None)
 
 ## Dictionary Format
 
-The dictionary file is UTF-8 text. Supported lines use this format:
+The dictionary file is UTF-8 text. Supported lines use either the original
+single-term format or the Stage 11 alias format:
 
 ```text
 term = [LABEL]
+alias | alias = [LABEL]
+```
+
+Examples:
+
+```text
+Person One Example = [IMIE NAZWISKO]
+Person One Example | P. One Example | PERSON ONE EXAMPLE = [IMIE NAZWISKO]
+Example Institution | Example Inst. = [NAZWA PODMIOTU]
 ```
 
 Rules:
 
 - empty lines are ignored,
 - lines starting with `#` are comments,
+- aliases on one line are separated with `|`,
 - malformed lines raise `ValueError` with a safe line number,
-- duplicate terms are rejected,
+- equivalent aliases for the same label are treated as one match entry,
+- equivalent aliases mapped to different labels are rejected with a safe line
+  number,
 - labels are stored without brackets in counters,
 - replacement text uses brackets, for example `[IMIE NAZWISKO]`.
+- matching is case-insensitive,
+- extra whitespace inside matched terms is tolerated,
+- longer aliases are applied before shorter aliases.
 
-Malformed-line errors must not include the original private term.
+Malformed-line and duplicate-alias errors must not include the original private
+term or alias.
 
 ## Implementation and User Notes
 
@@ -78,15 +101,20 @@ Dictionary files are expected to be UTF-8 text files. The GUI/pipeline
 dictionary flow was manually validated in Stage 10.2 with small synthetic
 UTF-8 TXT and dictionary files. Reports and GUI output must show only safe
 dictionary status, labels, and counters; they must not expose original
-dictionary terms.
+dictionary aliases or terms.
+
+Stage 11 adds a synthetic candidate workflow example at
+`examples/dictionary_candidates.example.txt`. It is only a safe example of how
+a human reviewer can collect missing terms before manually approving them for a
+real private dictionary. Real candidates must not be stored in the repository.
 
 ## How It Works
 
 1. The user optionally selects a private dictionary file path in the GUI, or a
    caller passes parsed `SensitiveTerm` items to the engine.
 2. The dictionary is loaded locally from UTF-8 text.
-3. Private terms are applied before the regex categories.
-4. Longer terms are processed before shorter terms.
+3. Private aliases are applied before the regex categories.
+4. Longer aliases are processed before shorter aliases.
 5. Regex categories such as `EMAIL`, `PESEL`, `TELEFON`, and `DATA` are applied
    after private dictionary replacements.
 6. The function returns anonymized text plus counters by label only.
@@ -121,19 +149,19 @@ Dictionary status values are:
 Reports may contain dictionary used/status/matches-found metadata plus
 dictionary labels and counts. Reports must not contain:
 
-- original private dictionary terms,
+- original private dictionary aliases or terms,
 - original document text,
 - replacement maps,
 - full input paths,
 - source filenames,
-- logs containing source values.
+- logs containing source values,
 - audit snippets or private terms found after anonymization.
 
 Stage 9 audit reports may contain `SENSITIVE_DICTIONARY_TERM: N`, but never the
-private term values.
+private alias or term values.
 
 The report module receives counters and safe dictionary metadata only, not
-original private terms.
+original private aliases or terms.
 
 ## Safety Assumptions
 
@@ -143,8 +171,9 @@ original private terms.
   `private/`.
 - The repository contains only synthetic dictionary examples and tests.
 - No replacement map is created.
-- No source terms are written to reports or returned counters.
-- No source terms are written to audit results or audit report sections.
+- No source aliases or terms are written to reports or returned counters.
+- No source aliases or terms are written to audit results or audit report
+  sections.
 - Invalid dictionary status does not expose the malformed line content or the
   source term value.
 - No internet, APIs, cloud services, AI, OCR, local LLM, database, batch
@@ -159,21 +188,26 @@ Run:
 python -m unittest discover -s tests
 ```
 
-The Stage 8 tests cover valid parsing, ignored comments and empty lines,
-dictionary replacement, counters by label only, safe object representation,
-longer-term replacement order, malformed-line validation, behavior without a
-dictionary, regex integration, and safe report output. Stage 10.1 tests add
-path-based dispatcher flow, report status, invalid dictionary status,
-loaded-without-matches status, and TXT/DOCX/PDF dictionary-path compatibility.
+The tests cover valid parsing, ignored comments and empty lines, dictionary
+replacement, alias parsing, backward compatibility with `term = [LABEL]`,
+case-insensitive matching, whitespace normalization, counters by label only,
+safe object representation, longer-alias replacement order, malformed-line
+validation, behavior without a dictionary, regex integration, safe report
+output, path-based dispatcher flow, report status, invalid dictionary status,
+loaded-without-matches status, TXT/DOCX/PDF dictionary-path compatibility, and
+audit integration.
 
 ## Known Limitations
 
-- Matching is literal and case-sensitive.
+- Matching is deterministic, case-insensitive, and whitespace-tolerant, but not
+  fuzzy or language-aware.
 - The dictionary does not add automatic names, addresses, organizations, cities,
   or context-based detection.
 - The dictionary does not support OCR, scanned PDFs, AI, APIs, cloud services,
-  local LLMs, databases, batch processing, or automatic deletion of originals.
+  local LLMs, databases, NER, inflection handling, batch processing, or
+  automatic deletion of originals.
 - The dictionary is not a replacement map and is not generated by the app.
-- Stage 9 audit can warn that exact private terms may remain, but it does not
-  display those terms and does not guarantee all dictionary terms were handled.
+- Stage 9 audit can warn that private dictionary aliases may remain, but it
+  does not display those aliases and does not guarantee all dictionary terms
+  were handled.
 - Manual review remains required before trusting or sharing anonymized output.

@@ -2,15 +2,17 @@
 
 ## Current Status
 
-The project is in Stage 10.1: manual validation fixes.
+The project is in Stage 11: smart dictionary foundation and portfolio README
+polish.
 
-The Stage 0-10.1 MVP implementation contains a narrow regex-based engine that
+The Stage 0-11 MVP implementation contains a narrow regex-based engine that
 accepts a Python string and returns anonymized text plus category counters. It
-also contains optional private exact-term dictionary support, TXT file readers
-and writers, basic DOCX readers and writers, text-based PDF text extraction,
-small integration helpers for saving separate anonymized TXT, DOCX, and
-PDF-to-TXT outputs, a simple Tkinter GUI for anonymizing one selected supported
-file, safe TXT report generation without source values, and a safe
+also contains optional private dictionary support with aliases,
+case-insensitive matching, and whitespace-tolerant term matching, TXT file
+readers and writers, basic DOCX readers and writers, text-based PDF text
+extraction, small integration helpers for saving separate anonymized TXT, DOCX,
+and PDF-to-TXT outputs, a simple Tkinter GUI for anonymizing one selected
+supported file, safe TXT report generation without source values, and a safe
 post-anonymization audit with category counters only.
 
 Stage 10.1 fixes manual validation findings around the private dictionary flow.
@@ -23,6 +25,12 @@ deletion of originals.
 
 Stage 10.2 manually confirmed the Stage 10.1 dictionary fix with a GUI smoke
 test using small synthetic UTF-8 files.
+
+Stage 11 keeps the existing local workflow and improves the private dictionary
+foundation. Dictionary lines can now contain multiple aliases separated by `|`,
+matching is case-insensitive, excessive internal whitespace is tolerated, and
+longer aliases are still applied before shorter aliases. Reports, GUI status,
+audit metadata, and counters continue to expose labels and counts only.
 
 ## What Exists
 
@@ -46,6 +54,8 @@ test using small synthetic UTF-8 files.
 - Report path helper `build_report_path(...)`, which saves `_RAPORT.txt`
   reports next to anonymized outputs.
 - Private sensitive terms parsing and replacement in `src/sensitive_terms.py`.
+- Dictionary alias parsing with `alias | alias = [LABEL]` support.
+- Case-insensitive and whitespace-tolerant private dictionary matching.
 - Post-anonymization audit in `src/audit.py`.
 - Optional `sensitive_terms_path` arguments in the TXT, DOCX, PDF, and
   single-file dispatcher workflows, while the plain text engine still accepts
@@ -60,6 +70,8 @@ test using small synthetic UTF-8 files.
 - Safe report counters for dictionary labels only.
 - Safe report dictionary section with used/status/matches-found metadata.
 - Safe report section for post-anonymization audit status and counters only.
+- Shared dictionary matching semantics for anonymization and audit dictionary
+  checks.
 - TXT, DOCX, PDF, and dispatcher flows that create safe reports after
   successful anonymization.
 - Runtime dependency on `python-docx`.
@@ -81,8 +93,15 @@ test using small synthetic UTF-8 files.
 - Unit tests for Stage 10.1 dictionary path flow, dictionary report status,
   invalid dictionary handling, loaded-without-matches status, and TXT/DOCX/PDF
   dictionary-path compatibility using synthetic values only.
+- Unit tests for Stage 11 dictionary aliases, backward compatibility,
+  case-insensitive matching, whitespace normalization, longer aliases before
+  shorter aliases, label-only counters, safe alias reports, and audit
+  dictionary matching using synthetic values only.
 - Synthetic sample text files in `tests/sample_data/`.
 - Synthetic example dictionary in `examples/sensitive_terms.example.txt`.
+- Synthetic seed dictionary example in `examples/sensitive_terms.seed.example.txt`.
+- Synthetic manual-review candidate file in
+  `examples/dictionary_candidates.example.txt`.
 - Project, user, security, roadmap, and module documentation.
 - `.gitignore` rules for private data and local artifacts.
 - Stage 7 portfolio/release review documentation updates for README quality,
@@ -129,7 +148,7 @@ python -m unittest discover -s tests
   documents this limitation rather than adding a new output folder workflow.
 - Reports contain only safe metadata, category counters, and manual review
   notices. They do not contain source values, full input paths, filenames,
-  dictionary source terms, or replacement maps.
+  dictionary source aliases or terms, or replacement maps.
 - Date detection is limited to high-confidence numeric formats.
 - Phone detection is intentionally conservative.
 - Address and postal-code detection are not implemented in Stage 1.
@@ -141,8 +160,9 @@ python -m unittest discover -s tests
 - The GUI processes one selected file at a time and does not include document
   preview, editing, drag and drop, or batch processing.
 - Report files are plain TXT only and do not include a detailed audit trail.
-- Private dictionary matching is literal and case-sensitive. It is useful for
-  exact user-specified terms, but it is not automatic entity recognition.
+- Private dictionary matching is deterministic, case-insensitive, and tolerant
+  of extra internal spaces, but it is not fuzzy matching, inflection handling,
+  automatic entity recognition, OCR, AI, or NER.
 - The real private dictionary must stay outside git, either outside the
   repository or inside an ignored folder such as `private/`.
 - Post-anonymization audit matching is conservative and regex-based. It can
@@ -156,7 +176,7 @@ python -m unittest discover -s tests
 
 Stage 9: post-anonymization audit.
 
-Last committed implementation before the Stage 10.1 working tree:
+Last committed implementation before the Stage 10.1/Stage 11 working tree:
 
 ```text
 782eee1 Implement Stage 9 post-anonymization audit
@@ -165,15 +185,16 @@ Last committed implementation before the Stage 10.1 working tree:
 Current working tree stage:
 
 ```text
-Stage 10.1: manual validation fixes
+Stage 11: smart dictionary foundation and portfolio README polish
 ```
 
 ## Next Logical Step
 
-After Stage 10.1 review, the safest next step is a small implementation commit
-for the manual validation fixes. Later work should stay separate and require an
-explicit project decision, especially OCR, batch processing, installer work,
-better NLP, stronger entity detection, packaging, or release automation.
+After Stage 11 review, the safest next step is a small implementation commit
+for the smart dictionary foundation and README/documentation polish. Later work
+should stay separate and require an explicit project decision, especially OCR,
+batch processing, installer work, better NLP, stronger entity detection,
+packaging, or release automation.
 
 ## Warning
 

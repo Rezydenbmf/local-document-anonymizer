@@ -50,6 +50,21 @@ class PostAnonymizationAuditTests(unittest.TestCase):
         self.assertEqual(result["findings"]["SENSITIVE_DICTIONARY_TERM"], 1)
         self.assertNotIn(source_term, repr(result))
 
+    def test_detects_private_dictionary_term_with_stage_11_matching(self) -> None:
+        source_term = "Person One Example"
+        terms = parse_sensitive_terms(
+            f"{source_term} | P. One Example = [IMIE NAZWISKO]\n"
+        )
+
+        result = audit_text(
+            "Remaining person   one    example and p. one example.",
+            sensitive_terms=terms,
+        )
+
+        self.assertEqual(result["status"], "warning")
+        self.assertEqual(result["findings"]["SENSITIVE_DICTIONARY_TERM"], 2)
+        self.assertNotIn(source_term, repr(result))
+
     def test_returns_ok_status_when_no_suspicious_patterns_remain(self) -> None:
         result = audit_text("Clean text with [EMAIL] and [DATA] placeholders.")
 

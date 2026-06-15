@@ -1,122 +1,132 @@
 # local-document-anonymizer
 
-Local Document Anonymizer is a local-first desktop application for
-anonymizing text documents on a user's own computer.
+Local Document Anonymizer is a local-first Python/Tkinter desktop MVP for
+anonymizing supported text documents on the user's own computer. It replaces
+high-confidence regex matches and optional user-maintained private dictionary
+terms with general labels, writes a separate anonymized output file, generates
+a safe report, and expects manual review before any result is trusted.
 
-The project is currently in Stage 10.1: manual validation fixes.
-The Stage 0-10.1 MVP includes a narrow regex-based plain text anonymization
-engine, optional private exact-term dictionary support, TXT input/output, basic
-local DOCX input/output, text-based PDF input that saves anonymized TXT output,
-a simple Tkinter GUI for one selected file, safe TXT report output without
-source values, explicit safe dictionary status reporting, and a safe
-post-anonymization audit with category counters only.
+## Key Features
 
-## Project Goal
-
-The goal is to build a simple, maintainable, offline tool that helps users
-replace supported sensitive values in documents with general uppercase labels,
-then manually review the generated anonymized output before trusting or sharing
-it.
-
-Current MVP document flow:
-
-1. Select a TXT, DOCX, or text-based PDF file.
-2. Optionally select a private sensitive terms dictionary file.
-3. Extract text locally.
-4. Detect supported regex values and optional private exact terms.
-5. Replace detected values with labels such as `PESEL`, `EMAIL`, `TELEFON`,
-   `DATA`, or user-defined dictionary labels.
-6. Save an anonymized copy with an `_ANON` suffix.
-7. Audit the anonymized output for suspicious remaining patterns, including
-   remaining private dictionary terms when a dictionary loaded successfully.
-8. Save a safe report with a `_RAPORT.txt` suffix.
-9. Manually review the anonymized output outside the application.
-
-## MVP Scope
-
-The current MVP includes:
-
-- TXT input and output.
-- Basic DOCX input and output.
-- Text-based PDF input support with TXT output.
-- Optional private sensitive terms dictionary support.
+- Local desktop GUI built with Tkinter.
+- One selected input file per run.
+- TXT input and UTF-8 TXT output.
+- Basic DOCX input and output for paragraphs and simple tables.
+- Text-based PDF input with anonymized TXT output.
+- Regex anonymization for `PESEL`, `EMAIL`, `TELEFON`, and `DATA`.
+- Optional private dictionary with aliases, case-insensitive matching, and
+  whitespace-tolerant term matching.
 - Safe post-anonymization audit with category counters only.
-- Simple label-based anonymization.
-- Simple GUI workflow for one selected file.
-- Reports without original sensitive values.
-- Safe dictionary status metadata in the GUI and reports.
-- Manual review as a required user step.
+- Safe `_RAPORT.txt` reports without source personal data.
+- Synthetic examples and tests only.
 
-## Local-First and Offline
+## Privacy And Local-First Assumptions
 
-This project is designed to run locally. It must not use cloud services, external APIs, OpenAI API, network calls, OCR, local LLMs, or a database unless a future project decision explicitly approves that change.
+The application is designed to run locally. It does not use AI, APIs, cloud
+services, network calls, OCR, local LLMs, databases, or batch processing.
 
-## Test Data Policy
+The repository must not contain real documents, real personal data, private
+dictionaries, generated `_ANON` files, generated `_RAPORT` files, logs, local
+configuration files, API keys, or credentials. Private dictionaries must stay
+outside git, either outside the repository or in an ignored local folder such as
+`private/`.
 
-The repository must contain only synthetic test data. Do not add real documents, real personal data, logs, local configuration files, or generated output from real data.
+This is not production-ready full anonymization. It is a portfolio MVP and a
+review-support tool. Manual review is required for every anonymized output.
 
-## What Is Not Implemented Yet
+## Supported Inputs And Outputs
 
-The current project implements TXT file input/output, basic DOCX file
-input/output, text-based PDF input that writes anonymized TXT output, optional
-private exact-term dictionary input, a simple Tkinter GUI, and safe TXT reports
-with category counters and post-anonymization audit metadata only. It does not
-implement:
+| Input | Output | Report |
+| --- | --- | --- |
+| `document.txt` | `document_ANON.txt` | `document_RAPORT.txt` |
+| `document.docx` | `document_ANON.docx` | `document_RAPORT.txt` |
+| `document.pdf` | `document_ANON.txt` | `document_RAPORT.txt` |
 
-- Anonymized PDF output.
-- OCR or scanned PDF text extraction.
-- Advanced document preview or editing.
-- Batch processing.
-- Drag and drop.
-- Automatic names, cities, organizations, context-based detection, OCR, AI,
-  APIs, cloud services, local LLMs, or databases.
+Original files are not modified. PDF support requires an existing extractable
+text layer and does not create anonymized PDF files.
 
-DOCX support is limited to basic paragraphs and simple tables. It does not
-cover headers, footers, comments, footnotes, form fields, text in images, or
-advanced DOCX elements.
+## How Anonymization Works
 
-PDF support is limited to files that already contain an extractable text layer.
-Scanned PDFs are not supported, OCR is not included, layout preservation is not
-guaranteed, and PDF input produces `document_ANON.txt` rather than an
-anonymized PDF.
+The core engine processes plain text deterministically:
 
-Report support is limited to safe TXT reports named `document_RAPORT.txt`.
-Reports include status, input and output type, anonymization category counters,
-dictionary used/status/match metadata, dictionary label counters,
-post-anonymization audit status and counters, and manual review/security notes.
-They do not include original source values, full input paths, source filenames,
-replacement maps, dictionary source terms, text snippets, or document content.
+1. Load an optional private dictionary from a UTF-8 text file.
+2. Replace dictionary aliases with their configured labels.
+3. Replace supported regex categories: `EMAIL`, `PESEL`, `TELEFON`, `DATA`.
+4. Save an anonymized output copy.
+5. Audit the anonymized output for suspicious remaining patterns.
+6. Save a safe report.
 
-Private dictionary support is limited to a user-maintained local text file with
-lines in this format:
+Counters contain labels and counts only. The app does not create or store a
+replacement map from original values to labels.
+
+## Private Dictionary
+
+The private dictionary is a user-maintained UTF-8 text file. It supports the
+original simple format:
 
 ```text
 Person One Example = [IMIE NAZWISKO]
 ```
 
-The real dictionary must stay private and must not be committed. It can live
-outside the repository or inside an ignored `private/` folder. The repository
-contains only a synthetic example at `examples/sensitive_terms.example.txt`.
-Reports show only dictionary labels and counts, never original dictionary
-terms. Dictionary status values are `not selected`, `loaded`, or `invalid`.
+It also supports multiple aliases for one label:
 
-Post-anonymization audit support is limited to conservative regex checks on the
-already anonymized output text. It can warn about suspicious remaining e-mail,
-PESEL, phone, date, private dictionary term, case/reference, postal-code, and
-simple address-like patterns. It does not guarantee complete anonymization and
-does not store original values, snippets, dictionary terms, or replacement
-maps.
+```text
+Person One Example | P. One Example | PERSON ONE EXAMPLE = [IMIE NAZWISKO]
+Example Institution | Example Inst. = [NAZWA PODMIOTU]
+```
 
-## Manual Review Requirement
+Dictionary matching is deterministic, case-insensitive, and tolerant of extra
+spaces inside matched terms. Longer aliases are applied before shorter aliases.
+Reports show only labels and counts, never aliases or source terms.
 
-Anonymization and the post-anonymization audit can miss values or replace too
-much. Every anonymized result must be manually reviewed by the user before it
-is trusted or shared.
+Synthetic examples are provided in:
+
+- `examples/sensitive_terms.example.txt`
+- `examples/sensitive_terms.seed.example.txt`
+- `examples/dictionary_candidates.example.txt`
+
+Real private dictionaries must not be committed.
+
+## Post-Anonymization Audit
+
+After output is generated, the audit checks the anonymized text for conservative
+remaining patterns:
+
+- `EMAIL`
+- `PESEL`
+- `TELEFON`
+- `DATA`
+- `SENSITIVE_DICTIONARY_TERM`
+- `CASE_REFERENCE`
+- `POSTAL_CODE`
+- `ADDRESS`
+
+Audit results contain status and counters only. They do not contain original
+values, text snippets, private dictionary terms, full document text, or a
+replacement map. `ok` does not prove complete anonymization; it only means the
+current audit checks did not find supported warning patterns.
+
+## Reports
+
+Each successful workflow writes a safe `_RAPORT.txt` report containing:
+
+- status,
+- input and output type,
+- anonymization category counters,
+- dictionary used/status/matches-found metadata,
+- dictionary label counters,
+- post-anonymization audit status and counters,
+- manual review requirement,
+- confirmation that original sensitive values are not stored,
+- confirmation that no replacement map was created.
+
+Reports do not include document text, original sensitive values, source
+filenames, full input paths, dictionary aliases, text snippets, logs, or
+replacement maps.
 
 ## Installation
 
-Use a local Python environment. The project dependencies are intentionally
-small:
+Use a local Python environment:
 
 ```bash
 python -m venv .venv
@@ -124,9 +134,9 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-## Running the Application
+## How To Run
 
-Run the GUI entry point:
+Run the GUI:
 
 ```bash
 python src/main.py
@@ -138,69 +148,104 @@ Run the tests:
 python -m unittest discover -s tests
 ```
 
-## Basic Workflow Example
+## Basic Usage
 
-For a TXT file named `document.txt`, the current GUI workflow creates:
+1. Start the app with `python src/main.py`.
+2. Select one `.txt`, `.docx`, or text-based `.pdf` file.
+3. Optionally select a private dictionary file.
+4. Click `Anonymize`.
+5. Check the GUI status, counters, audit result, output path, and report path.
+6. Manually review the anonymized output before using or sharing it.
+
+## Example Workflow
+
+For a TXT file:
 
 ```text
 document.txt -> document_ANON.txt
 document.txt -> document_RAPORT.txt
 ```
 
-For a DOCX file named `document.docx`, it creates:
+For a DOCX file:
 
 ```text
 document.docx -> document_ANON.docx
 document.docx -> document_RAPORT.txt
 ```
 
-For a text-based PDF named `document.pdf`, it creates extracted TXT output:
+For a text-based PDF file:
 
 ```text
 document.pdf -> document_ANON.txt
 document.pdf -> document_RAPORT.txt
 ```
 
-The original file is not modified. The `_RAPORT.txt` file contains
-anonymization counters, audit counters, and safety notes only, not source
-values.
+If a TXT and PDF with the same base name are processed in the same folder, their
+TXT outputs and reports can be confusing or collide. Use distinct names or
+separate folders for manual tests.
 
-If a TXT and a PDF with the same base name are processed in the same folder,
-their TXT outputs and reports can be confusing because PDF input also produces
-TXT output. Keep manual test files clearly named or separated until a future
-approved output workflow changes this.
-
-## Portfolio Summary
-
-GitHub repository description:
+## Project Structure
 
 ```text
-Local-first Python/Tkinter document anonymizer for TXT, basic DOCX, and text-based PDF input, with safe reports and synthetic tests.
+src/
+  anonymizer.py        Core engine and file workflow dispatchers
+  audit.py             Safe post-anonymization audit
+  file_readers.py      TXT, DOCX, and text-based PDF reading
+  file_writers.py      _ANON output and _RAPORT path helpers
+  gui.py               Tkinter GUI
+  main.py              GUI entry point
+  report.py            Safe report generation
+  sensitive_terms.py   Private dictionary parsing and matching
+tests/                 Synthetic unit tests
+examples/              Synthetic example inputs and dictionaries
+docs/                  Project and module documentation
 ```
 
-CV bullet:
+## Tests
 
-```text
-Built a local-first Python desktop MVP for document anonymization, covering TXT, basic DOCX, and text-based PDF workflows with safe report generation and synthetic unit tests.
+The test suite uses synthetic data only. It covers the regex engine, TXT/DOCX/PDF
+workflows, GUI dispatcher layer, private dictionary parsing and matching, safe
+reports, and post-anonymization audit metadata.
+
+Run:
+
+```bash
+python -m unittest discover -s tests
 ```
 
-LinkedIn/project summary:
+## Current Limitations
 
-```text
-Local Document Anonymizer is a portfolio MVP for offline document anonymization. It uses deterministic regex rules, keeps processing on the user's computer, writes separate anonymized outputs and safe reports, and documents its limitations clearly: no OCR, AI, cloud services, batch processing, or guarantee of perfect anonymization.
-```
+- Manual review is always required.
+- This is not production-ready full anonymization.
+- Regex detection is narrow and conservative.
+- Private dictionary matching is not fuzzy matching, inflection handling, NER,
+  ML, or LLM-based detection.
+- No OCR or scanned PDF support.
+- No anonymized PDF output.
+- No batch processing or drag and drop.
+- No advanced preview or editing workflow.
+- DOCX support is limited to basic paragraphs and simple tables.
+- DOCX headers, footers, comments, footnotes, form fields, text in images, and
+  advanced elements are not handled.
+- PDF support requires an extractable text layer and does not preserve layout.
+- Reports contain safe counters and metadata only, not a detailed audit trail.
 
-## Basic Development Plan
+## Roadmap
 
-1. Repository skeleton and documentation.
-2. Plain text anonymization engine. Complete for Stage 1.
-3. TXT file input and output. Complete for Stage 2.
-4. DOCX support. Complete for Stage 3.
-5. Text-based PDF support. Complete for Stage 4.
-6. Simple Tkinter GUI. Complete for Stage 5.
-7. Reports without source values. Complete for Stage 6.
-8. Portfolio polish and release review. Complete for Stage 7.
-9. Private sensitive terms dictionary. Complete for Stage 8.
-10. Post-anonymization audit. Complete for Stage 9.
-11. Manual validation fixes for dictionary flow, status reporting, and audit
-    dictionary checks. Current Stage 10.1.
+Completed MVP stages include repository setup, regex anonymization, TXT IO,
+basic DOCX IO, text-based PDF input, Tkinter GUI, safe reports, private
+dictionary support, post-anonymization audit, manual validation fixes, and the
+Stage 11 smart dictionary foundation.
+
+Potential future work requires explicit approval, especially OCR, scanned PDF
+support, batch processing, stronger entity detection, installer packaging,
+release automation, AI/API integration, local LLMs, databases, or broad NLP
+features.
+
+## Portfolio Note
+
+This project exists as a practical portfolio MVP: a small, offline document
+anonymization tool with clear privacy boundaries, deterministic behavior,
+synthetic tests, and honest documentation of limitations. The emphasis is on a
+reviewable local workflow rather than pretending to solve complete document
+anonymization automatically.

@@ -108,30 +108,40 @@ The Stage 1 engine replaces supported values with labels such as `PESEL`, `EMAIL
 
 ## 8. Private Sensitive Terms Dictionary
 
-Stage 8 adds an optional private local dictionary for exact terms that the user
-knows should be replaced. The file is a UTF-8 text file with one term per line:
+The app supports an optional private local dictionary for terms that the user
+knows should be replaced. The file is a UTF-8 text file with one entry per line:
 
 ```text
 Person One Example = [IMIE NAZWISKO]
 Example Institution = [NAZWA PODMIOTU]
 ```
 
+Stage 11 also supports aliases on one line:
+
+```text
+Person One Example | P. One Example | PERSON ONE EXAMPLE = [IMIE NAZWISKO]
+Example Institution | Example Inst. = [NAZWA PODMIOTU]
+```
+
 Blank lines are ignored. Lines starting with `#` are comments. Malformed lines
-stop the run with a safe line-number error.
+make the dictionary invalid and the workflow reports a safe line-number status
+without exposing the private line content.
 
 The real dictionary must stay private and must not be committed. The repository
-contains only a synthetic example:
+contains only synthetic examples:
 
 ```text
 examples/sensitive_terms.example.txt
+examples/sensitive_terms.seed.example.txt
+examples/dictionary_candidates.example.txt
 ```
 
 When a dictionary is selected, the app replaces matching terms with the
 specified labels and reports only status names, safe label counters, and
 whether dictionary matches were found. It does not display dictionary contents,
 write original dictionary terms to reports, or create a replacement map. Longer
-terms are applied before shorter terms, so a term like `Person One Example` is
-handled before `Person`.
+aliases are applied before shorter aliases, so a term like
+`Person One Example` is handled before `Person`.
 
 Dictionary status meanings:
 
@@ -147,23 +157,25 @@ replacements appear, check file encoding first, then verify the dictionary
 status in the GUI, dictionary counters in `_RAPORT`, and dictionary
 replacements in `_ANON`. Use small synthetic files for the first check.
 
-Private dictionary matching is literal and case-sensitive. It is not OCR, AI,
-automatic names or address detection, batch processing, a database, or automatic
-deletion of originals.
+Private dictionary matching is deterministic, case-insensitive, and tolerant of
+extra spaces inside matched terms. It is not fuzzy matching, inflection
+handling, OCR, AI, automatic names or address detection, NER, batch processing,
+a database, or automatic deletion of originals.
 
 ## 9. Post-Anonymization Audit
 
-Stage 9 adds a safe audit after the `_ANON` output is generated. Stage 10.1
-passes successfully loaded dictionary terms into that audit. The audit checks
+Stage 9 adds a safe audit after the `_ANON` output is generated. The workflow
+passes successfully loaded dictionary aliases into that audit. The audit checks
 the anonymized output text for conservative suspicious remaining patterns such
-as e-mail, PESEL, phone, date, private dictionary terms, case/reference
+as e-mail, PESEL, phone, date, private dictionary aliases, case/reference
 numbers, postal codes, and simple address-like text.
 
 The GUI shows audit status and counters by category only. The report includes a
-safe `Post-anonymization audit` section. If loaded dictionary terms remain, the
-audit may show only a safe counter such as `SENSITIVE_DICTIONARY_TERM`. The
-audit does not show or store original detected values, text snippets,
-dictionary terms, full document text, or replacement maps.
+safe `Post-anonymization audit` section. If loaded dictionary aliases remain,
+the audit may show only a safe counter such as
+`SENSITIVE_DICTIONARY_TERM`. The audit does not show or store original detected
+values, text snippets, dictionary aliases, full document text, or replacement
+maps.
 
 `Audit status: OK` means the simple audit did not find supported suspicious
 patterns. It does not prove that the document is fully anonymized.

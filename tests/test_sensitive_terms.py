@@ -78,6 +78,61 @@ class SensitiveTermsTests(unittest.TestCase):
         )
         self.assertEqual(counters, {"IMIE NAZWISKO": 2, "NAZWA PODMIOTU": 1})
 
+    def test_dictionary_aliases_map_to_same_label(self) -> None:
+        terms = parse_sensitive_terms(
+            "Person One Example | P. One Example = [IMIE NAZWISKO]\n"
+        )
+
+        anonymized, counters = apply_sensitive_terms(
+            "Person One Example met P. One Example.",
+            terms,
+        )
+
+        self.assertEqual(
+            anonymized,
+            "[IMIE NAZWISKO] met [IMIE NAZWISKO].",
+        )
+        self.assertEqual(counters, {"IMIE NAZWISKO": 2})
+
+    def test_dictionary_matching_is_case_insensitive(self) -> None:
+        terms = parse_sensitive_terms("Person One Example = [IMIE NAZWISKO]\n")
+
+        anonymized, counters = apply_sensitive_terms(
+            "person one example, PERSON ONE EXAMPLE, Person One Example",
+            terms,
+        )
+
+        self.assertEqual(
+            anonymized,
+            "[IMIE NAZWISKO], [IMIE NAZWISKO], [IMIE NAZWISKO]",
+        )
+        self.assertEqual(counters, {"IMIE NAZWISKO": 3})
+
+    def test_dictionary_matching_normalizes_internal_whitespace(self) -> None:
+        terms = parse_sensitive_terms("Person One Example = [IMIE NAZWISKO]\n")
+
+        anonymized, counters = apply_sensitive_terms(
+            "Person   One    Example",
+            terms,
+        )
+
+        self.assertEqual(anonymized, "[IMIE NAZWISKO]")
+        self.assertEqual(counters, {"IMIE NAZWISKO": 1})
+
+    def test_equivalent_same_label_aliases_are_safe_to_load(self) -> None:
+        terms = parse_sensitive_terms(
+            "Person One Example | person one example | Person  One   Example "
+            "= [IMIE NAZWISKO]\n"
+        )
+
+        anonymized, counters = apply_sensitive_terms(
+            "PERSON    ONE EXAMPLE",
+            terms,
+        )
+
+        self.assertEqual(anonymized, "[IMIE NAZWISKO]")
+        self.assertEqual(counters, {"IMIE NAZWISKO": 1})
+
     def test_counters_and_repr_do_not_expose_original_terms(self) -> None:
         source_term = "Person One Example"
         terms = parse_sensitive_terms(f"{source_term} = [IMIE NAZWISKO]\n")
@@ -101,6 +156,35 @@ class SensitiveTermsTests(unittest.TestCase):
 
         self.assertEqual(anonymized, "[IMIE NAZWISKO] met [IMIE].")
         self.assertEqual(counters, {"IMIE NAZWISKO": 1, "IMIE": 1})
+
+    def test_replaces_longer_aliases_before_shorter_aliases(self) -> None:
+        terms = parse_sensitive_terms(
+            "Example = [KROTKI TERMIN]\n"
+            "Example Institution = [NAZWA PODMIOTU]\n"
+        )
+
+        anonymized, counters = apply_sensitive_terms(
+            "Example Institution visited Example.",
+            terms,
+        )
+
+        self.assertEqual(
+            anonymized,
+            "[NAZWA PODMIOTU] visited [KROTKI TERMIN].",
+        )
+        self.assertEqual(counters, {"NAZWA PODMIOTU": 1, "KROTKI TERMIN": 1})
+
+    def test_rejects_ambiguous_equivalent_alias_labels_safely(self) -> None:
+        source_term = "Person One Example"
+
+        with self.assertRaises(ValueError) as context:
+            parse_sensitive_terms(
+                f"{source_term} = [IMIE NAZWISKO]\n"
+                "person   one example = [INNA ETYKIETA]\n"
+            )
+
+        self.assertIn("line 2", str(context.exception))
+        self.assertNotIn(source_term, str(context.exception))
 
     def test_malformed_dictionary_line_validation_is_safe(self) -> None:
         source_term = "Person One Example"
@@ -159,6 +243,35 @@ class SensitiveTermsTests(unittest.TestCase):
             self.assertNotIn(source_term, report_text)
             self.assertIn("* IMIE NAZWISKO: 1", report_text)
             self.assertIn("* EMAIL: 1", report_text)
+
+    def test_report_from_alias_flow_does_not_include_original_aliases(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            aliases = ("Person One Example", "P. One Example")
+            terms = parse_sensitive_terms(
+                "Person One Example | P. One Example = [IMIE NAZWISKO]\n"
+            )
+            source_path = Path(temp_dir) / "document.txt"
+            source_path.write_text(
+                "P. One Example contacted tester@example.test.",
+                encoding="utf-8",
+            )
+
+            output_path, counters = anonymize_txt_file(
+                source_path, sensitive_terms=terms
+            )
+            report_text = (Path(temp_dir) / "document_RAPORT.txt").read_text(
+                encoding="utf-8"
+            )
+
+            self.assertEqual(
+                output_path.read_text(encoding="utf-8"),
+                "[IMIE NAZWISKO] contacted [EMAIL].",
+            )
+            self.assertEqual(counters, {"IMIE NAZWISKO": 1, "EMAIL": 1})
+            for alias in aliases:
+                self.assertNotIn(alias, repr(counters))
+                self.assertNotIn(alias, report_text)
+            self.assertIn("* IMIE NAZWISKO: 1", report_text)
 
     def test_dictionary_path_flow_replaces_terms_and_reports_safe_status(self) -> None:
         with workspace_temp_dir() as temp_dir:

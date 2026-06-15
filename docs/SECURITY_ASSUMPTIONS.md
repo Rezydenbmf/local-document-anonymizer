@@ -19,11 +19,11 @@ added without an explicit project decision.
 
 Reports must not include original source values. They may include safe metadata such as label names and counts.
 
-Stage 10.1 reports may include status, input type, output type, anonymization
-category counters, safe dictionary status metadata, dictionary label counters,
+Reports may include status, input type, output type, anonymization category
+counters, safe dictionary status metadata, dictionary label counters,
 post-anonymization audit status and counters, and manual review/security notes
 only. They must not include document text, detected source values, full input
-paths, full input filenames, text snippets, dictionary source terms, or logs
+paths, full input filenames, text snippets, dictionary source aliases, or logs
 containing document content.
 
 ## No Replacement Map
@@ -32,18 +32,25 @@ The application must not store a map from original sensitive values to replaceme
 
 ## Private Sensitive Terms Dictionary
 
-Stage 8 supports an optional private local sensitive terms dictionary maintained
+The app supports an optional private local sensitive terms dictionary maintained
 by the user. The real dictionary must not be committed to the repository. It
 should live outside the repository or inside an ignored folder such as
 `private/`.
 
 The repository may contain only synthetic dictionary examples, such as
-`examples/sensitive_terms.example.txt`.
+`examples/sensitive_terms.example.txt`,
+`examples/sensitive_terms.seed.example.txt`, and
+`examples/dictionary_candidates.example.txt`.
 
 Dictionary contents must not be displayed in the GUI, written to reports, logged
 as source values, or turned into a persisted replacement map. Reports may show
 only dictionary status names, match yes/no metadata, labels, and counts, for
 example `IMIE NAZWISKO: 2`.
+
+Stage 11 dictionary aliases are source terms. Alias support, case-insensitive
+matching, and whitespace-tolerant matching must not weaken the rule that
+reports, audit metadata, GUI status, tests, and documentation expose labels and
+counts only.
 
 ## Post-Anonymization Audit
 
@@ -55,8 +62,8 @@ The audit must not return, save, display, or log original detected values, text
 snippets, private dictionary terms, full document text, full source paths, or a
 replacement map.
 
-When a dictionary loads successfully, the workflow may pass its private terms
-into the audit so remaining exact terms can be counted as
+When a dictionary loads successfully, the workflow may pass its private aliases
+into the audit so remaining dictionary matches can be counted as
 `SENSITIVE_DICTIONARY_TERM`. The audit is a warning layer only. `ok` status
 does not guarantee complete anonymization, and `warning` status does not
 include the suspicious source values. Manual review remains required for every
