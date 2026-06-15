@@ -140,7 +140,8 @@ cover dictionary path replacement and report safety for DOCX.
 ## Known limitations
 
 - Detection quality is still limited by the Stage 1 regex engine.
-- Private dictionary matching is literal and case-sensitive.
+- Private dictionary matching is deterministic, case-insensitive, and
+  whitespace-tolerant, but not fuzzy matching or automatic entity detection.
 - DOCX formatting preservation is basic only.
 - Advanced DOCX elements are not scanned or rewritten.
 - The Stage 5 GUI supports one selected file only.

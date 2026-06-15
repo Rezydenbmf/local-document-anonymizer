@@ -7,7 +7,8 @@ strings. Stage 8 extends the engine with optional private sensitive terms
 dictionary input. Stage 9 keeps the core text engine unchanged and adds
 workflow helpers that return safe post-anonymization audit metadata. Stage 10.1
 adds optional dictionary-path loading to the file workflows and dispatcher while
-keeping the plain text engine API unchanged.
+keeping the plain text engine API unchanged. Stage 11 improves private
+dictionary matching while preserving that API.
 
 ## Related files
 
@@ -54,9 +55,9 @@ Stage 1 supports:
 - `TELEFON` replaced with `[TELEFON]`
 - `DATA` replaced with `[DATA]`
 
-Stage 8 can also replace user-provided exact private terms with labels from a
-private dictionary, for example `[IMIE NAZWISKO]`. These labels are dynamic and
-are not automatic entity detection.
+The engine can also replace user-provided private dictionary aliases with
+labels from a private dictionary, for example `[IMIE NAZWISKO]`. These labels
+are dynamic and are not automatic entity detection.
 
 Address and postal-code detection are not implemented as automatic regex
 categories.
@@ -64,8 +65,8 @@ categories.
 ## How it works
 
 The engine first applies optional private sensitive terms, if provided. Private
-terms are literal and case-sensitive. Longer terms are processed before shorter
-terms.
+dictionary matching is deterministic, case-insensitive, and tolerant of extra
+internal whitespace. Longer aliases are processed before shorter aliases.
 
 The engine then applies deterministic regular expressions in a fixed order:
 
@@ -143,6 +144,8 @@ The tests cover PESEL, email, phone, date, combined categories, repeated
 occurrences, unchanged text, private dictionary replacement, replacement order,
 regex integration, report safety, and post-anonymization audit integration.
 Stage 10.1 tests also cover dictionary-path workflow status and report safety.
+Stage 11 tests cover aliases, case-insensitive matching, whitespace
+normalization, label-only counters, and audit dictionary matching.
 
 ## Known limitations
 
@@ -153,7 +156,9 @@ Stage 10.1 tests also cover dictionary-path workflow status and report safety.
 - Date detection is limited to `YYYY-MM-DD` and `DD.MM.YYYY`.
 - Automatic names, surnames, cities, organizations, context-based detection,
   uppercase word detection, addresses, and postal codes are not implemented.
-- Private dictionary matching is literal and case-sensitive.
+- Private dictionary matching is deterministic, case-insensitive, and
+  whitespace-tolerant, but not fuzzy matching, inflection handling, NER, or
+  automatic entity detection.
 - PDF file input is handled by the Stage 4 file workflow, not by new regex
   logic in the core engine.
 - OCR, AI, API calls, cloud services, local LLMs, databases, and replacement

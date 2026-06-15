@@ -121,7 +121,8 @@ and report safety for PDF-to-TXT output.
 ## Known limitations
 
 - Detection quality is still limited by the Stage 1 regex engine.
-- Private dictionary matching is literal and case-sensitive.
+- Private dictionary matching is deterministic, case-insensitive, and
+  whitespace-tolerant, but not fuzzy matching or automatic entity detection.
 - Extracted PDF text may not preserve visual layout or reading order.
 - Scanned PDFs are not supported.
 - OCR is not included.

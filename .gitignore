@@ -9,6 +9,7 @@ env/
 .env
 *.log
 logs/
+_manual_test/
 output/
 outputs/
 exports/

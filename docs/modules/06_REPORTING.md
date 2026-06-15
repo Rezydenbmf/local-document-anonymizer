@@ -4,7 +4,7 @@
 
 This module implements safe report file output without source values or
 replacement maps. Stage 8 allows reports to include private dictionary labels
-and counts, but never original dictionary terms. Stage 9 adds a safe
+and counts, but never original dictionary terms or aliases. Stage 9 adds a safe
 post-anonymization audit section with audit status and counters only. Stage
 10.1 adds a safe dictionary section with used/status/matches-found metadata and
 dictionary label counters only.
@@ -82,7 +82,7 @@ The report must not contain:
 - original e-mail addresses,
 - original phone numbers,
 - original dates in source form,
-- original private dictionary terms,
+- original private dictionary aliases or terms,
 - text snippets,
 - audit source values,
 - replacement maps,
@@ -104,8 +104,8 @@ counters are grouped by dictionary label/category only.
 
 The report module receives only counters, safe dictionary metadata, audit
 metadata, and file-type metadata. It does not read source documents and does
-not receive original source text, original private dictionary terms, text
-snippets, or replacement maps.
+not receive original source text, original private dictionary aliases or terms,
+text snippets, or replacement maps.
 
 Manual review is still required. A safe report confirms what the tool replaced
 and what the audit warned about, but it does not prove the whole document is
@@ -130,6 +130,6 @@ safety.
 - The report contains anonymization and audit counters only, not a detailed
   audit trail.
 - No replacement map is created.
-- No original private dictionary terms are written to reports.
+- No original private dictionary aliases or terms are written to reports.
 - No source filename is written into the report body.
 - The report does not guarantee complete anonymization.
