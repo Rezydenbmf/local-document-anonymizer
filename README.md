@@ -217,8 +217,20 @@ src/
   sensitive_terms.py   Private dictionary parsing and matching
 tests/                 Synthetic unit tests
 examples/              Synthetic example inputs and dictionaries
+  before/              Empty placeholder — drop input documents here to test
+  after/               Empty placeholder — drop output documents here to compare
 docs/                  Project and module documentation
+AGENTS.md              AI assistant collaboration rules (Codex / Claude workflow)
 ```
+
+## Example Document Folders
+
+`examples/before/` and `examples/after/` are empty placeholder folders for
+local testing. Drop a sample input document into `before/` and the resulting
+`_ANON` output into `after/` to keep a before-and-after pair for manual
+comparison. Both folders are tracked by git as empty placeholders (via
+`.gitkeep`), but any documents placed inside are gitignored so real files are
+never committed by accident.
 
 ## Tests
 

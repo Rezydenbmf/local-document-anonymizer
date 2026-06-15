@@ -24,3 +24,9 @@ local_config.*
 *_BATCH_SUMMARY*.txt
 .DS_Store
 Thumbs.db
+
+# Keep empty placeholder folders tracked but ignore any files dropped inside.
+examples/before/*
+examples/after/*
+!examples/before/.gitkeep
+!examples/after/.gitkeep

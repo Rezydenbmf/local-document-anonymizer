@@ -190,26 +190,17 @@ python -m unittest discover -s tests
 
 ## Last Completed Committed Stage
 
-Stage 9: post-anonymization audit.
-
-Last committed implementation before the Stage 10.1/Stage 11 working tree:
+Stage 12: safe output workspace and batch processing.
 
 ```text
-782eee1 Implement Stage 9 post-anonymization audit
-```
-
-Current working tree stage:
-
-```text
-Stage 12: safe output workspace and batch processing
+e19d87c Implement Stage 12 batch output workspace
 ```
 
 ## Next Logical Step
 
-After Stage 12 review, the safest next step is a small implementation commit
-for the safe output workspace and batch processing work. Later work should stay
-separate and require an explicit project decision, especially OCR, installer
-work, better NLP, stronger entity detection, packaging, or release automation.
+The Stage 0–12 MVP is complete. Potential future work requires an explicit
+project decision, especially OCR, installer work, better NLP, stronger entity
+detection, packaging, or release automation.
 
 ## Warning
 

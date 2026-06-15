@@ -338,9 +338,6 @@ class AnonymizerGui:
         else:
             self.anonymize_button.state(["disabled"])
 
-    def anonymize_selected_file(self) -> None:
-        self.anonymize_selected_files()
-
     def anonymize_selected_files(self) -> None:
         if not self.selected_paths:
             self.status_var.set("Select input files before anonymizing.")

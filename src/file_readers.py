@@ -13,7 +13,7 @@ def _unsupported_extension_error(file_path: str | Path) -> ValueError:
     path = Path(file_path)
     suffix = path.suffix.lower() or "<none>"
     return ValueError(
-        f"Unsupported file extension for Stage 4: {suffix}. "
+        f"Unsupported file extension: {suffix}. "
         "Only .txt, .docx, and .pdf files are supported."
     )
 
