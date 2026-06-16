@@ -21,6 +21,9 @@ a safe report, and expects manual review before any result is trusted.
 - Safe post-anonymization audit with category counters only.
 - Safe `_RAPORT.txt` reports without source personal data.
 - Safe `_BATCH_SUMMARY.txt` reports with batch counts and safe filenames only.
+- Manual review workflow for existing output folders.
+- Safe `_REVIEW_STATUS.json` and collision-safe `_REVIEW_SUMMARY.txt`
+  review metadata files.
 - Synthetic examples and tests only.
 
 ## Privacy And Local-First Assumptions
@@ -62,6 +65,8 @@ The core engine processes plain text deterministically:
 5. Audit the anonymized output for suspicious remaining patterns.
 6. Save a safe per-file report.
 7. For batch runs, save a safe batch summary report.
+8. Let the user manually mark generated outputs as `approved`,
+   `needs_review`, or `rejected`.
 
 Counters contain labels and counts only. The app does not create or store a
 replacement map from original values to labels.
@@ -136,6 +141,19 @@ counts, safe input/output/report filenames, and controlled safe error
 descriptions. It does not include source text, private dictionary terms,
 aliases, full paths, exception messages, or a replacement map.
 
+Manual review runs can write `_REVIEW_STATUS.json` and
+`_REVIEW_SUMMARY.txt` in the selected output folder. The status file tracks
+safe generated output basenames, optional report basenames, and the user's
+manual status: `approved`, `needs_review`, or `rejected`. The summary contains
+safe counts, safe basenames, and a clear note that decisions are manual user
+decisions. `approved` does not mean the application guaranteed complete
+anonymization.
+
+Review status and summary files do not include document contents, excerpts,
+source personal data, private dictionary terms, dictionary aliases, full local
+paths, tracebacks, or replacement maps. Review summary filenames are
+collision-safe, for example `_REVIEW_SUMMARY_2.txt`.
+
 ## Installation
 
 Use a local Python environment:
@@ -170,6 +188,8 @@ python -m unittest discover -s tests
 6. Check the GUI status, counters, audit summary, generated filenames, and
    batch summary filename.
 7. Manually review every anonymized output before using or sharing it.
+8. In the manual review section, select the output folder, load detected
+   generated outputs, assign manual statuses, and save the review metadata.
 
 ## Example Workflow
 
@@ -214,6 +234,7 @@ src/
   gui.py               Tkinter GUI
   main.py              GUI entry point
   report.py            Safe report generation
+  review.py            Safe manual review status and summary metadata
   sensitive_terms.py   Private dictionary parsing and matching
 tests/                 Synthetic unit tests
 examples/              Synthetic example inputs and dictionaries
@@ -237,7 +258,8 @@ never committed by accident.
 The test suite uses synthetic data only. It covers the regex engine,
 TXT/DOCX/PDF workflows, GUI dispatcher layer, private dictionary parsing and
 matching, safe reports, post-anonymization audit metadata, collision-safe
-output naming, output workspace behavior, and batch processing.
+output naming, output workspace behavior, batch processing, and manual review
+metadata.
 
 Run:
 
@@ -257,7 +279,10 @@ python -m unittest discover -s tests
 - Batch processing is sequential; one file's error is recorded safely and does
   not stop later files.
 - No drag and drop.
-- No advanced preview or editing workflow.
+- No full document preview or editing workflow.
+- Manual review tracking is status metadata only and does not inspect or
+  validate document contents.
+- No automatic approval.
 - DOCX support is limited to basic paragraphs and simple tables.
 - DOCX headers, footers, comments, footnotes, form fields, text in images, and
   advanced elements are not handled.
@@ -272,7 +297,7 @@ Completed MVP stages include repository setup, regex anonymization, TXT IO,
 basic DOCX IO, text-based PDF input, Tkinter GUI, safe reports, private
 dictionary support, post-anonymization audit, manual validation fixes, the
 Stage 11 smart dictionary foundation, and Stage 12 safe output workspace with
-batch processing.
+batch processing, and the Stage 13 manual review workflow.
 
 Potential future work requires explicit approval, especially OCR, scanned PDF
 support, stronger entity detection, installer packaging, release automation,

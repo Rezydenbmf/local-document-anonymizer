@@ -9,15 +9,19 @@ sensitive terms file selection. Stage 9 adds safe post-anonymization audit
 status and counters. Stage 10.1 keeps the GUI path-based for dictionaries and
 shows safe dictionary status after the workflow runs. Stage 12 adds multiple
 input file selection, output folder selection, sequential batch processing,
-collision-safe output names, and a safe batch summary report.
+collision-safe output names, and a safe batch summary report. Stage 13 adds a
+manual review section for loading an output folder, assigning manual statuses,
+and saving safe review metadata.
 
 ## Related files
 
 - `src/gui.py`
 - `src/main.py`
 - `src/anonymizer.py`
+- `src/review.py`
 - `src/sensitive_terms.py`
 - `tests/test_gui_workflow.py`
+- `tests/test_review_workflow.py`
 - `tests/test_sensitive_terms.py`
 
 ## Public API
@@ -27,6 +31,8 @@ start_gui() -> None
 anonymize_file(source_path: str | Path, sensitive_terms=None, sensitive_terms_path=None, output_dir=None) -> tuple[Path, dict[str, int]]
 anonymize_file_with_audit(source_path: str | Path, sensitive_terms=None, sensitive_terms_path=None, output_dir=None)
 anonymize_batch(source_paths, output_dir, sensitive_terms=None, sensitive_terms_path=None)
+load_review_workspace(output_dir)
+save_review_files(output_dir, items, batch_summary_names=None)
 ```
 
 `start_gui()` opens the Tkinter application.
@@ -57,6 +63,10 @@ The GUI supports this flow:
    audit status counts, generated output filenames, generated report
    filenames, batch summary filename, and manual review warning.
 7. Manually inspect every anonymized output file before using or sharing it.
+8. Load the output folder in the manual review section.
+9. Assign each generated output one manual status: `approved`, `needs_review`,
+   or `rejected`.
+10. Save `_REVIEW_STATUS.json` and a collision-safe `_REVIEW_SUMMARY.txt`.
 
 The GUI shows:
 
@@ -68,6 +78,10 @@ The GUI shows:
 - post-anonymization audit status counts,
 - output filenames,
 - report filenames and batch summary filename,
+- generated output filenames detected for manual review,
+- report filenames paired with review items when present,
+- manual review statuses,
+- review status and summary filenames after save,
 - clear errors from unsupported file types or PDFs without extractable text,
 - a reminder that manual review is required.
 
@@ -110,8 +124,16 @@ Batch run:
 output folder / _BATCH_SUMMARY.txt
 ```
 
+Manual review run:
+
+```text
+output folder / _REVIEW_STATUS.json
+output folder / _REVIEW_SUMMARY.txt
+```
+
 If a generated file already exists, the workflow uses a numbered safe name such
-as `document_ANON_2.txt`.
+as `document_ANON_2.txt`. Review summaries use numbered safe names such as
+`_REVIEW_SUMMARY_2.txt` when a previous summary exists.
 
 ## Safety assumptions
 
@@ -123,9 +145,12 @@ as `document_ANON_2.txt`.
 - The GUI does not display private dictionary contents.
 - The GUI does not display private dictionary terms or audit text snippets.
 - The GUI displays generated filenames, not report contents or source values.
+- The GUI displays manual review item filenames and statuses only.
+- `approved` is a manual user decision, not an automatic application decision.
 - No replacement map is created.
 - Safe report files are created by the existing file workflow helpers.
 - A safe batch summary is created by the batch workflow.
+- Safe review status and summary files are created by the review workflow.
 - No source data is logged.
 - No OCR, AI, API, cloud service, database, drag and drop, preview, editing, or
   PDF writing is added.
@@ -143,7 +168,8 @@ synthetic TXT data and unsupported extension handling. Stage 6 report creation
 is covered by `tests/test_report.py`. Stage 8 dictionary integration is covered
 by `tests/test_sensitive_terms.py`. Stage 9 audit metadata safety is covered by
 `tests/test_gui_workflow.py` and `tests/test_audit.py`. Stage 12 batch/output
-workspace behavior is covered by `tests/test_batch_processing.py`. Fragile
+workspace behavior is covered by `tests/test_batch_processing.py`. Stage 13
+manual review metadata is covered by `tests/test_review_workflow.py`. Fragile
 widget tests are not included.
 
 ## Known limitations
@@ -153,6 +179,9 @@ widget tests are not included.
   edit, validate before run, or display its contents.
 - The GUI audit display is a warning summary only and does not prove complete
   anonymization.
+- The manual review section tracks statuses only and does not inspect,
+  validate, preview, edit, or automatically approve generated document
+  contents.
 - The GUI does not support drag and drop, OCR, scanned PDFs, or anonymized PDF
   output.
 - DOCX and PDF limitations from Stages 3 and 4 still apply.

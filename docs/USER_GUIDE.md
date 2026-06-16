@@ -22,6 +22,8 @@ The current MVP workflow is:
 6. Check the status, dictionary status, category counters, aggregate audit
    status, generated filenames, and batch summary filename.
 7. Manually review each anonymized output file before using or sharing it.
+8. Use the manual review section to load the output folder, assign statuses,
+   and save safe review metadata.
 
 The application saves output files before manual review. It does not provide an
 in-app document preview or editing screen.
@@ -110,7 +112,39 @@ The batch summary does not contain source document text, original sensitive
 values, private dictionary terms, aliases, replacement maps, full paths, or raw
 exception messages.
 
-## 6. Safety Rules for Users
+## 6. Manual Review Workflow
+
+Stage 13 adds a simple manual review tracking workflow for an existing output
+folder. It is an organization aid only. It does not inspect document contents
+and does not approve anything automatically.
+
+The GUI can:
+
+1. Select an output folder created by batch processing.
+2. Detect generated `_ANON` files.
+3. Pair matching `_RAPORT` files when present.
+4. Show `_BATCH_SUMMARY` files when present.
+5. Let the user mark each generated output as `approved`, `needs_review`, or
+   `rejected`.
+6. Save `_REVIEW_STATUS.json`.
+7. Save `_REVIEW_SUMMARY.txt`.
+
+`approved` means the user manually approved the file after review. It does not
+mean the application guarantees complete anonymization. `needs_review` means
+the file still needs further review or correction. `rejected` means the user
+decided not to use that generated output.
+
+The review status file and review summary may contain safe generated basenames,
+report basenames, status counts, batch summary basenames, timestamps, and the
+manual completion flag. They do not contain document contents, excerpts,
+source personal data, private dictionary terms, dictionary aliases, full local
+paths, tracebacks, or replacement maps.
+
+If `_REVIEW_SUMMARY.txt` already exists, the application writes a numbered
+summary such as `_REVIEW_SUMMARY_2.txt`. `_REVIEW_STATUS.json` stores the
+latest status manifest for the output folder.
+
+## 7. Safety Rules for Users
 
 - Do not place real documents in the repository.
 - Do not commit a real private sensitive terms dictionary.
@@ -120,11 +154,11 @@ exception messages.
 - Review anonymized output manually.
 - Do not share output until you have checked it.
 
-## 7. How Anonymized Labels Work
+## 8. How Anonymized Labels Work
 
 The Stage 1 engine replaces supported values with labels such as `PESEL`, `EMAIL`, `TELEFON`, or `DATA`.
 
-## 8. Private Sensitive Terms Dictionary
+## 9. Private Sensitive Terms Dictionary
 
 The app supports an optional private local dictionary for terms that the user
 knows should be replaced. The file is a UTF-8 text file with one entry per line:
@@ -180,7 +214,7 @@ extra spaces inside matched terms. It is not fuzzy matching, inflection
 handling, OCR, AI, automatic names or address detection, NER, a database, or
 automatic deletion of originals.
 
-## 9. Post-Anonymization Audit
+## 10. Post-Anonymization Audit
 
 Stage 9 adds a safe audit after the `_ANON` output is generated. The workflow
 passes successfully loaded dictionary aliases into that audit. The audit checks
@@ -201,12 +235,12 @@ patterns. It does not prove that the document is fully anonymized.
 `Audit status: WARNING` means the output may still contain suspicious
 sensitive-looking data and must be checked carefully.
 
-## 10. Why Manual Review Is Required
+## 11. Why Manual Review Is Required
 
 Automatic detection and the audit may miss data or replace text incorrectly.
 Manual review is required before using the result.
 
-## 11. Where Output Files Are Saved
+## 12. Where Output Files Are Saved
 
 The application saves anonymized TXT and DOCX copies in the output folder
 selected by the user with the `_ANON` suffix. PDF input is saved in the output
@@ -224,13 +258,22 @@ document_ANON_3.txt
 ```
 
 The same rule applies to `_RAPORT.txt` reports and `_BATCH_SUMMARY.txt`.
+Review summaries use the same collision-safe numbering style:
 
-## 12. What Is Not Implemented Yet
+```text
+_REVIEW_SUMMARY.txt
+_REVIEW_SUMMARY_2.txt
+_REVIEW_SUMMARY_3.txt
+```
+
+## 13. What Is Not Implemented Yet
 
 The current MVP includes plain string anonymization, TXT file input/output, basic DOCX
 file input/output, text-based PDF input with TXT output, a simple Tkinter GUI,
 batch processing, an output folder workflow, collision-safe output names, safe
-reports, optional private dictionary input, dictionary status reporting, and a
-safe post-anonymization audit. Automatic names, broad addresses, cities,
-organizations, OCR, AI, APIs, drag and drop, advanced preview, editing workflow,
-and anonymized PDF output are not implemented.
+reports, optional private dictionary input, dictionary status reporting, a
+safe post-anonymization audit, and manual review status tracking. Automatic
+names, broad addresses, cities, organizations, OCR, AI, APIs, cloud services,
+local LLMs, databases, drag and drop, advanced preview, editing workflow,
+automatic approval, file-moving review folders, and anonymized PDF output are
+not implemented.

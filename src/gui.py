@@ -12,6 +12,14 @@ from report import (
     DICTIONARY_STATUS_LOADED,
     DICTIONARY_STATUS_NOT_SELECTED,
 )
+from review import (
+    REVIEW_STATUSES,
+    REVIEW_STATUS_APPROVED,
+    ReviewItem,
+    apply_review_statuses,
+    load_review_workspace,
+    save_review_files,
+)
 
 
 APP_TITLE = "Local Document Anonymizer"
@@ -155,13 +163,22 @@ class AnonymizerGui:
         self.audit_var = tk.StringVar(value=format_batch_audit_result(None))
         self.output_path_var = tk.StringVar(value="No outputs yet.")
         self.report_path_var = tk.StringVar(value="No reports yet.")
+        self.review_dir: Path | None = None
+        self.review_items: list[ReviewItem] = []
+        self.review_batch_summary_names: list[str] = []
+        self.review_dir_var = tk.StringVar(value="No review folder selected.")
+        self.review_status_var = tk.StringVar(
+            value="Load an output folder to begin manual review tracking."
+        )
+        self.review_status_choice_var = tk.StringVar(value=REVIEW_STATUS_APPROVED)
+        self.review_tree: ttk.Treeview | None = None
         self.anonymize_button: ttk.Button | None = None
 
         self._build()
 
     def _build(self) -> None:
         self.root.title(APP_TITLE)
-        self.root.minsize(680, 620)
+        self.root.minsize(760, 800)
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
 
@@ -269,13 +286,15 @@ class AnonymizerGui:
         )
         report_label.grid(row=12, column=1, columnspan=2, sticky="ew", pady=(0, 10))
 
+        self._build_review_section(main, row=13)
+
         warning_label = ttk.Label(
             main,
             text=MANUAL_REVIEW_WARNING,
             foreground="#9a3412",
             wraplength=580,
         )
-        warning_label.grid(row=13, column=0, columnspan=3, sticky="w", pady=(4, 0))
+        warning_label.grid(row=14, column=0, columnspan=3, sticky="w", pady=(4, 0))
 
     def select_file(self) -> None:
         file_paths = filedialog.askopenfilenames(
@@ -396,6 +415,176 @@ class AnonymizerGui:
         self.report_path_var.set(
             f"{reports_text}; batch summary: {batch_result.summary_path.name}"
         )
+        self.review_dir = self.output_dir
+        self.review_dir_var.set(f"Review folder selected: {self.output_dir.name}")
+        self.load_review_folder()
+
+    def _build_review_section(self, main: ttk.Frame, row: int) -> None:
+        review_frame = ttk.LabelFrame(main, text="Manual review workflow", padding=10)
+        review_frame.grid(row=row, column=0, columnspan=3, sticky="ew", pady=(0, 14))
+        review_frame.columnconfigure(1, weight=1)
+
+        ttk.Button(
+            review_frame,
+            text="Select review folder",
+            command=self.select_review_output_dir,
+        ).grid(row=0, column=0, sticky="w", pady=(0, 8))
+
+        ttk.Label(
+            review_frame,
+            textvariable=self.review_dir_var,
+            wraplength=500,
+        ).grid(row=0, column=1, columnspan=3, sticky="ew", pady=(0, 8))
+
+        self.review_tree = ttk.Treeview(
+            review_frame,
+            columns=("output", "report", "status"),
+            show="headings",
+            height=5,
+        )
+        self.review_tree.heading("output", text="Output")
+        self.review_tree.heading("report", text="Report")
+        self.review_tree.heading("status", text="Manual status")
+        self.review_tree.column("output", width=220, anchor="w")
+        self.review_tree.column("report", width=180, anchor="w")
+        self.review_tree.column("status", width=120, anchor="w")
+        self.review_tree.grid(row=1, column=0, columnspan=4, sticky="ew", pady=(0, 8))
+
+        ttk.Combobox(
+            review_frame,
+            textvariable=self.review_status_choice_var,
+            values=REVIEW_STATUSES,
+            state="readonly",
+            width=16,
+        ).grid(row=2, column=0, sticky="w", pady=(0, 8))
+
+        ttk.Button(
+            review_frame,
+            text="Set selected status",
+            command=self.set_selected_review_status,
+        ).grid(row=2, column=1, sticky="w", padx=(8, 0), pady=(0, 8))
+
+        ttk.Button(
+            review_frame,
+            text="Save review status",
+            command=self.save_review_status,
+        ).grid(row=2, column=2, sticky="w", padx=(8, 0), pady=(0, 8))
+
+        ttk.Label(
+            review_frame,
+            text=(
+                "Approved is a manual user decision; the application does not "
+                "guarantee complete anonymization."
+            ),
+            foreground="#9a3412",
+            wraplength=640,
+        ).grid(row=3, column=0, columnspan=4, sticky="w", pady=(0, 6))
+
+        ttk.Label(
+            review_frame,
+            textvariable=self.review_status_var,
+            wraplength=640,
+        ).grid(row=4, column=0, columnspan=4, sticky="ew")
+
+    def select_review_output_dir(self) -> None:
+        folder_path = filedialog.askdirectory(title="Select output folder for review")
+        if not folder_path:
+            return
+
+        self.review_dir = Path(folder_path)
+        folder_name = self.review_dir.name or "selected folder"
+        self.review_dir_var.set(f"Review folder selected: {folder_name}")
+        self.load_review_folder()
+
+    def load_review_folder(self) -> None:
+        if self.review_dir is None:
+            self.review_status_var.set("Select an output folder for review first.")
+            return
+
+        try:
+            workspace = load_review_workspace(self.review_dir)
+        except OSError:
+            self.review_items = []
+            self.review_batch_summary_names = []
+            self._populate_review_tree()
+            self.review_status_var.set("Could not read the selected review folder.")
+            return
+
+        self.review_items = workspace.items
+        self.review_batch_summary_names = workspace.batch_summary_names
+        self._populate_review_tree()
+        self.review_status_var.set(
+            f"Detected {len(self.review_items)} anonymized output file(s) for review."
+        )
+
+    def _populate_review_tree(self) -> None:
+        if self.review_tree is None:
+            return
+
+        for item_id in self.review_tree.get_children():
+            self.review_tree.delete(item_id)
+
+        for item in self.review_items:
+            self.review_tree.insert(
+                "",
+                "end",
+                iid=item.output_name,
+                values=(
+                    item.output_name,
+                    item.report_name or "missing",
+                    item.status,
+                ),
+            )
+
+    def set_selected_review_status(self) -> None:
+        if self.review_tree is None:
+            return
+
+        selected_items = self.review_tree.selection()
+        if not selected_items:
+            self.review_status_var.set("Select one review item before setting status.")
+            return
+
+        output_name = str(selected_items[0])
+        selected_status = self.review_status_choice_var.get()
+        try:
+            self.review_items = apply_review_statuses(
+                self.review_items,
+                {output_name: selected_status},
+            )
+        except ValueError:
+            self.review_status_var.set("Select a valid manual review status.")
+            return
+
+        self._populate_review_tree()
+        self.review_tree.selection_set(output_name)
+        self.review_status_var.set(
+            f"Manual status for {output_name}: {selected_status}."
+        )
+
+    def save_review_status(self) -> None:
+        if self.review_dir is None:
+            self.review_status_var.set("Select an output folder for review first.")
+            return
+        if not self.review_items:
+            self.review_status_var.set("No generated _ANON files detected for review.")
+            return
+
+        try:
+            save_result = save_review_files(
+                self.review_dir,
+                items=self.review_items,
+                batch_summary_names=self.review_batch_summary_names,
+            )
+        except OSError:
+            self.review_status_var.set("Could not save review status files.")
+            return
+
+        completed = "yes" if save_result.manual_review_completed else "no"
+        self.review_status_var.set(
+            f"Saved {save_result.status_path.name} and {save_result.summary_path.name}. "
+            f"Manual review completed: {completed}."
+        )
 
 
 def start_gui() -> None:
@@ -403,3 +592,12 @@ def start_gui() -> None:
     root = tk.Tk()
     AnonymizerGui(root)
     root.mainloop()
+
+
+def main() -> None:
+    """Run the GUI when this module is executed as a script."""
+    start_gui()
+
+
+if __name__ == "__main__":
+    main()

@@ -10,6 +10,7 @@ env/
 *.log
 logs/
 _manual_test/
+_manual_test_stage13/
 output/
 outputs/
 exports/
@@ -22,6 +23,8 @@ local_config.*
 *_ANON.*
 *_RAPORT.*
 *_BATCH_SUMMARY*.txt
+_REVIEW_STATUS*.json
+_REVIEW_SUMMARY*.txt
 .DS_Store
 Thumbs.db
 

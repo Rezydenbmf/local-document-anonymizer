@@ -2,9 +2,9 @@
 
 ## Current Status
 
-The project is in Stage 12: safe output workspace and batch processing.
+The project is in Stage 13: manual review workflow.
 
-The Stage 0-12 MVP implementation contains a narrow regex-based engine that
+The Stage 0-13 MVP implementation contains a narrow regex-based engine that
 accepts a Python string and returns anonymized text plus category counters. It
 also contains optional private dictionary support with aliases,
 case-insensitive matching, and whitespace-tolerant term matching, TXT file
@@ -12,7 +12,9 @@ readers and writers, basic DOCX readers and writers, text-based PDF text
 extraction, small integration helpers for saving separate anonymized TXT, DOCX,
 and PDF-to-TXT outputs, a simple Tkinter GUI for anonymizing selected
 supported files into a chosen output folder, safe TXT report generation without
-source values, and a safe post-anonymization audit with category counters only.
+source values, a safe post-anonymization audit with category counters only,
+batch processing, and manual review status tracking for generated output
+folders.
 
 Stage 10.1 fixes manual validation findings around the private dictionary flow.
 The GUI stores the selected dictionary path, the workflow loads it centrally,
@@ -39,6 +41,14 @@ file is recorded in a safe form and does not stop later files. The batch
 summary stores safe filenames, aggregate counters, audit status counts, and
 controlled error descriptions only.
 
+Stage 13 adds a manual review workflow for existing output folders. The app
+detects generated `_ANON` files, pairs matching `_RAPORT` files when present,
+lists `_BATCH_SUMMARY` files when present, lets the user mark outputs as
+`approved`, `needs_review`, or `rejected`, and saves safe
+`_REVIEW_STATUS.json` and collision-safe `_REVIEW_SUMMARY.txt` metadata.
+`approved` is a manual user decision, not an automatic application decision,
+and the workflow does not show, inspect, or store document contents.
+
 ## What Exists
 
 - Repository structure.
@@ -58,7 +68,8 @@ controlled error descriptions only.
   output directory support.
 - Batch workflow `anonymize_batch(...)`.
 - Simple Tkinter GUI in `src/gui.py` for selecting multiple input files, an
-  output folder, and an optional private dictionary.
+  output folder, an optional private dictionary, and an output folder for
+  manual review status tracking.
 - Default GUI entry point in `src/main.py`.
 - Safe report text generation in `src/report.py`.
 - Report path helper `build_report_path(...)`, which can target the selected
@@ -87,6 +98,13 @@ accepts preloaded `sensitive_terms`.
 - TXT, DOCX, PDF, and dispatcher flows that create safe reports after
   successful anonymization.
 - Batch summary report generation with safe filenames and no private paths.
+- Manual review workflow in `src/review.py` for detecting generated `_ANON`
+  outputs, pairing safe report basenames, applying manual statuses, and saving
+  safe review metadata.
+- GUI support for assigning `approved`, `needs_review`, or `rejected` statuses
+  without previewing or editing document contents.
+- Safe `_REVIEW_STATUS.json` review manifest output.
+- Collision-safe `_REVIEW_SUMMARY.txt` review summary output.
 - Runtime dependency on `python-docx`.
 - Runtime dependency on `pypdf`.
 - Unit tests for the Stage 1 anonymizer using synthetic values only.
@@ -113,6 +131,10 @@ accepts preloaded `sensitive_terms`.
 - Unit tests for Stage 12 collision-safe naming, output workspace behavior,
   batch TXT/DOCX/PDF processing, safe error continuation, and safe batch
   summary content using synthetic values only.
+- Unit tests for Stage 13 generated output detection, report pairing, missing
+  report handling, manual statuses, safe review status JSON, safe review
+  summary text, collision-safe review summary naming, Stage 12 regression, and
+  report/audit regression using synthetic values only.
 - Synthetic sample text files in `tests/sample_data/`.
 - Synthetic example dictionary in `examples/sensitive_terms.example.txt`.
 - Synthetic seed dictionary example in `examples/sensitive_terms.seed.example.txt`.
@@ -131,6 +153,8 @@ accepts preloaded `sensitive_terms`.
 - OCR, AI, API calls, cloud services, local LLMs, or databases.
 - Detailed report generation beyond safe counters, safe audit metadata, and
   manual review notes.
+- Automatic approval based on audit results or report contents.
+- Moving reviewed files into approved/rejected folders.
 - Automatic names, surnames, cities, organizations, or context-based detection.
 - Anonymized PDF output.
 - Scanned PDF processing.
@@ -162,9 +186,9 @@ python -m unittest discover -s tests
   `_2` and `_3` are used when needed.
 - Batch processing is sequential and records per-file errors in the safe batch
   summary.
-- Reports contain only safe metadata, category counters, and manual review
-  notices. They do not contain source values, full input paths, filenames,
-  dictionary source aliases or terms, or replacement maps.
+- Per-file reports contain only safe metadata, category counters, and manual
+  review notices. They do not contain source values, full input paths,
+  filenames, dictionary source aliases or terms, or replacement maps.
 - Date detection is limited to high-confidence numeric formats.
 - Phone detection is intentionally conservative.
 - Address and postal-code detection are not implemented in Stage 1.
@@ -175,6 +199,12 @@ python -m unittest discover -s tests
   OCR is not included, and PDF layout preservation is not guaranteed.
 - The GUI processes selected files sequentially and does not include document
   preview, editing, or drag and drop.
+- The manual review workflow tracks statuses only. It does not inspect,
+  validate, preview, edit, or automatically approve anonymized document
+  contents.
+- Review status and summary files contain safe generated basenames and status
+  counts only, not full paths, source data, document excerpts, private
+  dictionary terms, aliases, tracebacks, or replacement maps.
 - Report files are plain TXT only and do not include a detailed audit trail.
 - Private dictionary matching is deterministic, case-insensitive, and tolerant
   of extra internal spaces, but it is not fuzzy matching, inflection handling,
@@ -198,8 +228,9 @@ e19d87c Implement Stage 12 batch output workspace
 
 ## Next Logical Step
 
-The Stage 0–12 MVP is complete. Potential future work requires an explicit
-project decision, especially OCR, installer work, better NLP, stronger entity
+Manually smoke test Stage 13 through the Tkinter GUI with synthetic files in a
+local output folder. Potential future work requires an explicit project
+decision, especially OCR, installer work, better NLP, stronger entity
 detection, packaging, or release automation.
 
 ## Warning

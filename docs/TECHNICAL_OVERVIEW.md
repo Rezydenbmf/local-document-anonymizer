@@ -12,7 +12,7 @@ input file
 -> post-anonymization audit
 -> safe report
 -> optional batch summary
--> manual review outside the application
+-> manual review status tracking without content preview
 ```
 
 ## Module Responsibilities
@@ -23,10 +23,13 @@ input file
 more supported files, select an output folder, optionally select a private
 sensitive terms file, run sequential batch anonymization, and view safe
 filenames, safe dictionary status, aggregate category counters, aggregate audit
-status counts, output/report filenames, the batch summary filename, and the
-manual review warning. It stores only the selected dictionary path and lets the
-workflow load the file. It does not display dictionary contents, original
-detected values, text snippets, or dictionary terms.
+status counts, output/report filenames, the batch summary filename, and manual
+review controls. It stores only the selected dictionary path and lets the
+workflow load the file. It can load an existing output folder, list generated
+anonymized output basenames, show matching report basenames when present, apply
+manual review statuses, and save safe review metadata. It does not display
+dictionary contents, original detected values, text snippets, dictionary terms,
+or document contents.
 
 `file_readers.py` reads UTF-8 TXT files, extracts basic text from local DOCX files, and extracts text from text-based PDFs. DOCX extraction covers normal paragraphs and simple table cells. PDF extraction requires an existing text layer and does not include OCR.
 
@@ -86,6 +89,15 @@ terms are not passed to the report module. Stage 12 also adds safe batch
 summary text generation with safe filenames, aggregate counters, audit status
 counts, and controlled error descriptions only.
 
+`review.py` contains the Stage 13 manual review workflow metadata. It detects
+generated `_ANON` outputs in an output folder, pairs matching `_RAPORT` report
+basenames when present, lists `_BATCH_SUMMARY` basenames when present, validates
+manual statuses, and saves `_REVIEW_STATUS.json` plus collision-safe
+`_REVIEW_SUMMARY.txt` files. It stores generated basenames, status counts, and
+manual decision metadata only. It does not open generated documents, inspect
+document contents, display excerpts, move files, or approve files
+automatically.
+
 ## Safety Design
 
 The project is local-first and offline. It must not add cloud services, APIs, network calls, AI services, OCR, databases, or large dependencies without explicit approval.
@@ -103,6 +115,12 @@ and counts, not original values, text snippets, dictionary terms, full document
 text, or replacement maps. Audit status `ok` does not prove complete
 anonymization; manual review remains required.
 
+Stage 13 review results are manual metadata only. `approved` means the user
+manually approved the generated output; it is not inferred from the audit,
+report, filename, or application logic. Review status and summary files contain
+safe basenames and counts only, not source values, document contents, private
+dictionary terms, aliases, full paths, tracebacks, or replacement maps.
+
 Dictionary metadata is safe metadata only. It contains status names, booleans
 implied by status, label names, and counters. It does not contain dictionary
 source aliases, document fragments, source file paths, or replacement maps.
@@ -116,8 +134,8 @@ editing workflow.
 The GUI is a simple workflow shell. It does not preview document content, edit
 output, display dictionary contents, display audit snippets, write anonymized
 PDF files, or generate detailed audit reports beyond safe counters and the
-safe batch summary. It calls the batch workflow instead of parsing files inside
-the GUI layer.
+safe batch summary and safe manual review summary. It calls the batch workflow
+and review workflow instead of parsing files inside the GUI layer.
 
 ## Private Dictionary Limitations
 

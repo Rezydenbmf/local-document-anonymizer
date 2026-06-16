@@ -8,6 +8,8 @@ and counts, but never original dictionary terms or aliases. Stage 9 adds a safe
 post-anonymization audit section with audit status and counters only. Stage
 10.1 adds a safe dictionary section with used/status/matches-found metadata and
 dictionary label counters only. Stage 12 adds safe batch summary reports.
+Stage 13 adds safe manual review status and summary metadata in `src/review.py`
+using the same no-source-data reporting conventions.
 
 ## Related files
 
@@ -15,8 +17,10 @@ dictionary label counters only. Stage 12 adds safe batch summary reports.
 - `src/file_writers.py`
 - `src/anonymizer.py`
 - `src/gui.py`
+- `src/review.py`
 - `src/sensitive_terms.py`
 - `tests/test_report.py`
+- `tests/test_review_workflow.py`
 - `tests/test_sensitive_terms.py`
 
 ## Public API
@@ -27,6 +31,8 @@ save_report_file(...) -> Path
 build_report_path(source_path: str | Path) -> Path
 build_batch_summary_text(...) -> str
 save_batch_summary_file(...) -> Path
+build_review_summary_text(...) -> str
+save_review_files(...) -> ReviewSaveResult
 ```
 
 The existing anonymization helpers keep their Stage 2-5 return values:
@@ -63,6 +69,18 @@ _BATCH_SUMMARY_2.txt
 _BATCH_SUMMARY_3.txt
 ```
 
+Manual review metadata files are saved as:
+
+```text
+_REVIEW_STATUS.json
+_REVIEW_SUMMARY.txt
+_REVIEW_SUMMARY_2.txt
+```
+
+`_REVIEW_STATUS.json` stores the latest safe status manifest for an output
+folder. `_REVIEW_SUMMARY.txt` uses collision-safe numbering so older summaries
+are not silently overwritten.
+
 ## Report Contents
 
 The report contains only safe metadata:
@@ -92,6 +110,17 @@ The batch summary contains only safe metadata:
 - safe generated report filenames,
 - controlled safe error descriptions.
 
+The manual review summary contains only safe metadata:
+
+- number of generated outputs detected for review,
+- count of `approved`, `needs_review`, and `rejected` statuses,
+- manual review completed yes/no,
+- statement that decisions are manual user decisions,
+- safe generated output basenames,
+- safe report basenames or a missing-report marker,
+- safe batch summary basenames when present,
+- confirmation that source data and replacement maps are not stored.
+
 ## Deliberately Excluded
 
 The report must not contain:
@@ -113,6 +142,11 @@ The report must not contain:
 Batch summary reports may contain safe filenames, but they must not contain
 full paths, source document text, private dictionary terms, dictionary aliases,
 raw exception messages, or replacement maps.
+
+Manual review status and summary files may contain safe generated basenames,
+but they must not contain full paths, source document text, anonymized document
+text, document excerpts, original sensitive values, private dictionary terms,
+dictionary aliases, tracebacks, automatic approval claims, or replacement maps.
 
 Dictionary status meanings:
 
@@ -136,6 +170,10 @@ Manual review is still required. A safe report confirms what the tool replaced
 and what the audit warned about, but it does not prove the whole document is
 anonymized.
 
+Stage 13 review metadata records the user's manual decision. `approved` means
+the user approved the file after review; it is not produced automatically from
+audit status or report contents.
+
 ## How to Test
 
 Run:
@@ -147,7 +185,8 @@ python -m unittest discover -s tests
 The tests cover report text generation, report path naming, safe report
 content, TXT integration, DOCX integration, PDF integration, dispatcher report
 safety, private dictionary report safety, post-anonymization audit report
-safety, and Stage 12 batch summary safety.
+safety, Stage 12 batch summary safety, and Stage 13 manual review summary
+safety.
 
 ## Known Limitations
 
@@ -158,4 +197,6 @@ safety, and Stage 12 batch summary safety.
 - No original private dictionary aliases or terms are written to reports.
 - Per-file reports do not write source filenames into the report body.
 - Batch summaries write safe filenames only, not full paths.
+- Review summaries write generated basenames only, not document contents or
+  full paths.
 - The report does not guarantee complete anonymization.
