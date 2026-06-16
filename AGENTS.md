@@ -48,6 +48,9 @@ Reports must never contain original sensitive source values. The application mus
 
 - Update documentation when a module or project stage changes.
 - Update `docs/PROJECT_STATE.md` after meaningful changes.
+- If `_local_diary/PROJECT_DIARY.md` exists locally, update it after
+  completed stages or important project decisions. This diary is local-only
+  and must never be committed.
 - After meaningful feature changes, review and update `README.md` if
   user-facing behavior, supported formats, workflow, limitations, installation,
   or usage changed.

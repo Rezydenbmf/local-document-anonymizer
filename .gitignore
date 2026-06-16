@@ -11,6 +11,8 @@ env/
 logs/
 _manual_test/
 _manual_test_stage13/
+_local_diary/
+*_DIARY.local.md
 output/
 outputs/
 exports/
