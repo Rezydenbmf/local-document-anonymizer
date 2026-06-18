@@ -9,8 +9,16 @@ import unittest
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from anonymizer import anonymize_file, anonymize_file_with_audit
-from gui import format_audit_result, format_dictionary_result
+from anonymizer import BatchResult, anonymize_file, anonymize_file_with_audit
+from gui import (
+    format_anonymize_readiness,
+    format_audit_result,
+    format_batch_status,
+    format_dictionary_result,
+    format_selected_file_count,
+    open_path_with_default_app,
+    remove_paths_by_indexes,
+)
 
 
 def workspace_temp_dir():
@@ -120,6 +128,74 @@ class GuiWorkflowTests(unittest.TestCase):
             formatted_dictionary,
             "Dictionary status: invalid; dictionary replacements skipped",
         )
+
+    def test_gui_formats_selected_file_count(self) -> None:
+        self.assertEqual(format_selected_file_count(0), "Selected files: 0")
+        self.assertEqual(format_selected_file_count(2), "Selected files: 2")
+
+        with self.assertRaises(ValueError):
+            format_selected_file_count(-1)
+
+    def test_gui_formats_anonymization_readiness_hint(self) -> None:
+        self.assertEqual(
+            format_anonymize_readiness(0, False),
+            "Add at least one input file and select an output folder.",
+        )
+        self.assertEqual(
+            format_anonymize_readiness(0, True),
+            "Add at least one input file.",
+        )
+        self.assertEqual(
+            format_anonymize_readiness(3, False),
+            "Select an output folder.",
+        )
+        self.assertEqual(
+            format_anonymize_readiness(3, True),
+            "Ready to anonymize 3 file(s).",
+        )
+
+        with self.assertRaises(ValueError):
+            format_anonymize_readiness(-1, False)
+
+    def test_gui_removes_paths_by_selected_indexes(self) -> None:
+        paths = [
+            Path("first.txt"),
+            Path("second.txt"),
+            Path("third.txt"),
+        ]
+
+        remaining_paths = remove_paths_by_indexes(paths, (1, 99, -1))
+
+        self.assertEqual(remaining_paths, [Path("first.txt"), Path("third.txt")])
+
+    def test_gui_batch_status_is_plain_language_and_safe(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            output_dir = Path(temp_dir) / "output-folder"
+            output_dir.mkdir()
+            batch_result = BatchResult(
+                summary_path=output_dir / "_BATCH_SUMMARY.txt",
+                input_count=2,
+                success_count=1,
+                error_count=1,
+                counters={},
+                audit_status_counts={"ok": 1, "warning": 0, "not run": 1},
+                results=[],
+            )
+
+            status = format_batch_status(batch_result)
+
+            self.assertIn("Processed 1 of 2 selected files", status)
+            self.assertIn("Some files could not be processed", status)
+            self.assertIn("output-folder", status)
+            self.assertIn("_BATCH_SUMMARY.txt", status)
+            self.assertNotIn(str(output_dir), status)
+
+    def test_gui_open_default_app_reports_missing_file(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            missing_path = Path(temp_dir) / "missing_ANON.txt"
+
+            with self.assertRaises(FileNotFoundError):
+                open_path_with_default_app(missing_path)
 
 
 if __name__ == "__main__":

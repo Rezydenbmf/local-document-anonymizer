@@ -15,18 +15,28 @@ automatic privacy solution.
 The current MVP workflow is:
 
 1. Run `python src/main.py`.
-2. Select one or more supported files.
+2. Add one or more supported files and check the selected-file count.
 3. Select an output folder.
 4. Optionally select a private sensitive terms file.
-5. Click `Anonymize batch`.
-6. Check the status, dictionary status, category counters, aggregate audit
+5. If `Anonymize batch` is disabled, read the readiness hint beside the button.
+6. Click `Anonymize batch`.
+7. Check the status, dictionary status, category counters, aggregate audit
    status, generated filenames, and batch summary filename.
-7. Manually review each anonymized output file before using or sharing it.
-8. Use the manual review section to load the output folder, assign statuses,
-   and save safe review metadata.
+8. Manually review each anonymized output file before using or sharing it.
+9. Use the manual review section to load the output folder, optionally open the
+   selected generated output or matching report in the operating system
+   default application, assign statuses, and save safe review metadata.
 
 The application saves output files before manual review. It does not provide an
 in-app document preview or editing screen.
+
+The selected-file list is only a GUI selection. `Remove selected` and
+`Clear files` remove files from that list only. They do not delete original
+files from disk.
+
+The readiness hint uses plain messages such as `Add at least one input file.`,
+`Select an output folder.`, or `Ready to anonymize 3 file(s).` It does not show
+document contents, source values, private dictionary terms, or full local paths.
 
 ## 4. Supported Files in Current Stage
 
@@ -124,10 +134,14 @@ The GUI can:
 2. Detect generated `_ANON` files.
 3. Pair matching `_RAPORT` files when present.
 4. Show `_BATCH_SUMMARY` files when present.
-5. Let the user mark each generated output as `approved`, `needs_review`, or
+5. Open the selected `_ANON` output in the operating system default
+   application.
+6. Open the matching `_RAPORT` report in the operating system default
+   application when one is detected.
+7. Let the user mark each generated output as `approved`, `needs_review`, or
    `rejected`.
-6. Save `_REVIEW_STATUS.json`.
-7. Save `_REVIEW_SUMMARY.txt`.
+8. Save `_REVIEW_STATUS.json`.
+9. Save `_REVIEW_SUMMARY.txt`.
 
 `approved` means the user manually approved the file after review. It does not
 mean the application guarantees complete anonymization. `needs_review` means
@@ -139,6 +153,10 @@ report basenames, status counts, batch summary basenames, timestamps, and the
 manual completion flag. They do not contain document contents, excerpts,
 source personal data, private dictionary terms, dictionary aliases, full local
 paths, tracebacks, or replacement maps.
+
+The open actions are convenience shortcuts only. They do not inspect document
+contents, validate anonymization, edit files, move files, or approve anything
+automatically.
 
 If `_REVIEW_SUMMARY.txt` already exists, the application writes a numbered
 summary such as `_REVIEW_SUMMARY_2.txt`. `_REVIEW_STATUS.json` stores the

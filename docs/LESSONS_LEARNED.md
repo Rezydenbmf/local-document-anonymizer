@@ -66,3 +66,11 @@ The README is the portfolio entry point. After meaningful feature changes,
 review it for accuracy around supported formats, workflow, limitations,
 installation, usage, privacy assumptions, and current stage before presenting
 the work for commit.
+
+## 15. GUI convenience must preserve the privacy boundary.
+
+Usability shortcuts such as clearing selections, removing selected files from a
+GUI list, or opening generated outputs should never delete source files,
+inspect document contents, expose private paths, or imply automatic approval.
+Status messages should use safe filenames and plain language. Disabled primary
+actions should explain what is missing before the user can continue.

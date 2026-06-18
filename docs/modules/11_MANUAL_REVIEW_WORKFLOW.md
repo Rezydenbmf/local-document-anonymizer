@@ -129,11 +129,20 @@ The GUI provides a manual review section that can:
 1. Select an output folder.
 2. Load detected generated outputs.
 3. Show output basename, report basename or `missing`, and manual status.
-4. Assign `approved`, `needs_review`, or `rejected`.
-5. Save the review status and summary files.
+4. Open the selected generated output with the operating system default
+   application.
+5. Open the matching report with the operating system default application when
+   one is detected.
+6. Assign `approved`, `needs_review`, or `rejected` to one or more selected
+   rows.
+7. Save the review status and summary files.
 
 The GUI does not show full document content, report content, dictionary
 contents, source values, audit snippets, or replacement maps.
+
+The open actions are convenience shortcuts only. They do not inspect document
+contents, validate anonymization, edit files, move files, or approve anything
+automatically.
 
 ## How to Test
 
@@ -153,6 +162,8 @@ output regression, and report/audit regression.
 - Status tracking only.
 - No document preview or editor.
 - No document-content inspection or validation.
+- External file opening is delegated to the operating system default
+  application and is not an in-app preview.
 - No automatic approval based on audit results.
 - No file moving into approved, needs-review, or rejected folders.
 - No OCR, AI, API calls, cloud services, local LLMs, NER, or database.

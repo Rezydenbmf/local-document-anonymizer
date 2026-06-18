@@ -10,6 +10,10 @@ a safe report, and expects manual review before any result is trusted.
 
 - Local desktop GUI built with Tkinter.
 - Multiple selected input files per batch run.
+- Scrollable GUI layout with a readable selected-file count.
+- Clear/remove actions for the GUI selected-file list without deleting files.
+- Readiness hint that explains missing files or output folder before
+  anonymization can start.
 - User-selected output folder for all generated files.
 - TXT input and UTF-8 TXT output.
 - Basic DOCX input and output for paragraphs and simple tables.
@@ -22,6 +26,8 @@ a safe report, and expects manual review before any result is trusted.
 - Safe `_RAPORT.txt` reports without source personal data.
 - Safe `_BATCH_SUMMARY.txt` reports with batch counts and safe filenames only.
 - Manual review workflow for existing output folders.
+- Manual review actions to open a selected `_ANON` output or matching
+  `_RAPORT` report with the operating system default application.
 - Safe `_REVIEW_STATUS.json` and collision-safe `_REVIEW_SUMMARY.txt`
   review metadata files.
 - Synthetic examples and tests only.
@@ -181,15 +187,19 @@ python -m unittest discover -s tests
 ## Basic Usage
 
 1. Start the app with `python src/main.py`.
-2. Select one or more `.txt`, `.docx`, or text-based `.pdf` files.
+2. Add one or more `.txt`, `.docx`, or text-based `.pdf` files and check the
+   selected-file count.
 3. Select an output folder.
 4. Optionally select a private dictionary file.
-5. Click `Anonymize batch`.
-6. Check the GUI status, counters, audit summary, generated filenames, and
+5. If `Anonymize batch` is disabled, read the readiness hint beside the button.
+6. Click `Anonymize batch`.
+7. Check the GUI status, counters, audit summary, generated filenames, and
    batch summary filename.
-7. Manually review every anonymized output before using or sharing it.
-8. In the manual review section, select the output folder, load detected
-   generated outputs, assign manual statuses, and save the review metadata.
+8. Manually review every anonymized output before using or sharing it.
+9. In the manual review section, select the output folder, load detected
+   generated outputs, optionally open the selected `_ANON` output or matching
+   `_RAPORT` report in the default system app, assign manual statuses, and
+   save the review metadata.
 
 ## Example Workflow
 
@@ -280,8 +290,9 @@ python -m unittest discover -s tests
   not stop later files.
 - No drag and drop.
 - No full document preview or editing workflow.
-- Manual review tracking is status metadata only and does not inspect or
-  validate document contents.
+- Manual review tracking is status metadata plus optional external file
+  opening only; it does not inspect, preview, edit, or validate document
+  contents inside the app.
 - No automatic approval.
 - DOCX support is limited to basic paragraphs and simple tables.
 - DOCX headers, footers, comments, footnotes, form fields, text in images, and
@@ -296,8 +307,9 @@ python -m unittest discover -s tests
 Completed MVP stages include repository setup, regex anonymization, TXT IO,
 basic DOCX IO, text-based PDF input, Tkinter GUI, safe reports, private
 dictionary support, post-anonymization audit, manual validation fixes, the
-Stage 11 smart dictionary foundation, and Stage 12 safe output workspace with
-batch processing, and the Stage 13 manual review workflow.
+Stage 11 smart dictionary foundation, Stage 12 safe output workspace with
+batch processing, the Stage 13 manual review workflow, and the Stage 15 GUI
+usability cleanup.
 
 Potential future work requires explicit approval, especially OCR, scanned PDF
 support, stronger entity detection, installer packaging, release automation,

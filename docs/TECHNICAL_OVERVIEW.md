@@ -24,12 +24,17 @@ more supported files, select an output folder, optionally select a private
 sensitive terms file, run sequential batch anonymization, and view safe
 filenames, safe dictionary status, aggregate category counters, aggregate audit
 status counts, output/report filenames, the batch summary filename, and manual
-review controls. It stores only the selected dictionary path and lets the
+review controls. Stage 15 keeps the same workflow but makes the main layout
+scrollable, shows the selected-file count, lets the user remove or clear files
+from the GUI selection without deleting them, and improves plain-language
+status messages. It stores only the selected dictionary path and lets the
 workflow load the file. It can load an existing output folder, list generated
 anonymized output basenames, show matching report basenames when present, apply
-manual review statuses, and save safe review metadata. It does not display
-dictionary contents, original detected values, text snippets, dictionary terms,
-or document contents.
+manual review statuses to one or more selected rows, open the selected
+generated output or matching report with the operating system default
+application, and save safe review metadata. It does not display dictionary
+contents, original detected values, text snippets, dictionary terms, or
+document contents.
 
 `file_readers.py` reads UTF-8 TXT files, extracts basic text from local DOCX files, and extracts text from text-based PDFs. DOCX extraction covers normal paragraphs and simple table cells. PDF extraction requires an existing text layer and does not include OCR.
 
@@ -134,8 +139,11 @@ editing workflow.
 The GUI is a simple workflow shell. It does not preview document content, edit
 output, display dictionary contents, display audit snippets, write anonymized
 PDF files, or generate detailed audit reports beyond safe counters and the
-safe batch summary and safe manual review summary. It calls the batch workflow
-and review workflow instead of parsing files inside the GUI layer.
+safe batch summary and safe manual review summary. Stage 15 can ask the
+operating system to open a selected generated output or matching report, but
+the GUI does not inspect those files or add an in-app viewer. It calls the
+batch workflow and review workflow instead of parsing files inside the GUI
+layer.
 
 ## Private Dictionary Limitations
 

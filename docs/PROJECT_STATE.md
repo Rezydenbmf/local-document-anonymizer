@@ -2,7 +2,7 @@
 
 ## Current Status
 
-The project is in Stage 13: manual review workflow.
+The project is in Stage 15: GUI usability cleanup.
 
 The Stage 0-13 MVP implementation contains a narrow regex-based engine that
 accepts a Python string and returns anonymized text plus category counters. It
@@ -49,6 +49,17 @@ lists `_BATCH_SUMMARY` files when present, lets the user mark outputs as
 `approved` is a manual user decision, not an automatic application decision,
 and the workflow does not show, inspect, or store document contents.
 
+Stage 15 improves the existing Tkinter GUI usability without changing the core
+anonymization engine. The window is resizable with a smaller minimum size and a
+scrollable main layout, the input selection is shown as a removable list with a
+readable selected-file count, selected inputs can be cleared from the GUI
+without deleting files, the anonymization button has a visible readiness hint
+that explains missing input files or output folder, review statuses can be
+applied to multiple selected review rows, and the manual review section can
+open the selected generated `_ANON` output or matching `_RAPORT` report with
+the operating system default application. The GUI still does not preview,
+inspect, edit, or validate document contents inside the app.
+
 ## What Exists
 
 - Repository structure.
@@ -70,6 +81,13 @@ and the workflow does not show, inspect, or store document contents.
 - Simple Tkinter GUI in `src/gui.py` for selecting multiple input files, an
   output folder, an optional private dictionary, and an output folder for
   manual review status tracking.
+- Scrollable Tkinter GUI layout with a readable selected-file count.
+- GUI actions to remove selected inputs or clear the input list without
+  deleting files from disk.
+- GUI readiness hint that explains whether input files or an output folder are
+  still needed before anonymization can start.
+- Manual review GUI actions to open a selected `_ANON` output or matching
+  `_RAPORT` report with the operating system default application.
 - Default GUI entry point in `src/main.py`.
 - Safe report text generation in `src/report.py`.
 - Report path helper `build_report_path(...)`, which can target the selected
@@ -201,7 +219,8 @@ python -m unittest discover -s tests
   preview, editing, or drag and drop.
 - The manual review workflow tracks statuses only. It does not inspect,
   validate, preview, edit, or automatically approve anonymized document
-  contents.
+  contents. Opening a selected output or report delegates to the operating
+  system default application and does not add an in-app viewer.
 - Review status and summary files contain safe generated basenames and status
   counts only, not full paths, source data, document excerpts, private
   dictionary terms, aliases, tracebacks, or replacement maps.
@@ -228,8 +247,11 @@ e19d87c Implement Stage 12 batch output workspace
 
 ## Next Logical Step
 
-Manually smoke test Stage 13 through the Tkinter GUI with synthetic files in a
-local output folder. Potential future work requires an explicit project
+Manually smoke test Stage 15 through the Tkinter GUI with synthetic files in a
+local output folder: resizing/scrolling, selected-file count, clear/remove
+actions, disabled-button readiness messages, batch run status messages, and
+opening selected `_ANON`/`_RAPORT` files from manual review. Potential future
+work requires an explicit project
 decision, especially OCR, installer work, better NLP, stronger entity
 detection, packaging, or release automation.
 

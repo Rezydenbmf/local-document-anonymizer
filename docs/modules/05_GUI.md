@@ -11,7 +11,11 @@ shows safe dictionary status after the workflow runs. Stage 12 adds multiple
 input file selection, output folder selection, sequential batch processing,
 collision-safe output names, and a safe batch summary report. Stage 13 adds a
 manual review section for loading an output folder, assigning manual statuses,
-and saving safe review metadata.
+and saving safe review metadata. Stage 15 improves GUI usability with a
+scrollable main layout, selected-file count, clear/remove actions for the GUI
+input list, a readiness hint beside the anonymization button, clearer status
+messages, and manual-review shortcuts for opening a selected generated output
+or matching report with the operating system default application.
 
 ## Related files
 
@@ -54,23 +58,32 @@ anonymization logic.
 The GUI supports this flow:
 
 1. Open the application with `python src/main.py`.
-2. Select one or more supported files.
+2. Add one or more supported files and check the selected-file count.
 3. Select an output folder.
 4. Optionally select a private sensitive terms file. The GUI stores the path
    and the workflow loads the dictionary.
-5. Click `Anonymize batch`.
-6. Review the status, safe dictionary status, category counters, aggregate
+5. Check the readiness hint if `Anonymize batch` is disabled.
+6. Click `Anonymize batch`.
+7. Review the status, safe dictionary status, category counters, aggregate
    audit status counts, generated output filenames, generated report
    filenames, batch summary filename, and manual review warning.
-7. Manually inspect every anonymized output file before using or sharing it.
-8. Load the output folder in the manual review section.
-9. Assign each generated output one manual status: `approved`, `needs_review`,
-   or `rejected`.
-10. Save `_REVIEW_STATUS.json` and a collision-safe `_REVIEW_SUMMARY.txt`.
+8. Manually inspect every anonymized output file before using or sharing it.
+9. Load the output folder in the manual review section.
+10. Optionally open the selected `_ANON` output or matching `_RAPORT` report in
+   the operating system default application.
+11. Assign each generated output one manual status: `approved`,
+   `needs_review`, or `rejected`.
+12. Save `_REVIEW_STATUS.json` and a collision-safe `_REVIEW_SUMMARY.txt`.
+
+`Remove selected` and `Clear files` affect only the GUI selected-file list.
+They do not delete source files from disk.
 
 The GUI shows:
 
 - selected input filenames,
+- selected input file count,
+- anonymization readiness: missing input files, missing output folder, or ready
+  file count,
 - selected output folder status,
 - safe dictionary status,
 - operation status,
@@ -81,9 +94,16 @@ The GUI shows:
 - generated output filenames detected for manual review,
 - report filenames paired with review items when present,
 - manual review statuses,
+- clear status messages when selected generated outputs or reports are opened
+  or missing,
 - review status and summary filenames after save,
 - clear errors from unsupported file types or PDFs without extractable text,
 - a reminder that manual review is required.
+
+The readiness hint updates when input files are added, removed, or cleared, when
+an output folder is selected, and when dictionary selection changes the current
+GUI state. It does not display document contents, source values, private
+dictionary terms, or full local paths.
 
 Dictionary status values shown by the GUI are:
 
@@ -146,6 +166,8 @@ as `document_ANON_2.txt`. Review summaries use numbered safe names such as
 - The GUI does not display private dictionary terms or audit text snippets.
 - The GUI displays generated filenames, not report contents or source values.
 - The GUI displays manual review item filenames and statuses only.
+- The GUI can ask the operating system to open a selected generated output or
+  matching report, but it does not preview or inspect those files itself.
 - `approved` is a manual user decision, not an automatic application decision.
 - No replacement map is created.
 - Safe report files are created by the existing file workflow helpers.
@@ -169,12 +191,16 @@ is covered by `tests/test_report.py`. Stage 8 dictionary integration is covered
 by `tests/test_sensitive_terms.py`. Stage 9 audit metadata safety is covered by
 `tests/test_gui_workflow.py` and `tests/test_audit.py`. Stage 12 batch/output
 workspace behavior is covered by `tests/test_batch_processing.py`. Stage 13
-manual review metadata is covered by `tests/test_review_workflow.py`. Fragile
-widget tests are not included.
+manual review metadata is covered by `tests/test_review_workflow.py`. Stage 15
+selected-file count, anonymization readiness helper text, list removal, safe
+batch status, and missing external file open handling are covered by
+`tests/test_gui_workflow.py`. Fragile widget tests are not included.
 
 ## Known limitations
 
 - The GUI has no document preview or editing view.
+- External open buttons delegate to the operating system default application;
+  they do not add an in-app viewer or validator.
 - The GUI can select one private dictionary file path but does not manage,
   edit, validate before run, or display its contents.
 - The GUI audit display is a warning summary only and does not prove complete
