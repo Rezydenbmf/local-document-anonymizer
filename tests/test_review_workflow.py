@@ -96,6 +96,41 @@ class ReviewWorkflowTests(unittest.TestCase):
             self.assertFalse(payload["manual_review_completed"])
             self.assertFalse(payload["automatic_approval_used"])
 
+    def test_detects_risk_levels_from_safe_reports_and_sorts_high_risk_first(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            output_dir = Path(temp_dir)
+            (output_dir / "low_ANON.txt").write_text(
+                "Synthetic output.", encoding="utf-8"
+            )
+            (output_dir / "low_RAPORT.txt").write_text(
+                "Post-anonymization audit:\nRisk level: warning\n",
+                encoding="utf-8",
+            )
+            (output_dir / "high_ANON.txt").write_text(
+                "Synthetic output.", encoding="utf-8"
+            )
+            (output_dir / "high_RAPORT.txt").write_text(
+                "Post-anonymization audit:\nRisk level: high_risk\n",
+                encoding="utf-8",
+            )
+            (output_dir / "clean_ANON.txt").write_text(
+                "Synthetic output.", encoding="utf-8"
+            )
+            (output_dir / "clean_RAPORT.txt").write_text(
+                "Post-anonymization audit:\nRisk level: ok\n",
+                encoding="utf-8",
+            )
+
+            workspace = detect_review_workspace(output_dir)
+
+            self.assertEqual(
+                [item.output_name for item in workspace.items],
+                ["high_ANON.txt", "low_ANON.txt", "clean_ANON.txt"],
+            )
+            self.assertEqual(workspace.items[0].risk_level, "high_risk")
+            self.assertEqual(workspace.items[1].risk_level, "warning")
+            self.assertEqual(workspace.items[2].risk_level, "ok")
+
     def test_review_summary_is_safe_and_does_not_include_document_content(self) -> None:
         with workspace_temp_dir() as temp_dir:
             output_dir = Path(temp_dir)
@@ -136,6 +171,7 @@ class ReviewWorkflowTests(unittest.TestCase):
             self.assertIn("Approved means the user manually approved the file.", summary_text)
             self.assertIn("output: document_ANON.txt", summary_text)
             self.assertIn("report: document_RAPORT.txt", summary_text)
+            self.assertIn("risk level: unknown", summary_text)
             self.assertIn("_BATCH_SUMMARY.txt", summary_text)
             for unsafe_text in (
                 source_personal_data,
@@ -193,9 +229,11 @@ class ReviewWorkflowTests(unittest.TestCase):
             self.assertEqual(len(workspace.items), 1)
             self.assertEqual(workspace.items[0].output_name, "document_ANON.txt")
             self.assertEqual(workspace.items[0].report_name, "document_RAPORT.txt")
+            self.assertEqual(workspace.items[0].risk_level, "warning")
             self.assertEqual(workspace.batch_summary_names, ["_BATCH_SUMMARY.txt"])
             self.assertIn("Post-anonymization audit:", report_text)
             self.assertIn("Status: warning", report_text)
+            self.assertIn("Risk level: warning", report_text)
             self.assertNotIn("safe@example.test", report_text)
             self.assertNotIn(str(source_dir), report_text)
 

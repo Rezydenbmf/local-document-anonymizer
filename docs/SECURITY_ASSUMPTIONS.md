@@ -21,16 +21,17 @@ Reports must not include original source values. They may include safe metadata 
 
 Reports may include status, input type, output type, anonymization category
 counters, safe dictionary status metadata, dictionary label counters,
-post-anonymization audit status and counters, and manual review/security notes
-only. They must not include document text, detected source values, full input
-paths, full input filenames, text snippets, dictionary source aliases, or logs
-containing document content.
+post-anonymization audit status, risk level, counters, and manual
+review/security notes only. They must not include document text, detected
+source values, full input paths, full input filenames, text snippets,
+dictionary source aliases, or logs containing document content.
 
 Batch summary reports may include safe input filenames, safe generated output
 filenames, safe generated report filenames, aggregate category counters, audit
-status counts, and controlled error descriptions. They must not include full
-paths, source document text, detected source values, dictionary aliases,
-private dictionary terms, raw exception messages, or replacement maps.
+status counts, risk level counts, aggregate audit warning category counters,
+and controlled error descriptions. They must not include full paths, source
+document text, detected source values, dictionary aliases, private dictionary
+terms, raw exception messages, or replacement maps.
 
 ## No Replacement Map
 
@@ -60,7 +61,7 @@ counts only.
 
 ## Post-Anonymization Audit
 
-Stage 9/10.1 audit results must contain only safe metadata: audit status,
+Audit results must contain only safe metadata: audit status, risk level,
 categories, counters, safe workflow dictionary metadata, and the manual review
 flag.
 
@@ -70,10 +71,10 @@ replacement map.
 
 When a dictionary loads successfully, the workflow may pass its private aliases
 into the audit so remaining dictionary matches can be counted as
-`SENSITIVE_DICTIONARY_TERM`. The audit is a warning layer only. `ok` status
-does not guarantee complete anonymization, and `warning` status does not
-include the suspicious source values. Manual review remains required for every
-output.
+`SENSITIVE_DICTIONARY_TERM`. The audit is a warning and prioritization layer
+only. `ok` status or risk level does not guarantee complete anonymization, and
+`warning` or `high_risk` status does not include the suspicious source values.
+Manual review remains required for every output.
 
 ## Original Files Are Not Modified
 

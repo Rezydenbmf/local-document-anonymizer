@@ -35,7 +35,8 @@ chosen output workspace.
 
 `anonymize_batch(...)` returns safe batch metadata including the summary path,
 input count, success count, error count, aggregate counters, audit status
-counts, and per-file result entries using filenames only.
+counts, risk level counts, aggregate audit category counters, and per-file
+result entries using filenames only.
 
 ## Output Workspace
 
@@ -83,6 +84,8 @@ The `_BATCH_SUMMARY.txt` report may contain:
 - number of errors,
 - aggregate category counters,
 - audit status counts,
+- risk level counts,
+- aggregate audit warning category counters,
 - safe input filenames,
 - safe generated output filenames,
 - safe generated report filenames,
@@ -110,7 +113,8 @@ The GUI now supports this Stage 12 flow:
 3. Optionally select a private dictionary file.
 4. Run `Anonymize batch`.
 5. Review the completion status, aggregate counters, aggregate audit status,
-   output filenames, report filenames, and batch summary filename.
+   aggregate risk levels, output filenames, report filenames, and batch summary
+   filename.
 6. Manually review every generated anonymized output.
 
 The GUI shows safe filenames and counts. It does not show source values,
@@ -124,6 +128,7 @@ dictionary contents, audit snippets, or raw exception text.
 - Original files are not modified.
 - Reports do not store replacement maps.
 - Batch errors are sanitized before being written to `_BATCH_SUMMARY.txt`.
+- Risk levels are prioritization metadata only and do not approve files.
 - Manual review remains required for every generated output.
 
 ## How to Test
@@ -136,13 +141,16 @@ python -m unittest discover -s tests
 
 Stage 12 tests cover collision-safe naming, output workspace behavior,
 sequential batch processing across TXT/DOCX/text-based PDF, safe continuation
-after unsupported files, and safe batch summary contents.
+after unsupported files, and safe batch summary contents. Stage 16 tests cover
+aggregate risk counts, aggregate audit category counters, and source-value-safe
+risk metadata in the batch summary.
 
 ## Known Limitations
 
 - Batch processing is sequential only.
 - The GUI does not show a per-file progress table.
 - The batch summary is a plain TXT report.
+- Risk counts and audit warning categories are conservative review hints only.
 - The batch summary uses safe filenames, but filenames themselves should still
   be chosen carefully by the user.
 - Manual review is still required.

@@ -10,6 +10,10 @@ workflow. It distinguishes between generated files, manually approved files,
 files that still need review or correction, and rejected files. It does not
 approve files automatically and does not replace human review.
 
+Stage 16 lets the workflow read safe risk levels from paired `_RAPORT.txt`
+files so higher-risk generated outputs can be reviewed first. This remains
+metadata only and does not inspect document contents.
+
 ## Related files
 
 - `src/review.py`
@@ -38,6 +42,7 @@ metadata is intentionally small:
 
 - generated anonymized output basename,
 - matching report basename when present,
+- safe risk level from a paired Stage 16 report when present,
 - missing-report state when no report is paired,
 - manual status.
 
@@ -76,6 +81,11 @@ _BATCH_SUMMARY_2.txt
 
 The workflow uses basenames only. It does not store full paths.
 
+When a paired report is present, the workflow reads only the safe `Risk level:`
+line and accepts only `ok`, `warning`, or `high_risk`. Missing, unreadable, or
+pre-Stage-16 reports leave the risk level unknown. Review items are sorted by
+risk priority first: `high_risk`, then `warning`, then `ok`, then unknown.
+
 ## Output Files
 
 Saving review metadata writes:
@@ -100,6 +110,7 @@ Review metadata may contain:
 
 - generated output basenames,
 - report basenames,
+- safe risk levels,
 - batch summary basenames,
 - manual status values,
 - status counts,
@@ -118,6 +129,7 @@ Review metadata must not contain:
 - full local paths,
 - tracebacks,
 - automatic approval claims.
+- source risk evidence beyond the safe risk level.
 
 The workflow does not open generated documents to inspect their contents. It
 only scans filenames in the selected output folder.
@@ -128,14 +140,16 @@ The GUI provides a manual review section that can:
 
 1. Select an output folder.
 2. Load detected generated outputs.
-3. Show output basename, report basename or `missing`, and manual status.
-4. Open the selected generated output with the operating system default
+3. Show output basename, risk level, report basename or `missing`, and manual
+   status.
+4. Sort `high_risk` items first when safe risk metadata is available.
+5. Open the selected generated output with the operating system default
    application.
-5. Open the matching report with the operating system default application when
+6. Open the matching report with the operating system default application when
    one is detected.
-6. Assign `approved`, `needs_review`, or `rejected` to one or more selected
+7. Assign `approved`, `needs_review`, or `rejected` to one or more selected
    rows.
-7. Save the review status and summary files.
+8. Save the review status and summary files.
 
 The GUI does not show full document content, report content, dictionary
 contents, source values, audit snippets, or replacement maps.
@@ -155,11 +169,15 @@ python -m unittest discover -s tests
 Stage 13 tests cover generated output detection, report pairing, missing report
 handling, supported statuses, safe `_REVIEW_STATUS.json`, safe
 `_REVIEW_SUMMARY.txt`, collision-safe review summary naming, Stage 12 batch
-output regression, and report/audit regression.
+output regression, and report/audit regression. Stage 16 tests cover safe risk
+level parsing from reports, high-risk-first ordering, and risk metadata in the
+safe review summary.
 
 ## Known Limitations
 
 - Status tracking only.
+- Risk sorting is based on safe report metadata only and is not a guarantee of
+  complete anonymization.
 - No document preview or editor.
 - No document-content inspection or validation.
 - External file opening is delegated to the operating system default

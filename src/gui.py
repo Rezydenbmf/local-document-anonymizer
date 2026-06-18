@@ -8,21 +8,38 @@ import sys
 import tkinter as tk
 from tkinter import filedialog, ttk
 
-from audit import AUDIT_CATEGORY_ORDER
-from anonymizer import SUPPORTED_LABELS, BatchResult, anonymize_batch
-from report import (
-    DICTIONARY_STATUS_INVALID,
-    DICTIONARY_STATUS_LOADED,
-    DICTIONARY_STATUS_NOT_SELECTED,
-)
-from review import (
-    REVIEW_STATUSES,
-    REVIEW_STATUS_APPROVED,
-    ReviewItem,
-    apply_review_statuses,
-    load_review_workspace,
-    save_review_files,
-)
+try:
+    from .audit import AUDIT_CATEGORY_ORDER
+    from .anonymizer import SUPPORTED_LABELS, BatchResult, anonymize_batch
+    from .report import (
+        DICTIONARY_STATUS_INVALID,
+        DICTIONARY_STATUS_LOADED,
+        DICTIONARY_STATUS_NOT_SELECTED,
+    )
+    from .review import (
+        REVIEW_STATUSES,
+        REVIEW_STATUS_APPROVED,
+        ReviewItem,
+        apply_review_statuses,
+        load_review_workspace,
+        save_review_files,
+    )
+except ImportError:
+    from audit import AUDIT_CATEGORY_ORDER
+    from anonymizer import SUPPORTED_LABELS, BatchResult, anonymize_batch
+    from report import (
+        DICTIONARY_STATUS_INVALID,
+        DICTIONARY_STATUS_LOADED,
+        DICTIONARY_STATUS_NOT_SELECTED,
+    )
+    from review import (
+        REVIEW_STATUSES,
+        REVIEW_STATUS_APPROVED,
+        ReviewItem,
+        apply_review_statuses,
+        load_review_workspace,
+        save_review_files,
+    )
 
 
 APP_TITLE = "Local Document Anonymizer"
@@ -127,6 +144,10 @@ def format_audit_result(audit_result: dict[str, object] | None) -> str:
     else:
         lines = ["Audit status: unknown"]
 
+    risk_level = audit_result.get("risk_level")
+    if risk_level in ("ok", "warning", "high_risk"):
+        lines.append(f"Risk level: {risk_level}")
+
     findings = audit_result.get("findings")
     if not isinstance(findings, dict):
         lines.append("Possible remaining sensitive patterns: unavailable")
@@ -189,14 +210,29 @@ def format_batch_audit_result(batch_result: BatchResult | None) -> str:
         return "Audit statuses: not run"
 
     counts = batch_result.audit_status_counts
-    return "\n".join(
-        [
-            "Audit statuses:",
-            f"OK: {counts.get('ok', 0)}",
-            f"WARNING: {counts.get('warning', 0)}",
-            f"Not run: {counts.get('not run', 0)}",
-        ]
-    )
+    risk_counts = batch_result.risk_level_counts
+    audit_counters = batch_result.audit_category_counters
+    lines = [
+        "Audit statuses:",
+        f"OK: {counts.get('ok', 0)}",
+        f"WARNING: {counts.get('warning', 0)}",
+        f"Not run: {counts.get('not run', 0)}",
+        "Risk levels:",
+        f"ok: {risk_counts.get('ok', 0)}",
+        f"warning: {risk_counts.get('warning', 0)}",
+        f"high_risk: {risk_counts.get('high_risk', 0)}",
+    ]
+
+    non_zero_categories = [
+        (label, audit_counters.get(label, 0))
+        for label in AUDIT_CATEGORY_ORDER
+        if audit_counters.get(label, 0)
+    ]
+    if non_zero_categories:
+        lines.append("Audit warning categories:")
+        for label, count in non_zero_categories:
+            lines.append(f"{label}: {count}")
+    return "\n".join(lines)
 
 
 def format_batch_dictionary_result(
@@ -725,7 +761,7 @@ class AnonymizerGui:
         review_tree_frame.columnconfigure(0, weight=1)
         self.review_tree = ttk.Treeview(
             review_tree_frame,
-            columns=("output", "report", "status"),
+            columns=("output", "risk", "report", "status"),
             show="headings",
             height=5,
             selectmode="extended",
@@ -737,10 +773,12 @@ class AnonymizerGui:
         )
         self.review_tree.configure(yscrollcommand=review_tree_scrollbar.set)
         self.review_tree.heading("output", text="Output")
+        self.review_tree.heading("risk", text="Risk")
         self.review_tree.heading("report", text="Report")
         self.review_tree.heading("status", text="Manual status")
-        self.review_tree.column("output", width=220, anchor="w")
-        self.review_tree.column("report", width=180, anchor="w")
+        self.review_tree.column("output", width=210, anchor="w")
+        self.review_tree.column("risk", width=90, anchor="w")
+        self.review_tree.column("report", width=170, anchor="w")
         self.review_tree.column("status", width=120, anchor="w")
         self.review_tree.grid(row=0, column=0, sticky="ew")
         review_tree_scrollbar.grid(row=0, column=1, sticky="ns")
@@ -848,6 +886,7 @@ class AnonymizerGui:
                 iid=item.output_name,
                 values=(
                     item.output_name,
+                    item.risk_level or "unknown",
                     item.report_name or "missing",
                     item.status,
                 ),

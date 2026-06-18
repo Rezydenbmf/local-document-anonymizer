@@ -99,6 +99,7 @@ class ReportTests(unittest.TestCase):
         self.assertIn("* DATA: 2", report_text)
         self.assertIn("Post-anonymization audit:", report_text)
         self.assertIn("Status: ok", report_text)
+        self.assertIn("Risk level: ok", report_text)
         self.assertIn("* none: 0", report_text)
         self.assertIn("Manual review required: yes", report_text)
         self.assertIn("Dictionary:", report_text)
@@ -177,7 +178,24 @@ class ReportTests(unittest.TestCase):
 
         self.assertIn("Post-anonymization audit:", report_text)
         self.assertIn("Status: warning", report_text)
+        self.assertIn("Risk level: warning", report_text)
         self.assertIn("* CASE_REFERENCE: 1", report_text)
+        self.assertNotIn(source_value, report_text)
+
+    def test_report_audit_section_includes_high_risk_level_safely(self) -> None:
+        source_value = "tester@example.test"
+
+        report_text = build_report_text(
+            counters={},
+            input_extension=".txt",
+            output_extension=".txt",
+            category_order=SUPPORTED_LABELS,
+            audit_result=audit_text(f"Remaining {source_value}."),
+            audit_category_order=AUDIT_CATEGORY_ORDER,
+        )
+
+        self.assertIn("Risk level: high_risk", report_text)
+        self.assertIn("* EMAIL: 1", report_text)
         self.assertNotIn(source_value, report_text)
 
     def test_report_path_is_built_as_raport_txt(self) -> None:
@@ -277,6 +295,8 @@ class ReportTests(unittest.TestCase):
         self.assertIn("Replacement map created: no", report_text)
         self.assertIn("Post-anonymization audit:", report_text)
         self.assertIn("Possible remaining sensitive patterns:", report_text)
+        self.assertIn("Risk level:", report_text)
+        self.assertEqual(report_text.count("Manual review required:"), 1)
 
 
 if __name__ == "__main__":

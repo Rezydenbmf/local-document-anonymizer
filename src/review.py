@@ -9,7 +9,12 @@ import json
 from pathlib import Path, PurePosixPath, PureWindowsPath
 import re
 
-from file_writers import build_collision_safe_path
+try:
+    from .audit import RISK_LEVEL_HIGH, RISK_LEVEL_OK, RISK_LEVEL_WARNING, RISK_LEVELS
+    from .file_writers import build_collision_safe_path
+except ImportError:
+    from audit import RISK_LEVEL_HIGH, RISK_LEVEL_OK, RISK_LEVEL_WARNING, RISK_LEVELS
+    from file_writers import build_collision_safe_path
 
 
 REVIEW_STATUS_APPROVED = "approved"
@@ -28,7 +33,16 @@ REVIEW_SCHEMA = "local-document-anonymizer.review-status.v1"
 _ANON_STEM_PATTERN = re.compile(r"^(?P<base>.+)_ANON(?P<number>_\d+)?$")
 _REPORT_STEM_PATTERN = re.compile(r"^(?P<base>.+)_RAPORT(?P<number>_\d+)?$")
 _BATCH_SUMMARY_PATTERN = re.compile(r"^_BATCH_SUMMARY(?:_\d+)?\.txt$")
+_REPORT_RISK_LEVEL_PATTERN = re.compile(
+    rf"^Risk level:\s*({'|'.join(RISK_LEVELS)})\s*$",
+    re.MULTILINE,
+)
 _SUPPORTED_REVIEW_OUTPUT_EXTENSIONS = (".txt", ".docx")
+_RISK_SORT_ORDER = {
+    RISK_LEVEL_HIGH: 0,
+    RISK_LEVEL_WARNING: 1,
+    RISK_LEVEL_OK: 2,
+}
 
 
 @dataclass(frozen=True)
@@ -38,6 +52,7 @@ class ReviewItem:
     output_name: str
     report_name: str | None = None
     status: str = DEFAULT_REVIEW_STATUS
+    risk_level: str | None = None
 
 
 @dataclass(frozen=True)
@@ -83,6 +98,15 @@ def _validate_review_status(status: str) -> None:
         raise ValueError(f"review status must be one of: {allowed}")
 
 
+def _safe_risk_level(value: object) -> str | None:
+    if value is None:
+        return None
+    risk_level = str(value).strip()
+    if risk_level in RISK_LEVELS:
+        return risk_level
+    return None
+
+
 def _coerce_review_item(item: ReviewItem) -> ReviewItem:
     output_name = _safe_filename(item.output_name)
     report_name = (
@@ -93,12 +117,19 @@ def _coerce_review_item(item: ReviewItem) -> ReviewItem:
         output_name=output_name,
         report_name=report_name,
         status=item.status,
+        risk_level=_safe_risk_level(item.risk_level),
     )
 
 
 def _sorted_review_items(items: Iterable[ReviewItem]) -> list[ReviewItem]:
     coerced = [_coerce_review_item(item) for item in items]
-    return sorted(coerced, key=lambda item: item.output_name.lower())
+    return sorted(
+        coerced,
+        key=lambda item: (
+            _RISK_SORT_ORDER.get(item.risk_level, 3),
+            item.output_name.lower(),
+        ),
+    )
 
 
 def _status_counts(items: Iterable[ReviewItem]) -> dict[str, int]:
@@ -156,6 +187,18 @@ def _matching_report_name(output_path: Path, report_names: set[str]) -> str | No
     return None
 
 
+def _risk_level_from_report(report_path: Path) -> str | None:
+    try:
+        report_text = report_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+
+    match = _REPORT_RISK_LEVEL_PATTERN.search(report_text)
+    if match is None:
+        return None
+    return _safe_risk_level(match.group(1))
+
+
 def _detect_batch_summary_names(output_dir: Path) -> list[str]:
     return sorted(
         path.name
@@ -178,14 +221,24 @@ def detect_review_workspace(output_dir: str | Path) -> ReviewWorkspace:
     """Detect generated anonymized outputs and safe companion files."""
     folder = Path(output_dir)
     report_names = _report_names_by_stem(folder)
-    items = [
-        ReviewItem(
-            output_name=path.name,
-            report_name=_matching_report_name(path, report_names),
+    items: list[ReviewItem] = []
+    for path in folder.iterdir():
+        if not _is_anonymized_output(path):
+            continue
+
+        report_name = _matching_report_name(path, report_names)
+        risk_level = (
+            _risk_level_from_report(folder / report_name)
+            if report_name is not None
+            else None
         )
-        for path in folder.iterdir()
-        if _is_anonymized_output(path)
-    ]
+        items.append(
+            ReviewItem(
+                output_name=path.name,
+                report_name=report_name,
+                risk_level=risk_level,
+            )
+        )
 
     return ReviewWorkspace(
         items=_sorted_review_items(items),
@@ -212,6 +265,7 @@ def apply_review_statuses(
                 output_name=item.output_name,
                 report_name=item.report_name,
                 status=status,
+                risk_level=item.risk_level,
             )
         )
 
@@ -282,6 +336,7 @@ def build_review_status_payload(
                 "output_name": item.output_name,
                 "report_name": item.report_name,
                 "report_present": item.report_name is not None,
+                "risk_level": item.risk_level or "unknown",
                 "status": item.status,
             }
             for item in review_items
@@ -341,6 +396,7 @@ def build_review_summary_text(
             report_name = item.report_name or "missing"
             lines.append(f"* output: {item.output_name}")
             lines.append(f"  report: {report_name}")
+            lines.append(f"  risk level: {item.risk_level or 'unknown'}")
             lines.append(f"  status: {item.status}")
     else:
         lines.append("* none")

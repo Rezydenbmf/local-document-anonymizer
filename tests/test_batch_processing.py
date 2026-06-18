@@ -165,7 +165,8 @@ class BatchProcessingTests(unittest.TestCase):
             )
             source_path = source_dir / "document.txt"
             source_path.write_text(
-                f"{alias} contacted safe@example.test on 2026-06-01.",
+                f"{alias} contacted safe@example.test on 2026-06-01. "
+                "Reference ABC/123/2026 remains.",
                 encoding="utf-8",
             )
             unsupported_path = source_dir / "notes.rtf"
@@ -182,6 +183,12 @@ class BatchProcessingTests(unittest.TestCase):
             self.assertIn("Input files: 2", summary_text)
             self.assertIn("Successful files: 1", summary_text)
             self.assertIn("Errors: 1", summary_text)
+            self.assertIn("Risk levels:", summary_text)
+            self.assertIn("* warning: 1", summary_text)
+            self.assertIn("* high_risk: 0", summary_text)
+            self.assertIn("Audit warning categories:", summary_text)
+            self.assertIn("* CASE_REFERENCE: 1", summary_text)
+            self.assertIn("risk level: warning", summary_text)
             self.assertIn("input: document.txt", summary_text)
             self.assertIn("output: document_ANON.txt", summary_text)
             self.assertIn("report: document_RAPORT.txt", summary_text)
@@ -190,6 +197,7 @@ class BatchProcessingTests(unittest.TestCase):
             self.assertNotIn(str(output_dir), summary_text)
             self.assertNotIn("safe@example.test", summary_text)
             self.assertNotIn("2026-06-01", summary_text)
+            self.assertNotIn("ABC/123/2026", summary_text)
             self.assertNotIn(source_term, summary_text)
             self.assertNotIn(alias, summary_text)
             self.assertIn("Original sensitive values stored: no", summary_text)

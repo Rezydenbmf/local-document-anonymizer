@@ -1,5 +1,6 @@
 """Tests for the Stage 5 single-file GUI workflow integration layer."""
 
+import importlib
 from pathlib import Path
 import sys
 import tempfile
@@ -7,12 +8,14 @@ import unittest
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from anonymizer import BatchResult, anonymize_file, anonymize_file_with_audit
 from gui import (
     format_anonymize_readiness,
     format_audit_result,
+    format_batch_audit_result,
     format_batch_status,
     format_dictionary_result,
     format_selected_file_count,
@@ -26,6 +29,11 @@ def workspace_temp_dir():
 
 
 class GuiWorkflowTests(unittest.TestCase):
+    def test_gui_can_be_imported_as_package_module(self) -> None:
+        module = importlib.import_module("src.gui")
+
+        self.assertTrue(hasattr(module, "start_gui"))
+
     def test_anonymizes_supported_txt_file_through_application_workflow(self) -> None:
         with workspace_temp_dir() as temp_dir:
             source_path = Path(temp_dir) / "document.txt"
@@ -70,10 +78,12 @@ class GuiWorkflowTests(unittest.TestCase):
             self.assertEqual(output_path, Path(temp_dir) / "document_ANON.txt")
             self.assertEqual(counters, {})
             self.assertEqual(audit_result["status"], "warning")
+            self.assertEqual(audit_result["risk_level"], "warning")
             self.assertEqual(audit_result["findings"]["CASE_REFERENCE"], 1)
             self.assertNotIn(source_value, repr(audit_result))
             self.assertNotIn(source_value, formatted_audit)
             self.assertIn("Audit status: WARNING", formatted_audit)
+            self.assertIn("Risk level: warning", formatted_audit)
 
     def test_dispatcher_passes_dictionary_path_and_gui_formats_status(self) -> None:
         with workspace_temp_dir() as temp_dir:
@@ -179,16 +189,21 @@ class GuiWorkflowTests(unittest.TestCase):
                 error_count=1,
                 counters={},
                 audit_status_counts={"ok": 1, "warning": 0, "not run": 1},
+                risk_level_counts={"ok": 1, "warning": 0, "high_risk": 0},
+                audit_category_counters={},
                 results=[],
             )
 
             status = format_batch_status(batch_result)
+            audit_status = format_batch_audit_result(batch_result)
 
             self.assertIn("Processed 1 of 2 selected files", status)
             self.assertIn("Some files could not be processed", status)
             self.assertIn("output-folder", status)
             self.assertIn("_BATCH_SUMMARY.txt", status)
             self.assertNotIn(str(output_dir), status)
+            self.assertIn("Risk levels:", audit_status)
+            self.assertIn("high_risk: 0", audit_status)
 
     def test_gui_open_default_app_reports_missing_file(self) -> None:
         with workspace_temp_dir() as temp_dir:

@@ -15,7 +15,9 @@ and saving safe review metadata. Stage 15 improves GUI usability with a
 scrollable main layout, selected-file count, clear/remove actions for the GUI
 input list, a readiness hint beside the anonymization button, clearer status
 messages, and manual-review shortcuts for opening a selected generated output
-or matching report with the operating system default application.
+or matching report with the operating system default application. Stage 16 adds
+aggregate risk counts to the audit display and a safe risk column to the manual
+review list.
 
 ## Related files
 
@@ -57,7 +59,7 @@ anonymization logic.
 
 The GUI supports this flow:
 
-1. Open the application with `python src/main.py`.
+1. Open the application with `python src/main.py` or `python -m src.gui`.
 2. Add one or more supported files and check the selected-file count.
 3. Select an output folder.
 4. Optionally select a private sensitive terms file. The GUI stores the path
@@ -65,8 +67,9 @@ The GUI supports this flow:
 5. Check the readiness hint if `Anonymize batch` is disabled.
 6. Click `Anonymize batch`.
 7. Review the status, safe dictionary status, category counters, aggregate
-   audit status counts, generated output filenames, generated report
-   filenames, batch summary filename, and manual review warning.
+   audit status counts, aggregate risk counts, generated output filenames,
+   generated report filenames, batch summary filename, and manual review
+   warning.
 8. Manually inspect every anonymized output file before using or sharing it.
 9. Load the output folder in the manual review section.
 10. Optionally open the selected `_ANON` output or matching `_RAPORT` report in
@@ -89,9 +92,12 @@ The GUI shows:
 - operation status,
 - category counters,
 - post-anonymization audit status counts,
+- post-anonymization risk level counts,
+- aggregate audit warning categories,
 - output filenames,
 - report filenames and batch summary filename,
 - generated output filenames detected for manual review,
+- risk level for review items when paired Stage 16 reports are present,
 - report filenames paired with review items when present,
 - manual review statuses,
 - clear status messages when selected generated outputs or reports are opened
@@ -159,13 +165,15 @@ as `document_ANON_2.txt`. Review summaries use numbered safe names such as
 
 - The GUI processes selected files sequentially.
 - The GUI displays category names and counts only.
-- The GUI displays audit status counts only.
+- The GUI displays audit status counts, risk counts, and audit category counts
+  only.
 - The GUI displays dictionary status names and safe match metadata only.
 - The GUI does not display original detected source values.
 - The GUI does not display private dictionary contents.
 - The GUI does not display private dictionary terms or audit text snippets.
 - The GUI displays generated filenames, not report contents or source values.
-- The GUI displays manual review item filenames and statuses only.
+- The GUI displays manual review item filenames, safe risk levels, and statuses
+  only.
 - The GUI can ask the operating system to open a selected generated output or
   matching report, but it does not preview or inspect those files itself.
 - `approved` is a manual user decision, not an automatic application decision.
@@ -194,7 +202,9 @@ workspace behavior is covered by `tests/test_batch_processing.py`. Stage 13
 manual review metadata is covered by `tests/test_review_workflow.py`. Stage 15
 selected-file count, anonymization readiness helper text, list removal, safe
 batch status, and missing external file open handling are covered by
-`tests/test_gui_workflow.py`. Fragile widget tests are not included.
+`tests/test_gui_workflow.py`. Stage 16 risk display helpers are covered by
+`tests/test_gui_workflow.py` and `tests/test_review_workflow.py`. Fragile
+widget tests are not included.
 
 ## Known limitations
 
@@ -205,6 +215,7 @@ batch status, and missing external file open handling are covered by
   edit, validate before run, or display its contents.
 - The GUI audit display is a warning summary only and does not prove complete
   anonymization.
+- Risk counts and per-file risk levels are review-prioritization hints only.
 - The manual review section tracks statuses only and does not inspect,
   validate, preview, edit, or automatically approve generated document
   contents.

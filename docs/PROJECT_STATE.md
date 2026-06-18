@@ -2,7 +2,8 @@
 
 ## Current Status
 
-The project is in Stage 15: GUI usability cleanup.
+The project is in Stage 16: stronger audit and review prioritization, pending
+user review and commit.
 
 The Stage 0-13 MVP implementation contains a narrow regex-based engine that
 accepts a Python string and returns anonymized text plus category counters. It
@@ -60,6 +61,16 @@ open the selected generated `_ANON` output or matching `_RAPORT` report with
 the operating system default application. The GUI still does not preview,
 inspect, edit, or validate document contents inside the app.
 
+Stage 16 strengthens the deterministic post-anonymization audit and adds safe
+per-file risk levels for manual-review prioritization. The audit now returns
+status, risk level, category counters, and manual review metadata only.
+`_RAPORT.txt` includes audit status, risk level, warning counters, and manual
+review requirement. `_BATCH_SUMMARY.txt` includes aggregate risk level counts
+and aggregate audit category counters. The manual review workflow reads risk
+levels from safe paired reports and the GUI shows a risk column with
+`high_risk` items sorted first. The risk level is not an automatic approval or
+safety guarantee; manual review remains required.
+
 ## What Exists
 
 - Repository structure.
@@ -105,22 +116,27 @@ accepts preloaded `sensitive_terms`.
   metadata while existing helpers keep their Stage 2-5 return shape.
 - Optional GUI selection of a private sensitive terms file path without
   displaying dictionary contents.
-- GUI display of post-anonymization audit status and category counters only.
+- GUI display of post-anonymization audit status, risk counts, and category
+  counters only.
 - GUI display of safe dictionary status: not selected, loaded, invalid, or
   loaded with no dictionary matches.
 - Safe report counters for dictionary labels only.
 - Safe report dictionary section with used/status/matches-found metadata.
-- Safe report section for post-anonymization audit status and counters only.
+- Safe report section for post-anonymization audit status, risk level, and
+  counters only.
 - Shared dictionary matching semantics for anonymization and audit dictionary
   checks.
 - TXT, DOCX, PDF, and dispatcher flows that create safe reports after
   successful anonymization.
-- Batch summary report generation with safe filenames and no private paths.
+- Batch summary report generation with safe filenames, aggregate risk counts,
+  aggregate audit category counters, and no private paths.
 - Manual review workflow in `src/review.py` for detecting generated `_ANON`
-  outputs, pairing safe report basenames, applying manual statuses, and saving
-  safe review metadata.
+  outputs, pairing safe report basenames, reading safe report risk levels,
+  applying manual statuses, and saving safe review metadata.
 - GUI support for assigning `approved`, `needs_review`, or `rejected` statuses
   without previewing or editing document contents.
+- GUI support for showing safe manual-review risk levels and sorting
+  `high_risk` outputs first.
 - Safe `_REVIEW_STATUS.json` review manifest output.
 - Collision-safe `_REVIEW_SUMMARY.txt` review summary output.
 - Runtime dependency on `python-docx`.
@@ -185,6 +201,12 @@ Run the GUI entry point:
 python src/main.py
 ```
 
+The GUI module launch is also supported:
+
+```bash
+python -m src.gui
+```
+
 Run tests:
 
 ```bash
@@ -209,7 +231,8 @@ python -m unittest discover -s tests
   filenames, dictionary source aliases or terms, or replacement maps.
 - Date detection is limited to high-confidence numeric formats.
 - Phone detection is intentionally conservative.
-- Address and postal-code detection are not implemented in Stage 1.
+- Broader address and identifier detection remains conservative and
+  audit-only; it is not full entity detection.
 - DOCX formatting preservation is basic only.
 - DOCX headers, footers, comments, footnotes, form fields, text in images, and
   advanced elements are not handled.
@@ -232,28 +255,30 @@ python -m unittest discover -s tests
   repository or inside an ignored folder such as `private/`.
 - Post-anonymization audit matching is conservative and regex-based. It can
   miss sensitive data and can warn on harmless text.
-- Audit status `ok` does not prove complete anonymization. Manual review is
-  still required.
-- Audit results and reports include only categories and counters, never source
-  values, snippets, dictionary terms, full document text, or replacement maps.
+- Audit status `ok` and risk level `ok` do not prove complete anonymization.
+  Manual review is still required.
+- Audit risk levels are prioritization helpers only. They are not automatic
+  approval decisions.
+- Audit results and reports include only categories, counters, status, risk
+  level, and manual review metadata, never source values, snippets,
+  dictionary terms, full document text, or replacement maps.
 
 ## Last Completed Committed Stage
 
-Stage 12: safe output workspace and batch processing.
+Stage 15: GUI usability cleanup.
 
 ```text
-e19d87c Implement Stage 12 batch output workspace
+6ce6f06 Improve GUI usability controls and readiness hints
 ```
 
 ## Next Logical Step
 
-Manually smoke test Stage 15 through the Tkinter GUI with synthetic files in a
-local output folder: resizing/scrolling, selected-file count, clear/remove
-actions, disabled-button readiness messages, batch run status messages, and
-opening selected `_ANON`/`_RAPORT` files from manual review. Potential future
-work requires an explicit project
-decision, especially OCR, installer work, better NLP, stronger entity
-detection, packaging, or release automation.
+Manually smoke test Stage 16 through the Tkinter GUI with synthetic files in a
+local output folder: stronger audit categories, risk levels in `_RAPORT.txt`,
+aggregate risk counts in `_BATCH_SUMMARY.txt`, and high-risk prioritization in
+the manual review list. Potential future work requires an explicit project
+decision, especially OCR, installer work, AI/API integration, local LLMs,
+databases, broad NLP/entity detection, packaging, or release automation.
 
 ## Warning
 

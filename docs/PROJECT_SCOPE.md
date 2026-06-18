@@ -23,7 +23,7 @@ The current MVP supports:
 - Collision-safe generated filenames.
 - Separate `_ANON` output files.
 - Safe `_BATCH_SUMMARY` batch reports.
-- Safe post-anonymization audit status and counters.
+- Safe post-anonymization audit status, risk level, and counters.
 - Reports without original source values.
 - Manual review after output is generated.
 
@@ -40,7 +40,7 @@ The private dictionary also supports user-defined labels from a private local
 dictionary, for example `IMIE NAZWISKO` or `NAZWA PODMIOTU`. These labels are
 manually defined by the user and are not automatic entity detection.
 
-Stage 9 audit warning categories include:
+Audit warning categories include:
 
 - `EMAIL`
 - `PESEL`
@@ -49,10 +49,14 @@ Stage 9 audit warning categories include:
 - `SENSITIVE_DICTIONARY_TERM`
 - `CASE_REFERENCE`
 - `POSTAL_CODE`
-- `ADDRESS`
+- `ADDRESS_LIKE`
+- `STREET_LIKE`
+- `INITIAL_SURNAME`
+- `ID_LIKE_NUMBER`
+- `LONG_NUMBER_SEQUENCE`
 
-Audit categories are warning counters only. They are not a guarantee that all
-sensitive values were found.
+Audit categories and risk levels are review-prioritization metadata only. They
+are not a guarantee that all sensitive values were found.
 
 ## Private Dictionary Safety
 
@@ -62,9 +66,9 @@ live outside the repository or inside an ignored folder such as `private/`.
 Reports may include only labels and counts from dictionary matches. They must
 not include original dictionary aliases, source terms, or a replacement map.
 
-Audit results and reports may include only categories and counters. They must
-not include original values, dictionary terms, text snippets, or a replacement
-map.
+Audit results and reports may include only categories, counters, status, risk
+level, and manual review metadata. They must not include original values,
+dictionary terms, text snippets, or a replacement map.
 
 ## Data Types Planned for Later Consideration
 

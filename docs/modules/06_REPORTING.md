@@ -9,7 +9,9 @@ post-anonymization audit section with audit status and counters only. Stage
 10.1 adds a safe dictionary section with used/status/matches-found metadata and
 dictionary label counters only. Stage 12 adds safe batch summary reports.
 Stage 13 adds safe manual review status and summary metadata in `src/review.py`
-using the same no-source-data reporting conventions.
+using the same no-source-data reporting conventions. Stage 16 adds safe audit
+risk levels, aggregate risk counts, and aggregate audit warning category
+counters.
 
 ## Related files
 
@@ -92,6 +94,7 @@ The report contains only safe metadata:
 - dictionary used/status/matches-found metadata,
 - optional private dictionary label counters,
 - post-anonymization audit status,
+- post-anonymization audit risk level,
 - post-anonymization audit counters by warning category,
 - manual review requirement,
 - confirmation that original sensitive values are not stored,
@@ -104,6 +107,8 @@ The batch summary contains only safe metadata:
 - error count,
 - aggregate category counters,
 - audit status counts,
+- risk level counts,
+- aggregate audit warning category counters,
 - manual review requirement,
 - safe input filenames,
 - safe generated output filenames,
@@ -116,6 +121,7 @@ The manual review summary contains only safe metadata:
 - count of `approved`, `needs_review`, and `rejected` statuses,
 - manual review completed yes/no,
 - statement that decisions are manual user decisions,
+- safe risk level when it can be read from a paired Stage 16 report,
 - safe generated output basenames,
 - safe report basenames or a missing-report marker,
 - safe batch summary basenames when present,
@@ -144,9 +150,10 @@ full paths, source document text, private dictionary terms, dictionary aliases,
 raw exception messages, or replacement maps.
 
 Manual review status and summary files may contain safe generated basenames,
-but they must not contain full paths, source document text, anonymized document
-text, document excerpts, original sensitive values, private dictionary terms,
-dictionary aliases, tracebacks, automatic approval claims, or replacement maps.
+safe risk levels, and safe report basenames, but they must not contain full
+paths, source document text, anonymized document text, document excerpts,
+original sensitive values, private dictionary terms, dictionary aliases,
+tracebacks, automatic approval claims, or replacement maps.
 
 Dictionary status meanings:
 
@@ -161,14 +168,14 @@ counters are grouped by dictionary label/category only.
 ## Safety Assumptions
 
 The report module receives only counters, safe dictionary metadata, audit
-metadata, file-type metadata, safe filenames, and controlled batch error
-descriptions. It does not read source documents and does not receive original
-source text, original private dictionary aliases or terms, text snippets, raw
-exception text, or replacement maps.
+metadata including risk level, file-type metadata, safe filenames, and
+controlled batch error descriptions. It does not read source documents and does
+not receive original source text, original private dictionary aliases or terms,
+text snippets, raw exception text, or replacement maps.
 
 Manual review is still required. A safe report confirms what the tool replaced
 and what the audit warned about, but it does not prove the whole document is
-anonymized.
+anonymized. Risk levels are review-prioritization helpers only.
 
 Stage 13 review metadata records the user's manual decision. `approved` means
 the user approved the file after review; it is not produced automatically from
@@ -185,8 +192,8 @@ python -m unittest discover -s tests
 The tests cover report text generation, report path naming, safe report
 content, TXT integration, DOCX integration, PDF integration, dispatcher report
 safety, private dictionary report safety, post-anonymization audit report
-safety, Stage 12 batch summary safety, and Stage 13 manual review summary
-safety.
+safety including risk levels, Stage 12/16 batch summary safety, and Stage 13/16
+manual review summary safety.
 
 ## Known Limitations
 

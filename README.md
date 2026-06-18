@@ -22,10 +22,14 @@ a safe report, and expects manual review before any result is trusted.
 - Regex anonymization for `PESEL`, `EMAIL`, `TELEFON`, and `DATA`.
 - Optional private dictionary with aliases, case-insensitive matching, and
   whitespace-tolerant term matching.
-- Safe post-anonymization audit with category counters only.
+- Safe post-anonymization audit with category counters and a per-file risk
+  level only.
 - Safe `_RAPORT.txt` reports without source personal data.
-- Safe `_BATCH_SUMMARY.txt` reports with batch counts and safe filenames only.
+- Safe `_BATCH_SUMMARY.txt` reports with batch counts, aggregate audit risk
+  counts, aggregate audit category counters, and safe filenames only.
 - Manual review workflow for existing output folders.
+- Manual review risk display so higher-risk generated outputs can be checked
+  first.
 - Manual review actions to open a selected `_ANON` output or matching
   `_RAPORT` report with the operating system default application.
 - Safe `_REVIEW_STATUS.json` and collision-safe `_REVIEW_SUMMARY.txt`
@@ -68,7 +72,8 @@ The core engine processes plain text deterministically:
 2. Replace dictionary aliases with their configured labels.
 3. Replace supported regex categories: `EMAIL`, `PESEL`, `TELEFON`, `DATA`.
 4. Save an anonymized output copy in the selected output folder.
-5. Audit the anonymized output for suspicious remaining patterns.
+5. Audit the anonymized output for suspicious remaining patterns and assign a
+   safe review-prioritization risk level.
 6. Save a safe per-file report.
 7. For batch runs, save a safe batch summary report.
 8. Let the user manually mark generated outputs as `approved`,
@@ -117,12 +122,28 @@ remaining patterns:
 - `SENSITIVE_DICTIONARY_TERM`
 - `CASE_REFERENCE`
 - `POSTAL_CODE`
-- `ADDRESS`
+- `ADDRESS_LIKE`
+- `STREET_LIKE`
+- `INITIAL_SURNAME`
+- `ID_LIKE_NUMBER`
+- `LONG_NUMBER_SEQUENCE`
 
 Audit results contain status and counters only. They do not contain original
 values, text snippets, private dictionary terms, full document text, or a
 replacement map. `ok` does not prove complete anonymization; it only means the
 current audit checks did not find supported warning patterns.
+
+The audit also assigns a risk level for manual-review prioritization:
+
+- `ok`: no audit warning counters.
+- `warning`: warning counters exist, but no high-risk condition is met.
+- `high_risk`: at least one high-risk category is present or total audit
+  warnings reach 3.
+
+High-risk categories are `EMAIL`, `PESEL`, `TELEFON`,
+`SENSITIVE_DICTIONARY_TERM`, `ADDRESS_LIKE`, `ID_LIKE_NUMBER`, and
+`LONG_NUMBER_SEQUENCE`. The risk level is only a prioritization helper and is
+not a safety guarantee. Manual review is still required.
 
 ## Reports
 
@@ -133,7 +154,7 @@ Each successful file workflow writes a safe `_RAPORT.txt` report containing:
 - anonymization category counters,
 - dictionary used/status/matches-found metadata,
 - dictionary label counters,
-- post-anonymization audit status and counters,
+- post-anonymization audit status, risk level, and counters,
 - manual review requirement,
 - confirmation that original sensitive values are not stored,
 - confirmation that no replacement map was created.
@@ -143,9 +164,10 @@ paths, dictionary aliases, text snippets, logs, or replacement maps.
 
 Batch runs also write `_BATCH_SUMMARY.txt` in the selected output folder. The
 summary contains batch counts, aggregate category counters, audit status
-counts, safe input/output/report filenames, and controlled safe error
-descriptions. It does not include source text, private dictionary terms,
-aliases, full paths, exception messages, or a replacement map.
+counts, risk level counts, aggregate audit category counters, safe
+input/output/report filenames, and controlled safe error descriptions. It does
+not include source text, private dictionary terms, aliases, full paths,
+exception messages, or a replacement map.
 
 Manual review runs can write `_REVIEW_STATUS.json` and
 `_REVIEW_SUMMARY.txt` in the selected output folder. The status file tracks
@@ -159,6 +181,10 @@ Review status and summary files do not include document contents, excerpts,
 source personal data, private dictionary terms, dictionary aliases, full local
 paths, tracebacks, or replacement maps. Review summary filenames are
 collision-safe, for example `_REVIEW_SUMMARY_2.txt`.
+
+When paired Stage 16 reports are present, the manual review list shows each
+generated output's safe risk level and sorts `high_risk` items first. The GUI
+still does not inspect or preview document contents.
 
 ## Installation
 
@@ -178,6 +204,12 @@ Run the GUI:
 python src/main.py
 ```
 
+The GUI can also be launched as a module:
+
+```bash
+python -m src.gui
+```
+
 Run the tests:
 
 ```bash
@@ -186,7 +218,7 @@ python -m unittest discover -s tests
 
 ## Basic Usage
 
-1. Start the app with `python src/main.py`.
+1. Start the app with `python src/main.py` or `python -m src.gui`.
 2. Add one or more `.txt`, `.docx`, or text-based `.pdf` files and check the
    selected-file count.
 3. Select an output folder.
@@ -280,6 +312,8 @@ python -m unittest discover -s tests
 ## Current Limitations
 
 - Manual review is always required.
+- Audit risk levels are review-prioritization hints only, not proof that a
+  document is safe.
 - This is not production-ready full anonymization.
 - Regex detection is narrow and conservative.
 - Private dictionary matching is not fuzzy matching, inflection handling, NER,
@@ -308,8 +342,8 @@ Completed MVP stages include repository setup, regex anonymization, TXT IO,
 basic DOCX IO, text-based PDF input, Tkinter GUI, safe reports, private
 dictionary support, post-anonymization audit, manual validation fixes, the
 Stage 11 smart dictionary foundation, Stage 12 safe output workspace with
-batch processing, the Stage 13 manual review workflow, and the Stage 15 GUI
-usability cleanup.
+batch processing, the Stage 13 manual review workflow, the Stage 15 GUI
+usability cleanup, and Stage 16 stronger audit risk prioritization.
 
 Potential future work requires explicit approval, especially OCR, scanned PDF
 support, stronger entity detection, installer packaging, release automation,

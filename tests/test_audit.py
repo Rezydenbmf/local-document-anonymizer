@@ -8,7 +8,7 @@ import unittest
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from audit import audit_text
+from audit import RISK_LEVEL_HIGH, RISK_LEVEL_OK, RISK_LEVEL_WARNING, audit_text
 from sensitive_terms import parse_sensitive_terms
 
 
@@ -69,6 +69,7 @@ class PostAnonymizationAuditTests(unittest.TestCase):
         result = audit_text("Clean text with [EMAIL] and [DATA] placeholders.")
 
         self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["risk_level"], RISK_LEVEL_OK)
         self.assertTrue(result["manual_review_required"])
         self.assertTrue(all(count == 0 for count in result["findings"].values()))
 
@@ -81,7 +82,50 @@ class PostAnonymizationAuditTests(unittest.TestCase):
     def test_detects_simple_address_like_pattern(self) -> None:
         findings = audit_findings("Possible address ul. Testowa 1.")
 
-        self.assertEqual(findings["ADDRESS"], 1)
+        self.assertEqual(findings["ADDRESS_LIKE"], 1)
+        self.assertEqual(findings["STREET_LIKE"], 0)
+
+    def test_detects_stage_16_warning_categories(self) -> None:
+        source_values = (
+            "ABC.123.2025",
+            "ul. Testowa",
+            "J. Kowalski",
+            "NR 123456",
+            "999999999999",
+        )
+
+        result = audit_text(
+            "Reference ABC.123.2025 near ul. Testowa. "
+            "Reviewer J. Kowalski used NR 123456 and 999999999999."
+        )
+
+        self.assertEqual(result["findings"]["CASE_REFERENCE"], 1)
+        self.assertEqual(result["findings"]["STREET_LIKE"], 1)
+        self.assertEqual(result["findings"]["INITIAL_SURNAME"], 1)
+        self.assertEqual(result["findings"]["ID_LIKE_NUMBER"], 1)
+        self.assertEqual(result["findings"]["LONG_NUMBER_SEQUENCE"], 1)
+        for source_value in source_values:
+            self.assertNotIn(source_value, repr(result))
+
+    def test_risk_level_warning_for_low_risk_single_warning(self) -> None:
+        result = audit_text("Reference ABC/123/2026 remains.")
+
+        self.assertEqual(result["status"], "warning")
+        self.assertEqual(result["risk_level"], RISK_LEVEL_WARNING)
+
+    def test_risk_level_high_for_high_risk_category(self) -> None:
+        result = audit_text("Remaining contact tester@example.test.")
+
+        self.assertEqual(result["status"], "warning")
+        self.assertEqual(result["risk_level"], RISK_LEVEL_HIGH)
+
+    def test_risk_level_high_when_total_warning_threshold_is_reached(self) -> None:
+        result = audit_text(
+            "Reference ABC/123/2026 near code 00-000 and reviewer J. Kowalski."
+        )
+
+        self.assertEqual(result["status"], "warning")
+        self.assertEqual(result["risk_level"], RISK_LEVEL_HIGH)
 
 
 if __name__ == "__main__":

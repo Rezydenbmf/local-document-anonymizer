@@ -26,6 +26,14 @@ BATCH_ERROR_DESCRIPTIONS = (
     BATCH_ERROR_MISSING_DEPENDENCY,
     BATCH_ERROR_PROCESSING_FAILED,
 )
+RISK_LEVEL_OK = "ok"
+RISK_LEVEL_WARNING = "warning"
+RISK_LEVEL_HIGH = "high_risk"
+RISK_LEVELS = (
+    RISK_LEVEL_OK,
+    RISK_LEVEL_WARNING,
+    RISK_LEVEL_HIGH,
+)
 
 
 def _safe_file_type(value: str) -> str:
@@ -81,6 +89,15 @@ def _safe_batch_error(value: object) -> str:
     return BATCH_ERROR_PROCESSING_FAILED
 
 
+def _safe_risk_level(value: object, fallback_status: object = None) -> str:
+    risk_level = str(value).strip()
+    if risk_level in RISK_LEVELS:
+        return risk_level
+    if fallback_status == "ok":
+        return RISK_LEVEL_OK
+    return RISK_LEVEL_WARNING
+
+
 def _audit_section_lines(
     audit_result: Mapping[str, object] | None,
     audit_category_order: Iterable[str] | None,
@@ -100,6 +117,7 @@ def _audit_section_lines(
     if not isinstance(manual_review_required, bool):
         raise TypeError("audit manual_review_required must be a boolean")
 
+    risk_level = _safe_risk_level(audit_result.get("risk_level"), status)
     categories = _ordered_categories(findings, audit_category_order)
     non_zero_categories: list[tuple[str, int]] = []
     for label in categories:
@@ -112,6 +130,7 @@ def _audit_section_lines(
         "",
         "Post-anonymization audit:",
         f"Status: {status}",
+        f"Risk level: {risk_level}",
         "Possible remaining sensitive patterns:",
     ]
     if non_zero_categories:
@@ -120,8 +139,6 @@ def _audit_section_lines(
     else:
         lines.append("* none: 0")
 
-    manual_review_text = "yes" if manual_review_required else "no"
-    lines.append(f"Manual review required: {manual_review_text}")
     return lines
 
 
@@ -254,7 +271,10 @@ def build_batch_summary_text(
     counters: Mapping[str, int],
     audit_status_counts: Mapping[str, int],
     results: Iterable[Mapping[str, object]],
+    risk_level_counts: Mapping[str, int] | None = None,
+    audit_category_counters: Mapping[str, int] | None = None,
     category_order: Iterable[str] | None = None,
+    audit_category_order: Iterable[str] | None = None,
     status: str = "completed",
     manual_review_required: bool = True,
 ) -> str:
@@ -294,6 +314,28 @@ def build_batch_summary_text(
         _validate_count(count)
         lines.append(f"* {audit_status}: {count}")
 
+    lines.extend(["", "Risk levels:"])
+    risk_counts = risk_level_counts or {}
+    for risk_level in RISK_LEVELS:
+        count = risk_counts.get(risk_level, 0)
+        _validate_count(count)
+        lines.append(f"* {risk_level}: {count}")
+
+    lines.extend(["", "Audit warning categories:"])
+    audit_counters = audit_category_counters or {}
+    audit_categories = _ordered_categories(audit_counters, audit_category_order)
+    non_zero_audit_categories: list[tuple[str, int]] = []
+    for label in audit_categories:
+        count = audit_counters.get(label, 0)
+        _validate_count(count)
+        if count:
+            non_zero_audit_categories.append((label, count))
+    if non_zero_audit_categories:
+        for label, count in non_zero_audit_categories:
+            lines.append(f"* {label}: {count}")
+    else:
+        lines.append("* none: 0")
+
     lines.extend(["", "Files:"])
     for result in results:
         file_status = str(result.get("status", "error"))
@@ -304,6 +346,10 @@ def build_batch_summary_text(
             lines.append(f"  output: {_safe_filename(result.get('output_name', 'unknown'))}")
             lines.append(f"  report: {_safe_filename(result.get('report_name', 'unknown'))}")
             lines.append(f"  audit status: {result.get('audit_status', 'unknown')}")
+            lines.append(
+                f"  risk level: "
+                f"{_safe_risk_level(result.get('risk_level'), result.get('audit_status'))}"
+            )
         else:
             lines.append(f"  error: {_safe_batch_error(result.get('error', ''))}")
             lines.append("  output: not created")
@@ -331,7 +377,10 @@ def save_batch_summary_file(
     counters: Mapping[str, int],
     audit_status_counts: Mapping[str, int],
     results: Iterable[Mapping[str, object]],
+    risk_level_counts: Mapping[str, int] | None = None,
+    audit_category_counters: Mapping[str, int] | None = None,
     category_order: Iterable[str] | None = None,
+    audit_category_order: Iterable[str] | None = None,
     status: str = "completed",
     manual_review_required: bool = True,
 ) -> Path:
@@ -343,8 +392,11 @@ def save_batch_summary_file(
         error_count=error_count,
         counters=counters,
         audit_status_counts=audit_status_counts,
+        risk_level_counts=risk_level_counts,
+        audit_category_counters=audit_category_counters,
         results=results,
         category_order=category_order,
+        audit_category_order=audit_category_order,
         status=status,
         manual_review_required=manual_review_required,
     )

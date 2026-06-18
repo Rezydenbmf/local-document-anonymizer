@@ -14,14 +14,15 @@ automatic privacy solution.
 
 The current MVP workflow is:
 
-1. Run `python src/main.py`.
+1. Run `python src/main.py` or `python -m src.gui`.
 2. Add one or more supported files and check the selected-file count.
 3. Select an output folder.
 4. Optionally select a private sensitive terms file.
 5. If `Anonymize batch` is disabled, read the readiness hint beside the button.
 6. Click `Anonymize batch`.
 7. Check the status, dictionary status, category counters, aggregate audit
-   status, generated filenames, and batch summary filename.
+   status, aggregate risk levels, generated filenames, and batch summary
+   filename.
 8. Manually review each anonymized output file before using or sharing it.
 9. Use the manual review section to load the output folder, optionally open the
    selected generated output or matching report in the operating system
@@ -97,7 +98,7 @@ The report contains:
 - category counters,
 - dictionary used/status/matches-found information,
 - dictionary label counters,
-- post-anonymization audit status and category counters,
+- post-anonymization audit status, risk level, and category counters,
 - manual review requirement,
 - confirmation that original sensitive values are not stored,
 - confirmation that no replacement map was created.
@@ -115,6 +116,8 @@ output folder. If that name already exists, it writes `_BATCH_SUMMARY_2.txt`,
 - number of errors,
 - aggregate category counters,
 - audit status counts,
+- risk level counts,
+- aggregate audit warning category counters,
 - safe input, output, and report filenames,
 - controlled safe error descriptions.
 
@@ -133,15 +136,17 @@ The GUI can:
 1. Select an output folder created by batch processing.
 2. Detect generated `_ANON` files.
 3. Pair matching `_RAPORT` files when present.
-4. Show `_BATCH_SUMMARY` files when present.
-5. Open the selected `_ANON` output in the operating system default
+4. Read safe risk levels from paired Stage 16 `_RAPORT` files when present.
+5. Sort higher-risk generated outputs first in the review list.
+6. Show `_BATCH_SUMMARY` files when present.
+7. Open the selected `_ANON` output in the operating system default
    application.
-6. Open the matching `_RAPORT` report in the operating system default
+8. Open the matching `_RAPORT` report in the operating system default
    application when one is detected.
-7. Let the user mark each generated output as `approved`, `needs_review`, or
+9. Let the user mark each generated output as `approved`, `needs_review`, or
    `rejected`.
-8. Save `_REVIEW_STATUS.json`.
-9. Save `_REVIEW_SUMMARY.txt`.
+10. Save `_REVIEW_STATUS.json`.
+11. Save `_REVIEW_SUMMARY.txt`.
 
 `approved` means the user manually approved the file after review. It does not
 mean the application guarantees complete anonymization. `needs_review` means
@@ -238,20 +243,33 @@ Stage 9 adds a safe audit after the `_ANON` output is generated. The workflow
 passes successfully loaded dictionary aliases into that audit. The audit checks
 the anonymized output text for conservative suspicious remaining patterns such
 as e-mail, PESEL, phone, date, private dictionary aliases, case/reference
-numbers, postal codes, and simple address-like text.
+numbers, postal codes, simple address/street-like text, initial plus surname
+patterns, ID-like numbers, and long number sequences.
 
-The GUI shows audit status and counters by category only. The report includes a
-safe `Post-anonymization audit` section. If loaded dictionary aliases remain,
-the audit may show only a safe counter such as
-`SENSITIVE_DICTIONARY_TERM`. The audit does not show or store original detected
-values, text snippets, dictionary aliases, full document text, or replacement
-maps.
+The GUI shows audit status, risk counts, and counters by category only. The
+report includes a safe `Post-anonymization audit` section. If loaded dictionary
+aliases remain, the audit may show only a safe counter such as
+`SENSITIVE_DICTIONARY_TERM`. The audit does not show or store original
+detected values, text snippets, dictionary aliases, full document text, or
+replacement maps.
 
 `Audit status: OK` means the simple audit did not find supported suspicious
 patterns. It does not prove that the document is fully anonymized.
 
 `Audit status: WARNING` means the output may still contain suspicious
 sensitive-looking data and must be checked carefully.
+
+Stage 16 adds a risk level for manual-review prioritization:
+
+- `ok`: no audit warning counters.
+- `warning`: warning counters exist, but no high-risk condition is met.
+- `high_risk`: at least one high-risk category is present or total audit
+  warnings reach 3.
+
+High-risk categories are `EMAIL`, `PESEL`, `TELEFON`,
+`SENSITIVE_DICTIONARY_TERM`, `ADDRESS_LIKE`, `ID_LIKE_NUMBER`, and
+`LONG_NUMBER_SEQUENCE`. The risk level is not a guarantee that anonymization is
+complete and it does not approve a file automatically.
 
 ## 11. Why Manual Review Is Required
 
@@ -290,8 +308,8 @@ The current MVP includes plain string anonymization, TXT file input/output, basi
 file input/output, text-based PDF input with TXT output, a simple Tkinter GUI,
 batch processing, an output folder workflow, collision-safe output names, safe
 reports, optional private dictionary input, dictionary status reporting, a
-safe post-anonymization audit, and manual review status tracking. Automatic
-names, broad addresses, cities, organizations, OCR, AI, APIs, cloud services,
-local LLMs, databases, drag and drop, advanced preview, editing workflow,
-automatic approval, file-moving review folders, and anonymized PDF output are
-not implemented.
+safe post-anonymization audit with risk prioritization, and manual review
+status tracking. Automatic names, broad addresses, cities, organizations, OCR,
+AI, APIs, cloud services, local LLMs, databases, drag and drop, advanced
+preview, editing workflow, automatic approval, file-moving review folders, and
+anonymized PDF output are not implemented.

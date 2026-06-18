@@ -5,38 +5,72 @@ from dataclasses import dataclass
 from pathlib import Path
 import re
 
-from audit import AUDIT_CATEGORY_ORDER, audit_text
-from file_readers import (
-    DOCX_EXTENSION,
-    PDF_EXTENSION,
-    SUPPORTED_EXTENSIONS,
-    TXT_EXTENSION,
-    read_docx_file,
-    read_pdf_file,
-    read_txt_file,
-)
-from file_writers import (
-    build_batch_summary_path,
-    build_collision_safe_path,
-    build_report_path,
-    save_anonymized_docx_copy,
-    save_anonymized_pdf_txt_copy,
-    save_anonymized_txt_copy,
-)
-from report import (
-    BATCH_ERROR_EMPTY_TEXT_PDF,
-    BATCH_ERROR_FILE_IO,
-    BATCH_ERROR_MISSING_DEPENDENCY,
-    BATCH_ERROR_PROCESSING_FAILED,
-    BATCH_ERROR_TEXT_DECODING,
-    BATCH_ERROR_UNSUPPORTED_FILE_TYPE,
-    DICTIONARY_STATUS_INVALID,
-    DICTIONARY_STATUS_LOADED,
-    DICTIONARY_STATUS_NOT_SELECTED,
-    save_batch_summary_file,
-    save_report_file,
-)
-from sensitive_terms import SensitiveTerm, apply_sensitive_terms, load_sensitive_terms
+try:
+    from .audit import AUDIT_CATEGORY_ORDER, RISK_LEVELS, audit_text
+    from .file_readers import (
+        DOCX_EXTENSION,
+        PDF_EXTENSION,
+        SUPPORTED_EXTENSIONS,
+        TXT_EXTENSION,
+        read_docx_file,
+        read_pdf_file,
+        read_txt_file,
+    )
+    from .file_writers import (
+        build_batch_summary_path,
+        build_collision_safe_path,
+        build_report_path,
+        save_anonymized_docx_copy,
+        save_anonymized_pdf_txt_copy,
+        save_anonymized_txt_copy,
+    )
+    from .report import (
+        BATCH_ERROR_EMPTY_TEXT_PDF,
+        BATCH_ERROR_FILE_IO,
+        BATCH_ERROR_MISSING_DEPENDENCY,
+        BATCH_ERROR_PROCESSING_FAILED,
+        BATCH_ERROR_TEXT_DECODING,
+        BATCH_ERROR_UNSUPPORTED_FILE_TYPE,
+        DICTIONARY_STATUS_INVALID,
+        DICTIONARY_STATUS_LOADED,
+        DICTIONARY_STATUS_NOT_SELECTED,
+        save_batch_summary_file,
+        save_report_file,
+    )
+    from .sensitive_terms import SensitiveTerm, apply_sensitive_terms, load_sensitive_terms
+except ImportError:
+    from audit import AUDIT_CATEGORY_ORDER, RISK_LEVELS, audit_text
+    from file_readers import (
+        DOCX_EXTENSION,
+        PDF_EXTENSION,
+        SUPPORTED_EXTENSIONS,
+        TXT_EXTENSION,
+        read_docx_file,
+        read_pdf_file,
+        read_txt_file,
+    )
+    from file_writers import (
+        build_batch_summary_path,
+        build_collision_safe_path,
+        build_report_path,
+        save_anonymized_docx_copy,
+        save_anonymized_pdf_txt_copy,
+        save_anonymized_txt_copy,
+    )
+    from report import (
+        BATCH_ERROR_EMPTY_TEXT_PDF,
+        BATCH_ERROR_FILE_IO,
+        BATCH_ERROR_MISSING_DEPENDENCY,
+        BATCH_ERROR_PROCESSING_FAILED,
+        BATCH_ERROR_TEXT_DECODING,
+        BATCH_ERROR_UNSUPPORTED_FILE_TYPE,
+        DICTIONARY_STATUS_INVALID,
+        DICTIONARY_STATUS_LOADED,
+        DICTIONARY_STATUS_NOT_SELECTED,
+        save_batch_summary_file,
+        save_report_file,
+    )
+    from sensitive_terms import SensitiveTerm, apply_sensitive_terms, load_sensitive_terms
 
 
 SUPPORTED_LABELS = ("PESEL", "EMAIL", "TELEFON", "DATA")
@@ -62,6 +96,8 @@ class BatchResult:
     error_count: int
     counters: dict[str, int]
     audit_status_counts: dict[str, int]
+    risk_level_counts: dict[str, int]
+    audit_category_counters: dict[str, int]
     results: list[dict[str, object]]
 
 _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
@@ -540,6 +576,31 @@ def _merge_audit_status_count(
     audit_status_counts[str(status)] = audit_status_counts.get(str(status), 0) + 1
 
 
+def _merge_risk_level_count(
+    risk_level_counts: dict[str, int],
+    audit_result: dict[str, object],
+) -> None:
+    risk_level = audit_result.get("risk_level")
+    if risk_level in RISK_LEVELS:
+        risk_level_counts[str(risk_level)] = risk_level_counts.get(str(risk_level), 0) + 1
+
+
+def _merge_audit_findings(
+    audit_category_counters: dict[str, int],
+    audit_result: dict[str, object],
+) -> None:
+    findings = audit_result.get("findings")
+    if not isinstance(findings, dict):
+        return
+
+    for label in AUDIT_CATEGORY_ORDER:
+        count = findings.get(label, 0)
+        if isinstance(count, int):
+            audit_category_counters[label] = (
+                audit_category_counters.get(label, 0) + count
+            )
+
+
 def anonymize_batch(
     source_paths: Iterable[str | Path],
     output_dir: str | Path,
@@ -556,6 +617,8 @@ def anonymize_batch(
     reusable_terms = _reusable_sensitive_terms(sensitive_terms)
     aggregate_counters: dict[str, int] = {}
     audit_status_counts = {"ok": 0, "warning": 0, "not run": 0}
+    risk_level_counts = {risk_level: 0 for risk_level in RISK_LEVELS}
+    audit_category_counters = {category: 0 for category in AUDIT_CATEGORY_ORDER}
     results: list[dict[str, object]] = []
     success_count = 0
     error_count = 0
@@ -595,6 +658,8 @@ def anonymize_batch(
         success_count += 1
         _merge_counters(aggregate_counters, result.counters)
         _merge_audit_status_count(audit_status_counts, result.audit_result)
+        _merge_risk_level_count(risk_level_counts, result.audit_result)
+        _merge_audit_findings(audit_category_counters, result.audit_result)
         dictionary_result = result.audit_result.get("dictionary", {})
         dictionary_status = (
             dictionary_result.get("status")
@@ -608,6 +673,7 @@ def anonymize_batch(
                 "output_name": result.output_path.name,
                 "report_name": result.report_path.name,
                 "audit_status": result.audit_result.get("status", "unknown"),
+                "risk_level": result.audit_result.get("risk_level", "unknown"),
                 "dictionary_status": dictionary_status,
             }
         )
@@ -620,8 +686,11 @@ def anonymize_batch(
         error_count=error_count,
         counters=aggregate_counters,
         audit_status_counts=audit_status_counts,
+        risk_level_counts=risk_level_counts,
+        audit_category_counters=audit_category_counters,
         results=results,
         category_order=SUPPORTED_LABELS,
+        audit_category_order=AUDIT_CATEGORY_ORDER,
         manual_review_required=True,
     )
 
@@ -632,5 +701,7 @@ def anonymize_batch(
         error_count=error_count,
         counters=aggregate_counters,
         audit_status_counts=audit_status_counts,
+        risk_level_counts=risk_level_counts,
+        audit_category_counters=audit_category_counters,
         results=results,
     )

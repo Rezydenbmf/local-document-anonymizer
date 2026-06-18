@@ -10,6 +10,7 @@ input file
 -> anonymization
 -> collision-safe output file in selected output folder
 -> post-anonymization audit
+-> safe risk-level assignment for review prioritization
 -> safe report
 -> optional batch summary
 -> manual review status tracking without content preview
@@ -23,18 +24,18 @@ input file
 more supported files, select an output folder, optionally select a private
 sensitive terms file, run sequential batch anonymization, and view safe
 filenames, safe dictionary status, aggregate category counters, aggregate audit
-status counts, output/report filenames, the batch summary filename, and manual
-review controls. Stage 15 keeps the same workflow but makes the main layout
-scrollable, shows the selected-file count, lets the user remove or clear files
-from the GUI selection without deleting them, and improves plain-language
-status messages. It stores only the selected dictionary path and lets the
-workflow load the file. It can load an existing output folder, list generated
-anonymized output basenames, show matching report basenames when present, apply
-manual review statuses to one or more selected rows, open the selected
-generated output or matching report with the operating system default
-application, and save safe review metadata. It does not display dictionary
-contents, original detected values, text snippets, dictionary terms, or
-document contents.
+status counts, aggregate risk counts, output/report filenames, the batch
+summary filename, and manual review controls. Stage 15 keeps the same workflow
+but makes the main layout scrollable, shows the selected-file count, lets the
+user remove or clear files from the GUI selection without deleting them, and
+improves plain-language status messages. It stores only the selected dictionary
+path and lets the workflow load the file. It can load an existing output
+folder, list generated anonymized output basenames, show matching report
+basenames and safe risk levels when present, apply manual review statuses to
+one or more selected rows, open the selected generated output or matching
+report with the operating system default application, and save safe review
+metadata. It does not display dictionary contents, original detected values,
+text snippets, dictionary terms, or document contents.
 
 `file_readers.py` reads UTF-8 TXT files, extracts basic text from local DOCX files, and extracts text from text-based PDFs. DOCX extraction covers normal paragraphs and simple table cells. PDF extraction requires an existing text layer and does not include OCR.
 
@@ -61,14 +62,17 @@ dispatcher workflows. The existing helpers still return only the output path
 plus category counters, but they also run the audit and save it into the safe
 report.
 
-`audit.py` contains the Stage 9 post-anonymization audit. It checks already
-anonymized output text for conservative suspicious remaining patterns. When a
-dictionary loaded successfully, the workflow passes those terms into the audit
-so remaining dictionary aliases are counted as `SENSITIVE_DICTIONARY_TERM`
-using the same Stage 11 case-insensitive and whitespace-tolerant matching
-semantics as anonymization. The audit returns only status, category counters,
-and a manual review flag. It never returns source values, text snippets,
-private dictionary terms, document text, or replacement maps.
+`audit.py` contains the post-anonymization audit. It checks already anonymized
+output text for conservative suspicious remaining patterns. When a dictionary
+loaded successfully, the workflow passes those terms into the audit so
+remaining dictionary aliases are counted as `SENSITIVE_DICTIONARY_TERM` using
+the same Stage 11 case-insensitive and whitespace-tolerant matching semantics
+as anonymization. Stage 16 adds deterministic risk levels: `ok` for no warning
+counters, `warning` for warnings without a high-risk trigger, and `high_risk`
+when a high-risk category appears or total warnings reach 3. The audit returns
+only status, risk level, category counters, and a manual review flag. It never
+returns source values, text snippets, private dictionary terms, document text,
+or replacement maps.
 
 `file_writers.py` saves anonymized TXT, DOCX, and PDF-to-TXT copies without
 modifying original files. The output filename receives the `_ANON` suffix. For
@@ -88,20 +92,22 @@ layout, and does not modify the original PDF.
 `report.py` builds and saves safe TXT reports without original sensitive source
 values. It receives only status, input type, output type, anonymization
 category counters, safe dictionary status metadata, dictionary label counters,
-audit status, audit counters, and optional category ordering. Dictionary
-counters are labels only, such as `IMIE NAZWISKO: 2`; original dictionary
-terms are not passed to the report module. Stage 12 also adds safe batch
-summary text generation with safe filenames, aggregate counters, audit status
-counts, and controlled error descriptions only.
+audit status, audit risk level, audit counters, and optional category ordering.
+Dictionary counters are labels only, such as `IMIE NAZWISKO: 2`; original
+dictionary terms are not passed to the report module. Stage 12 also adds safe
+batch summary text generation with safe filenames, aggregate counters, audit
+status counts, risk level counts, aggregate audit category counters, and
+controlled error descriptions only.
 
-`review.py` contains the Stage 13 manual review workflow metadata. It detects
-generated `_ANON` outputs in an output folder, pairs matching `_RAPORT` report
-basenames when present, lists `_BATCH_SUMMARY` basenames when present, validates
-manual statuses, and saves `_REVIEW_STATUS.json` plus collision-safe
-`_REVIEW_SUMMARY.txt` files. It stores generated basenames, status counts, and
-manual decision metadata only. It does not open generated documents, inspect
-document contents, display excerpts, move files, or approve files
-automatically.
+`review.py` contains the manual review workflow metadata. It detects generated
+`_ANON` outputs in an output folder, pairs matching `_RAPORT` report basenames
+when present, reads only the safe `Risk level:` line from paired reports, sorts
+higher-risk items first, lists `_BATCH_SUMMARY` basenames when present,
+validates manual statuses, and saves `_REVIEW_STATUS.json` plus collision-safe
+`_REVIEW_SUMMARY.txt` files. It stores generated basenames, safe risk levels,
+status counts, and manual decision metadata only. It does not open generated
+documents, inspect document contents, display excerpts, move files, or approve
+files automatically.
 
 ## Safety Design
 
@@ -115,10 +121,12 @@ counters, report files, or GUI status. The real private dictionary must not be
 committed; it should live outside the repository or inside an ignored folder
 such as `private/`.
 
-Stage 9 audit results are safe metadata only. They include warning categories
-and counts, not original values, text snippets, dictionary terms, full document
-text, or replacement maps. Audit status `ok` does not prove complete
-anonymization; manual review remains required.
+Audit results are safe metadata only. They include warning categories, counts,
+status, risk level, and manual review metadata, not original values, text
+snippets, dictionary terms, full document text, or replacement maps. Audit
+status `ok` and risk level `ok` do not prove complete anonymization; manual
+review remains required. Risk levels are prioritization helpers only and do
+not create automatic approval.
 
 Stage 13 review results are manual metadata only. `approved` means the user
 manually approved the generated output; it is not inferred from the audit,
@@ -138,12 +146,12 @@ editing workflow.
 
 The GUI is a simple workflow shell. It does not preview document content, edit
 output, display dictionary contents, display audit snippets, write anonymized
-PDF files, or generate detailed audit reports beyond safe counters and the
-safe batch summary and safe manual review summary. Stage 15 can ask the
-operating system to open a selected generated output or matching report, but
-the GUI does not inspect those files or add an in-app viewer. It calls the
-batch workflow and review workflow instead of parsing files inside the GUI
-layer.
+PDF files, or generate detailed audit reports beyond safe counters, risk
+metadata, the safe batch summary, and the safe manual review summary. Stage 15
+can ask the operating system to open a selected generated output or matching
+report, but the GUI does not inspect those files or add an in-app viewer. It
+calls the batch workflow and review workflow instead of parsing source files
+inside the GUI layer.
 
 ## Private Dictionary Limitations
 
