@@ -17,6 +17,10 @@ input file
 -> optional approved workspace staging from saved manual decisions
 ```
 
+Stage 18 validates this full chain with synthetic end-to-end tests and a
+manual MVP smoke checklist. It does not change the architecture or add runtime
+features.
+
 ## Module Responsibilities
 
 `main.py` is the application entry point. It starts the Stage 5 Tkinter GUI.
@@ -120,6 +124,11 @@ approved files and existing approved indexes are not silently overwritten. The
 index contains basenames, copied counts, missing-report basenames, safe risk
 levels when already available, and clear manual-decision/staging disclaimers.
 
+`tests/test_stage18_end_to_end.py` validates the complete MVP workflow across
+the existing modules. It covers TXT, dictionary, mixed-risk batch, DOCX, and
+text-based PDF paths with synthetic fixtures only. It also checks that generated
+outputs and local-only workspaces remain covered by `.gitignore`.
+
 ## Safety Design
 
 The project is local-first and offline. It must not add cloud services, APIs, network calls, AI services, OCR, databases, or large dependencies without explicit approval.
@@ -158,6 +167,10 @@ source aliases, document fragments, source file paths, or replacement maps.
 The project still does not use internet calls, APIs, cloud services, AI
 services, OCR, local LLMs, databases, drag and drop, document preview, or an
 editing workflow.
+
+Stage 18 keeps those exclusions unchanged. The approved workspace remains a
+manual staging area, not automatic approval, not a knowledge base, and not a
+guarantee of complete anonymization.
 
 ## GUI Limitations
 

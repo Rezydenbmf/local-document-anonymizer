@@ -27,6 +27,7 @@ local_config.*
 *_BATCH_SUMMARY*.txt
 _REVIEW_STATUS*.json
 _REVIEW_SUMMARY*.txt
+_APPROVED_INDEX*.txt
 .DS_Store
 Thumbs.db
 

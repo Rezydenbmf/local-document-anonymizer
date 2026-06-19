@@ -94,6 +94,43 @@ class SensitiveTermsTests(unittest.TestCase):
         )
         self.assertEqual(counters, {"IMIE NAZWISKO": 2})
 
+    def test_dictionary_alias_line_with_utf8_bom_matches_all_aliases(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            aliases = ("ACME Internal Unit", "ACME-I")
+            dictionary_path = Path(temp_dir) / "sensitive_terms.txt"
+            dictionary_path.write_text(
+                "\ufeffACME Internal Unit | ACME-I = [PRIVATE_ORG]\n",
+                encoding="utf-8",
+            )
+            source_path = Path(temp_dir) / "document.txt"
+            source_path.write_text(
+                "Synthetic organization: ACME Internal Unit\n"
+                "Alias mention: ACME-I\n"
+                "Contact: test.person@example.test\n",
+                encoding="utf-8",
+            )
+
+            output_path, counters = anonymize_txt_file(
+                source_path,
+                sensitive_terms_path=dictionary_path,
+            )
+            report_text = (Path(temp_dir) / "document_RAPORT.txt").read_text(
+                encoding="utf-8"
+            )
+
+            self.assertEqual(
+                output_path.read_text(encoding="utf-8"),
+                "Synthetic organization: [PRIVATE_ORG]\n"
+                "Alias mention: [PRIVATE_ORG]\n"
+                "Contact: [EMAIL]\n",
+            )
+            self.assertEqual(counters, {"PRIVATE_ORG": 2, "EMAIL": 1})
+            self.assertIn("* PRIVATE_ORG: 2", report_text)
+            self.assertIn("* EMAIL: 1", report_text)
+            for alias in aliases:
+                self.assertNotIn(alias, report_text)
+                self.assertNotIn(alias, repr(counters))
+
     def test_dictionary_matching_is_case_insensitive(self) -> None:
         terms = parse_sensitive_terms("Person One Example = [IMIE NAZWISKO]\n")
 

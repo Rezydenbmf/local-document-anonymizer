@@ -7,6 +7,7 @@ import re
 
 
 _INTERNAL_WHITESPACE_PATTERN = r"[^\S\r\n]+"
+_UTF8_BOM = "\ufeff"
 
 
 @dataclass(frozen=True, repr=False)
@@ -99,6 +100,8 @@ def parse_sensitive_terms(text: str) -> list[SensitiveTerm]:
     labels_by_key: dict[str, str] = {}
 
     for line_number, line in enumerate(text.splitlines(), start=1):
+        if line_number == 1:
+            line = line.removeprefix(_UTF8_BOM)
         parsed_terms = _parse_sensitive_term_line(line, line_number)
         if parsed_terms is None:
             continue

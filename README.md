@@ -37,6 +37,8 @@ a safe report, and expects manual review before any result is trusted.
 - Approved workspace export that copies only manually approved `_ANON` files,
   optionally copies matching `_RAPORT` files, and writes a safe
   `_APPROVED_INDEX.txt` manifest.
+- End-to-end synthetic MVP workflow validation for batch output, reports,
+  audit risk, manual review metadata, and approved workspace export.
 - Synthetic examples and tests only.
 
 ## Privacy And Local-First Assumptions
@@ -251,6 +253,9 @@ python -m unittest discover -s tests
 10. Optionally click `Export approved` to create an `approved/` staging
     workspace from files marked `approved` in `_REVIEW_STATUS.json`.
 
+For a practical non-developer validation sequence, use
+`docs/MVP_MANUAL_TEST_CHECKLIST.md` with synthetic files only.
+
 ## Example Workflow
 
 For a TXT file:
@@ -301,6 +306,8 @@ examples/              Synthetic example inputs and dictionaries
   before/              Empty placeholder — drop input documents here to test
   after/               Empty placeholder — drop output documents here to compare
 docs/                  Project and module documentation
+docs/MVP_MANUAL_TEST_CHECKLIST.md
+                       Manual synthetic MVP smoke-test checklist
 AGENTS.md              AI assistant collaboration rules (Codex / Claude workflow)
 ```
 
@@ -318,8 +325,9 @@ never committed by accident.
 The test suite uses synthetic data only. It covers the regex engine,
 TXT/DOCX/PDF workflows, GUI dispatcher layer, private dictionary parsing and
 matching, safe reports, post-anonymization audit metadata, collision-safe
-output naming, output workspace behavior, batch processing, and manual review
-metadata, approved workspace export, and safe approved index generation.
+output naming, output workspace behavior, batch processing, manual review
+metadata, approved workspace export, safe approved index generation, and
+Stage 18 end-to-end MVP workflow validation.
 
 Run:
 
@@ -364,7 +372,8 @@ dictionary support, post-anonymization audit, manual validation fixes, the
 Stage 11 smart dictionary foundation, Stage 12 safe output workspace with
 batch processing, the Stage 13 manual review workflow, the Stage 15 GUI
 usability cleanup, Stage 16 stronger audit risk prioritization, and Stage 17
-approved workspace staging.
+approved workspace staging. Stage 18 adds end-to-end synthetic validation and
+a manual MVP smoke checklist without expanding the runtime feature set.
 
 Potential future work requires explicit approval, especially OCR, scanned PDF
 support, stronger entity detection, installer packaging, release automation,

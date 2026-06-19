@@ -215,7 +215,9 @@ level parsing from reports, high-risk-first ordering, and risk metadata in the
 safe review summary. Stage 17 tests cover approved export from
 `_REVIEW_STATUS.json`, skipping `needs_review` and `rejected`, optional report
 copying, missing reports, missing status files, no approved files,
-collision-safe export names, and safe approved index contents.
+collision-safe export names, and safe approved index contents. Stage 18 tests
+cover the full workflow chain from synthetic batch outputs to manual decisions
+and approved export.
 
 ## Known Limitations
 

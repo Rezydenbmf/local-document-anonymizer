@@ -2,8 +2,8 @@
 
 ## Current Status
 
-The project is in Stage 17: approved workspace and knowledge-base staging,
-pending user review and commit.
+The project is in Stage 18: end-to-end workflow validation and MVP
+stabilization, pending user review and commit.
 
 The Stage 0-13 MVP implementation contains a narrow regex-based engine that
 accepts a Python string and returns anonymized text plus category counters. It
@@ -80,6 +80,18 @@ approved workspace files are not overwritten; numbered suffixes such as `_2`
 and `_3` are used. `approved` remains a manual user decision and the approved
 workspace is a staging area, not a knowledge base or guarantee of complete
 anonymization.
+
+Stage 18 validates the complete local MVP workflow end to end with synthetic
+tests and manual smoke-test documentation. It exercises source files, batch
+anonymization, reports, post-anonymization audit risk levels, manual review
+metadata, approved workspace export, and the safe approved index. It does not
+add OCR, AI/API integration, local LLMs, databases, installer work, drag and
+drop, document preview, split-screen review, highlighting, automatic approval,
+or a knowledge base.
+
+Stage 18 also includes a small dictionary stabilization fix: a leading UTF-8
+BOM at the start of a dictionary file is ignored so the first alias on the
+first line matches consistently with later aliases.
 
 ## What Exists
 
@@ -188,6 +200,11 @@ accepts preloaded `sensitive_terms`.
   no-approved handling, optional report copying, missing reports,
   collision-safe export naming, and safe approved index contents using
   synthetic values only.
+- Unit tests for Stage 18 end-to-end MVP workflow validation, including simple
+  low-risk TXT approval/export, mixed-risk review prioritization, dictionary
+  aliases, DOCX and text-based PDF participation, safe metadata, and generated
+  output ignore coverage using synthetic values only.
+- Manual MVP smoke-test checklist in `docs/MVP_MANUAL_TEST_CHECKLIST.md`.
 - Synthetic sample text files in `tests/sample_data/`.
 - Synthetic example dictionary in `examples/sensitive_terms.example.txt`.
 - Synthetic seed dictionary example in `examples/sensitive_terms.seed.example.txt`.
@@ -290,21 +307,22 @@ python -m unittest discover -s tests
 
 ## Last Completed Committed Stage
 
-Stage 16: stronger audit and review prioritization.
+Stage 17: approved workspace staging.
 
 ```text
-7183df6 Implement Stage 16 audit risk prioritization
+6034034 Implement Stage 17 approved workspace staging
 ```
 
 ## Next Logical Step
 
-Manually smoke test Stage 17 through the Tkinter GUI with synthetic files in a
-local output folder: anonymize a batch, save review metadata with one approved
-file and one non-approved file, click `Export approved`, and confirm
-`approved/` contains only the approved `_ANON`, optional matching `_RAPORT`,
-and a safe `_APPROVED_INDEX.txt`. Potential future work requires an explicit
-project decision, especially OCR, installer work, AI/API integration, local
-LLMs, databases, broad NLP/entity detection, packaging, release automation, or
+Manually smoke test Stage 18 through the Tkinter GUI with synthetic files,
+following `docs/MVP_MANUAL_TEST_CHECKLIST.md`: anonymize a batch, inspect safe
+reports and risk levels, save review metadata with approved and non-approved
+files, export approved files, and confirm `approved/` contains only approved
+generated outputs, optional matching `_RAPORT` files, and a safe
+`_APPROVED_INDEX.txt`. Potential future work requires an explicit project
+decision, especially OCR, installer work, AI/API integration, local LLMs,
+databases, broad NLP/entity detection, packaging, release automation, or
 knowledge-base creation.
 
 ## Warning

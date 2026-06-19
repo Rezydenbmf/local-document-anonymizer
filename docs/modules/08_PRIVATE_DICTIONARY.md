@@ -104,9 +104,10 @@ term or alias.
 
 Dictionary files are expected to be UTF-8 text files. The GUI/pipeline
 dictionary flow was manually validated in Stage 10.2 with small synthetic
-UTF-8 TXT and dictionary files. Reports and GUI output must show only safe
-dictionary status, labels, and counters; they must not expose original
-dictionary aliases or terms.
+UTF-8 TXT and dictionary files. A leading UTF-8 BOM at the start of the
+dictionary file is ignored so it cannot become part of the first alias.
+Reports and GUI output must show only safe dictionary status, labels, and
+counters; they must not expose original dictionary aliases or terms.
 
 Stage 11 adds a synthetic candidate workflow example at
 `examples/dictionary_candidates.example.txt`. It is only a safe example of how
@@ -200,8 +201,9 @@ safe object representation, longer-alias replacement order, malformed-line
 validation, behavior without a dictionary, regex integration, safe report
 output, path-based dispatcher flow, report status, invalid dictionary status,
 loaded-without-matches status, TXT/DOCX/PDF dictionary-path compatibility, and
-audit integration. Stage 12 tests cover dictionary-path use in a safe batch
-summary.
+audit integration. Stage 18 stabilization tests cover BOM-prefixed dictionary
+files so the first alias and later aliases on the same line are both matched.
+Stage 12 tests cover dictionary-path use in a safe batch summary.
 
 ## Known Limitations
 

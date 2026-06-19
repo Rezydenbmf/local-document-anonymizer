@@ -18,7 +18,9 @@ messages, and manual-review shortcuts for opening a selected generated output
 or matching report with the operating system default application. Stage 16 adds
 aggregate risk counts to the audit display and a safe risk column to the manual
 review list. Stage 17 adds an `Export approved` action that creates an
-approved staging workspace from saved manual review decisions.
+approved staging workspace from saved manual review decisions. Stage 18
+validates the complete GUI-backed MVP workflow with synthetic end-to-end tests
+and a manual smoke checklist.
 
 ## Related files
 
@@ -227,7 +229,8 @@ batch status, and missing external file open handling are covered by
 `tests/test_gui_workflow.py`. Stage 16 risk display helpers are covered by
 `tests/test_gui_workflow.py` and `tests/test_review_workflow.py`. Stage 17
 approved export helper text is covered by `tests/test_gui_workflow.py`, and
-approved export behavior is covered by `tests/test_review_workflow.py`.
+approved export behavior is covered by `tests/test_review_workflow.py`. Stage
+18 end-to-end workflow coverage is in `tests/test_stage18_end_to_end.py`.
 Fragile widget tests are not included.
 
 ## Known limitations

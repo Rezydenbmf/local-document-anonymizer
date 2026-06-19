@@ -81,3 +81,10 @@ An approved workspace can help organize manually reviewed `_ANON` files, but it
 must stay described as a staging area. It should copy only manual approvals,
 keep manifests to safe basenames and metadata, and avoid knowledge-base or
 complete-anonymization claims.
+
+## 17. End-to-end validation should test the whole safe metadata chain.
+
+Module tests are useful, but the MVP workflow also needs synthetic tests that
+cross module boundaries: batch output, reports, audit risk levels, manual
+review, approved export, and approved index safety. These tests should verify
+what is not stored just as carefully as they verify what is created.

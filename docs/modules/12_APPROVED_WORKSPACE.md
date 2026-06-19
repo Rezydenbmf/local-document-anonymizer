@@ -151,6 +151,8 @@ exporting only approved `_ANON` files, skipping `needs_review`, skipping
 `rejected`, optional copying of matching `_RAPORT`, missing `_RAPORT` handling,
 missing `_REVIEW_STATUS.json`, no approved files, collision-safe approved
 export, safe `_APPROVED_INDEX.txt` generation, and approved index safety.
+Stage 18 tests cover approved export as part of the complete synthetic MVP
+workflow and confirm only approved generated outputs are copied.
 
 ## Known Limitations
 

@@ -143,7 +143,8 @@ Stage 12 tests cover collision-safe naming, output workspace behavior,
 sequential batch processing across TXT/DOCX/text-based PDF, safe continuation
 after unsupported files, and safe batch summary contents. Stage 16 tests cover
 aggregate risk counts, aggregate audit category counters, and source-value-safe
-risk metadata in the batch summary.
+risk metadata in the batch summary. Stage 18 tests cover batch output as part
+of the complete MVP chain through manual review and approved export.
 
 ## Known Limitations
 

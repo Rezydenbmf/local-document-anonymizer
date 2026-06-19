@@ -5,6 +5,9 @@
 Local Document Anonymizer is a local desktop tool for replacing supported
 sensitive values in documents with general labels.
 
+The workflow is local-first. It does not use cloud services, API calls, AI,
+OCR, local LLMs, or a database.
+
 ## 2. What This Application Is Not For
 
 It is not a cloud service, compliance guarantee, OCR tool, document editor, or
@@ -31,6 +34,9 @@ The current MVP workflow is:
 
 The application saves output files before manual review. It does not provide an
 in-app document preview or editing screen.
+
+For a complete synthetic MVP smoke test, follow
+`docs/MVP_MANUAL_TEST_CHECKLIST.md`.
 
 The selected-file list is only a GUI selection. `Remove selected` and
 `Clear files` remove files from that list only. They do not delete original
@@ -209,6 +215,9 @@ _APPROVED_INDEX_2.txt
 
 The approved workspace is a staging area only. It is not a knowledge base and
 does not guarantee complete anonymization.
+
+It also does not replace manual review. A file in `approved/` is only a copy of
+an output that the user marked `approved` after review.
 
 ## 8. Safety Rules for Users
 
