@@ -14,6 +14,7 @@ input file
 -> safe report
 -> optional batch summary
 -> manual review status tracking without content preview
+-> optional approved workspace staging from saved manual decisions
 ```
 
 ## Module Responsibilities
@@ -33,8 +34,9 @@ path and lets the workflow load the file. It can load an existing output
 folder, list generated anonymized output basenames, show matching report
 basenames and safe risk levels when present, apply manual review statuses to
 one or more selected rows, open the selected generated output or matching
-report with the operating system default application, and save safe review
-metadata. It does not display dictionary contents, original detected values,
+report with the operating system default application, save safe review
+metadata, and export manually approved outputs to an `approved/` staging
+workspace. It does not display dictionary contents, original detected values,
 text snippets, dictionary terms, or document contents.
 
 `file_readers.py` reads UTF-8 TXT files, extracts basic text from local DOCX files, and extracts text from text-based PDFs. DOCX extraction covers normal paragraphs and simple table cells. PDF extraction requires an existing text layer and does not include OCR.
@@ -109,6 +111,15 @@ status counts, and manual decision metadata only. It does not open generated
 documents, inspect document contents, display excerpts, move files, or approve
 files automatically.
 
+Stage 17 also keeps approved workspace export in `review.py`. The export reads
+the saved `_REVIEW_STATUS.json`, finds entries with manual status `approved`,
+copies only matching `_ANON` files into an `approved/` folder, optionally copies
+matching `_RAPORT` files, and writes `_APPROVED_INDEX.txt`. It uses the same
+collision-safe numbered naming helper as generated outputs, so existing
+approved files and existing approved indexes are not silently overwritten. The
+index contains basenames, copied counts, missing-report basenames, safe risk
+levels when already available, and clear manual-decision/staging disclaimers.
+
 ## Safety Design
 
 The project is local-first and offline. It must not add cloud services, APIs, network calls, AI services, OCR, databases, or large dependencies without explicit approval.
@@ -134,6 +145,12 @@ report, filename, or application logic. Review status and summary files contain
 safe basenames and counts only, not source values, document contents, private
 dictionary terms, aliases, full paths, tracebacks, or replacement maps.
 
+Stage 17 approved workspace export is also manual-decision metadata plus file
+copying only. It never copies original source documents, `needs_review` files,
+or `rejected` files. `_APPROVED_INDEX.txt` contains safe metadata and basenames
+only. The approved workspace is a staging area, not a knowledge base and not a
+guarantee of complete anonymization.
+
 Dictionary metadata is safe metadata only. It contains status names, booleans
 implied by status, label names, and counters. It does not contain dictionary
 source aliases, document fragments, source file paths, or replacement maps.
@@ -149,9 +166,9 @@ output, display dictionary contents, display audit snippets, write anonymized
 PDF files, or generate detailed audit reports beyond safe counters, risk
 metadata, the safe batch summary, and the safe manual review summary. Stage 15
 can ask the operating system to open a selected generated output or matching
-report, but the GUI does not inspect those files or add an in-app viewer. It
-calls the batch workflow and review workflow instead of parsing source files
-inside the GUI layer.
+report, but the GUI does not inspect those files or add an in-app viewer.
+Stage 17 can export approved files, but it still delegates the file rules to
+the review workflow and does not parse source files inside the GUI layer.
 
 ## Private Dictionary Limitations
 

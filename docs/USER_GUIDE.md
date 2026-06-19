@@ -27,6 +27,7 @@ The current MVP workflow is:
 9. Use the manual review section to load the output folder, optionally open the
    selected generated output or matching report in the operating system
    default application, assign statuses, and save safe review metadata.
+10. Optionally export approved files to an `approved/` staging workspace.
 
 The application saves output files before manual review. It does not provide an
 in-app document preview or editing screen.
@@ -147,6 +148,7 @@ The GUI can:
    `rejected`.
 10. Save `_REVIEW_STATUS.json`.
 11. Save `_REVIEW_SUMMARY.txt`.
+12. Export approved files into an `approved/` staging workspace.
 
 `approved` means the user manually approved the file after review. It does not
 mean the application guarantees complete anonymization. `needs_review` means
@@ -167,7 +169,48 @@ If `_REVIEW_SUMMARY.txt` already exists, the application writes a numbered
 summary such as `_REVIEW_SUMMARY_2.txt`. `_REVIEW_STATUS.json` stores the
 latest status manifest for the output folder.
 
-## 7. Safety Rules for Users
+## 7. Approved Workspace
+
+After `_REVIEW_STATUS.json` has been saved, the GUI can create an approved
+workspace by clicking `Export approved`.
+
+The export creates or reuses this folder inside the selected output folder:
+
+```text
+approved/
+```
+
+It copies only generated `_ANON` files with manual status `approved`. It never
+copies original source documents, `needs_review` files, or `rejected` files.
+When a matching `_RAPORT` file is available, it is copied too. If a report is
+missing, the export still copies the approved `_ANON` file and records the
+missing report by output basename only.
+
+The approved workspace also writes:
+
+```text
+_APPROVED_INDEX.txt
+```
+
+The index contains only safe metadata: export timestamp, copied counts,
+basenames of copied `_ANON` files, copied report basenames, missing-report
+basenames, safe risk levels when already available, and statements that
+approval was a manual user decision. It does not contain document contents,
+source values, private dictionary terms, dictionary aliases, full paths,
+tracebacks, or replacement maps.
+
+Existing approved workspace files are not silently overwritten. If a file or
+index already exists, the application writes a numbered name such as:
+
+```text
+document_ANON_2.txt
+_APPROVED_INDEX_2.txt
+```
+
+The approved workspace is a staging area only. It is not a knowledge base and
+does not guarantee complete anonymization.
+
+## 8. Safety Rules for Users
 
 - Do not place real documents in the repository.
 - Do not commit a real private sensitive terms dictionary.
@@ -177,11 +220,11 @@ latest status manifest for the output folder.
 - Review anonymized output manually.
 - Do not share output until you have checked it.
 
-## 8. How Anonymized Labels Work
+## 9. How Anonymized Labels Work
 
 The Stage 1 engine replaces supported values with labels such as `PESEL`, `EMAIL`, `TELEFON`, or `DATA`.
 
-## 9. Private Sensitive Terms Dictionary
+## 10. Private Sensitive Terms Dictionary
 
 The app supports an optional private local dictionary for terms that the user
 knows should be replaced. The file is a UTF-8 text file with one entry per line:
@@ -237,7 +280,7 @@ extra spaces inside matched terms. It is not fuzzy matching, inflection
 handling, OCR, AI, automatic names or address detection, NER, a database, or
 automatic deletion of originals.
 
-## 10. Post-Anonymization Audit
+## 11. Post-Anonymization Audit
 
 Stage 9 adds a safe audit after the `_ANON` output is generated. The workflow
 passes successfully loaded dictionary aliases into that audit. The audit checks
@@ -271,12 +314,12 @@ High-risk categories are `EMAIL`, `PESEL`, `TELEFON`,
 `LONG_NUMBER_SEQUENCE`. The risk level is not a guarantee that anonymization is
 complete and it does not approve a file automatically.
 
-## 11. Why Manual Review Is Required
+## 12. Why Manual Review Is Required
 
 Automatic detection and the audit may miss data or replace text incorrectly.
 Manual review is required before using the result.
 
-## 12. Where Output Files Are Saved
+## 13. Where Output Files Are Saved
 
 The application saves anonymized TXT and DOCX copies in the output folder
 selected by the user with the `_ANON` suffix. PDF input is saved in the output
@@ -302,14 +345,18 @@ _REVIEW_SUMMARY_2.txt
 _REVIEW_SUMMARY_3.txt
 ```
 
-## 13. What Is Not Implemented Yet
+Approved workspace exports use the same collision-safe numbering style inside
+`approved/` for copied files and `_APPROVED_INDEX.txt`.
+
+## 14. What Is Not Implemented Yet
 
 The current MVP includes plain string anonymization, TXT file input/output, basic DOCX
 file input/output, text-based PDF input with TXT output, a simple Tkinter GUI,
 batch processing, an output folder workflow, collision-safe output names, safe
 reports, optional private dictionary input, dictionary status reporting, a
 safe post-anonymization audit with risk prioritization, and manual review
-status tracking. Automatic names, broad addresses, cities, organizations, OCR,
-AI, APIs, cloud services, local LLMs, databases, drag and drop, advanced
-preview, editing workflow, automatic approval, file-moving review folders, and
-anonymized PDF output are not implemented.
+status tracking with approved workspace staging. Automatic names, broad
+addresses, cities, organizations, OCR, AI, APIs, cloud services, local LLMs,
+databases, drag and drop, advanced preview, editing workflow, automatic
+approval, real knowledge-base creation, rejected/needs-review folder routing,
+and anonymized PDF output are not implemented.

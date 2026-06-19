@@ -34,6 +34,9 @@ a safe report, and expects manual review before any result is trusted.
   `_RAPORT` report with the operating system default application.
 - Safe `_REVIEW_STATUS.json` and collision-safe `_REVIEW_SUMMARY.txt`
   review metadata files.
+- Approved workspace export that copies only manually approved `_ANON` files,
+  optionally copies matching `_RAPORT` files, and writes a safe
+  `_APPROVED_INDEX.txt` manifest.
 - Synthetic examples and tests only.
 
 ## Privacy And Local-First Assumptions
@@ -186,6 +189,19 @@ When paired Stage 16 reports are present, the manual review list shows each
 generated output's safe risk level and sorts `high_risk` items first. The GUI
 still does not inspect or preview document contents.
 
+After review metadata is saved, the manual review section can export an
+`approved/` workspace. This copies only files marked `approved` in
+`_REVIEW_STATUS.json`, never `needs_review` or `rejected` files, and never
+original source documents. Matching `_RAPORT` files are copied when available.
+The approved workspace writes a safe `_APPROVED_INDEX.txt` manifest containing
+basenames and safe metadata only. If an exported file or index already exists,
+the app uses numbered names such as `document_ANON_2.txt` or
+`_APPROVED_INDEX_2.txt` instead of overwriting.
+
+The approved workspace is a staging area for manually approved anonymized
+files. It is not a knowledge base and it does not guarantee complete
+anonymization.
+
 ## Installation
 
 Use a local Python environment:
@@ -232,6 +248,8 @@ python -m unittest discover -s tests
    generated outputs, optionally open the selected `_ANON` output or matching
    `_RAPORT` report in the default system app, assign manual statuses, and
    save the review metadata.
+10. Optionally click `Export approved` to create an `approved/` staging
+    workspace from files marked `approved` in `_REVIEW_STATUS.json`.
 
 ## Example Workflow
 
@@ -276,7 +294,7 @@ src/
   gui.py               Tkinter GUI
   main.py              GUI entry point
   report.py            Safe report generation
-  review.py            Safe manual review status and summary metadata
+  review.py            Safe manual review and approved workspace metadata
   sensitive_terms.py   Private dictionary parsing and matching
 tests/                 Synthetic unit tests
 examples/              Synthetic example inputs and dictionaries
@@ -301,7 +319,7 @@ The test suite uses synthetic data only. It covers the regex engine,
 TXT/DOCX/PDF workflows, GUI dispatcher layer, private dictionary parsing and
 matching, safe reports, post-anonymization audit metadata, collision-safe
 output naming, output workspace behavior, batch processing, and manual review
-metadata.
+metadata, approved workspace export, and safe approved index generation.
 
 Run:
 
@@ -328,6 +346,8 @@ python -m unittest discover -s tests
   opening only; it does not inspect, preview, edit, or validate document
   contents inside the app.
 - No automatic approval.
+- Approved workspace export is a staging convenience only, not a knowledge base
+  and not a guarantee of complete anonymization.
 - DOCX support is limited to basic paragraphs and simple tables.
 - DOCX headers, footers, comments, footnotes, form fields, text in images, and
   advanced elements are not handled.
@@ -343,7 +363,8 @@ basic DOCX IO, text-based PDF input, Tkinter GUI, safe reports, private
 dictionary support, post-anonymization audit, manual validation fixes, the
 Stage 11 smart dictionary foundation, Stage 12 safe output workspace with
 batch processing, the Stage 13 manual review workflow, the Stage 15 GUI
-usability cleanup, and Stage 16 stronger audit risk prioritization.
+usability cleanup, Stage 16 stronger audit risk prioritization, and Stage 17
+approved workspace staging.
 
 Potential future work requires explicit approval, especially OCR, scanned PDF
 support, stronger entity detection, installer packaging, release automation,

@@ -14,6 +14,12 @@ Stage 16 lets the workflow read safe risk levels from paired `_RAPORT.txt`
 files so higher-risk generated outputs can be reviewed first. This remains
 metadata only and does not inspect document contents.
 
+Stage 17 adds approved workspace export from saved review decisions. It reads
+`_REVIEW_STATUS.json`, copies only `_ANON` files marked `approved` into an
+`approved/` staging folder, optionally copies matching `_RAPORT` files, and
+writes a safe `_APPROVED_INDEX.txt` manifest. This is not automatic approval
+and not a guarantee of complete anonymization.
+
 ## Related files
 
 - `src/review.py`
@@ -33,6 +39,7 @@ build_review_summary_text(...) -> str
 save_review_status_file(...) -> Path
 save_review_summary_file(...) -> Path
 save_review_files(...) -> ReviewSaveResult
+export_approved_workspace(output_dir) -> ApprovedExportResult
 ```
 
 ## Review Items
@@ -104,6 +111,19 @@ _REVIEW_SUMMARY_2.txt
 _REVIEW_SUMMARY_3.txt
 ```
 
+Stage 17 approved workspace export writes:
+
+```text
+approved/
+approved/document_ANON.txt
+approved/document_RAPORT.txt
+approved/_APPROVED_INDEX.txt
+```
+
+If a copied file or approved index already exists, the workflow uses numbered
+safe names such as `document_ANON_2.txt`, `document_RAPORT_2.txt`, or
+`_APPROVED_INDEX_2.txt`.
+
 ## Safety Rules
 
 Review metadata may contain:
@@ -116,6 +136,16 @@ Review metadata may contain:
 - status counts,
 - timestamp,
 - manual review completed yes/no.
+
+Approved workspace index metadata may contain:
+
+- export timestamp,
+- copied approved `_ANON` basenames,
+- copied `_RAPORT` basenames,
+- missing-report basenames by approved output basename,
+- safe risk levels when already available,
+- copied counts,
+- manual-decision and staging disclaimers.
 
 Review metadata must not contain:
 
@@ -134,6 +164,10 @@ Review metadata must not contain:
 The workflow does not open generated documents to inspect their contents. It
 only scans filenames in the selected output folder.
 
+Approved workspace export must not copy original source documents,
+`needs_review` files, or `rejected` files. The approved workspace is a staging
+area only; it is not a knowledge base.
+
 ## GUI Behavior
 
 The GUI provides a manual review section that can:
@@ -150,6 +184,8 @@ The GUI provides a manual review section that can:
 7. Assign `approved`, `needs_review`, or `rejected` to one or more selected
    rows.
 8. Save the review status and summary files.
+9. Export files marked `approved` into the approved workspace after review
+   status has been saved.
 
 The GUI does not show full document content, report content, dictionary
 contents, source values, audit snippets, or replacement maps.
@@ -157,6 +193,11 @@ contents, source values, audit snippets, or replacement maps.
 The open actions are convenience shortcuts only. They do not inspect document
 contents, validate anonymization, edit files, move files, or approve anything
 automatically.
+
+The export action reports the number of approved `_ANON` files exported, the
+number of reports copied, missing-report warnings when applicable, a clear
+message if `_REVIEW_STATUS.json` is missing, a clear message if there are no
+approved files, and a safe failure message if export cannot complete.
 
 ## How to Test
 
@@ -171,7 +212,10 @@ handling, supported statuses, safe `_REVIEW_STATUS.json`, safe
 `_REVIEW_SUMMARY.txt`, collision-safe review summary naming, Stage 12 batch
 output regression, and report/audit regression. Stage 16 tests cover safe risk
 level parsing from reports, high-risk-first ordering, and risk metadata in the
-safe review summary.
+safe review summary. Stage 17 tests cover approved export from
+`_REVIEW_STATUS.json`, skipping `needs_review` and `rejected`, optional report
+copying, missing reports, missing status files, no approved files,
+collision-safe export names, and safe approved index contents.
 
 ## Known Limitations
 
@@ -183,6 +227,8 @@ safe review summary.
 - External file opening is delegated to the operating system default
   application and is not an in-app preview.
 - No automatic approval based on audit results.
-- No file moving into approved, needs-review, or rejected folders.
+- No file moving into needs-review or rejected folders.
+- Approved workspace export is copying into a staging area only; it is not a
+  knowledge base and does not validate document contents.
 - No OCR, AI, API calls, cloud services, local LLMs, NER, or database.
 - Manual review remains required before using or sharing any generated output.

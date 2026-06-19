@@ -17,7 +17,8 @@ input list, a readiness hint beside the anonymization button, clearer status
 messages, and manual-review shortcuts for opening a selected generated output
 or matching report with the operating system default application. Stage 16 adds
 aggregate risk counts to the audit display and a safe risk column to the manual
-review list.
+review list. Stage 17 adds an `Export approved` action that creates an
+approved staging workspace from saved manual review decisions.
 
 ## Related files
 
@@ -39,6 +40,7 @@ anonymize_file_with_audit(source_path: str | Path, sensitive_terms=None, sensiti
 anonymize_batch(source_paths, output_dir, sensitive_terms=None, sensitive_terms_path=None)
 load_review_workspace(output_dir)
 save_review_files(output_dir, items, batch_summary_names=None)
+export_approved_workspace(output_dir)
 ```
 
 `start_gui()` opens the Tkinter application.
@@ -77,6 +79,8 @@ The GUI supports this flow:
 11. Assign each generated output one manual status: `approved`,
    `needs_review`, or `rejected`.
 12. Save `_REVIEW_STATUS.json` and a collision-safe `_REVIEW_SUMMARY.txt`.
+13. Optionally click `Export approved` to copy approved `_ANON` files into
+    `approved/` and write `_APPROVED_INDEX.txt`.
 
 `Remove selected` and `Clear files` affect only the GUI selected-file list.
 They do not delete source files from disk.
@@ -103,7 +107,11 @@ The GUI shows:
 - clear status messages when selected generated outputs or reports are opened
   or missing,
 - review status and summary filenames after save,
+- approved workspace export counts and approved index filename,
+- missing-report warnings during approved export,
 - clear errors from unsupported file types or PDFs without extractable text,
+- clear errors when `_REVIEW_STATUS.json` is missing or no approved files
+  exist,
 - a reminder that manual review is required.
 
 The readiness hint updates when input files are added, removed, or cleared, when
@@ -157,9 +165,19 @@ output folder / _REVIEW_STATUS.json
 output folder / _REVIEW_SUMMARY.txt
 ```
 
+Approved workspace export:
+
+```text
+output folder / approved / document_ANON.txt
+output folder / approved / document_RAPORT.txt
+output folder / approved / _APPROVED_INDEX.txt
+```
+
 If a generated file already exists, the workflow uses a numbered safe name such
 as `document_ANON_2.txt`. Review summaries use numbered safe names such as
 `_REVIEW_SUMMARY_2.txt` when a previous summary exists.
+Approved workspace exports use the same numbered safe names for copied files
+and approved indexes.
 
 ## Safety assumptions
 
@@ -181,6 +199,10 @@ as `document_ANON_2.txt`. Review summaries use numbered safe names such as
 - Safe report files are created by the existing file workflow helpers.
 - A safe batch summary is created by the batch workflow.
 - Safe review status and summary files are created by the review workflow.
+- Approved workspace files and the approved index are created by the review
+  workflow from saved manual decisions.
+- The approved workspace is a staging area only, not a knowledge base or
+  guarantee of complete anonymization.
 - No source data is logged.
 - No OCR, AI, API, cloud service, database, drag and drop, preview, editing, or
   PDF writing is added.
@@ -203,8 +225,10 @@ manual review metadata is covered by `tests/test_review_workflow.py`. Stage 15
 selected-file count, anonymization readiness helper text, list removal, safe
 batch status, and missing external file open handling are covered by
 `tests/test_gui_workflow.py`. Stage 16 risk display helpers are covered by
-`tests/test_gui_workflow.py` and `tests/test_review_workflow.py`. Fragile
-widget tests are not included.
+`tests/test_gui_workflow.py` and `tests/test_review_workflow.py`. Stage 17
+approved export helper text is covered by `tests/test_gui_workflow.py`, and
+approved export behavior is covered by `tests/test_review_workflow.py`.
+Fragile widget tests are not included.
 
 ## Known limitations
 
@@ -219,6 +243,8 @@ widget tests are not included.
 - The manual review section tracks statuses only and does not inspect,
   validate, preview, edit, or automatically approve generated document
   contents.
+- Approved export copies manually approved outputs into a staging folder only;
+  it does not validate contents or create a knowledge base.
 - The GUI does not support drag and drop, OCR, scanned PDFs, or anonymized PDF
   output.
 - DOCX and PDF limitations from Stages 3 and 4 still apply.

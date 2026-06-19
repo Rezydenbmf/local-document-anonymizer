@@ -2,8 +2,8 @@
 
 ## Current Status
 
-The project is in Stage 16: stronger audit and review prioritization, pending
-user review and commit.
+The project is in Stage 17: approved workspace and knowledge-base staging,
+pending user review and commit.
 
 The Stage 0-13 MVP implementation contains a narrow regex-based engine that
 accepts a Python string and returns anonymized text plus category counters. It
@@ -70,6 +70,16 @@ and aggregate audit category counters. The manual review workflow reads risk
 levels from safe paired reports and the GUI shows a risk column with
 `high_risk` items sorted first. The risk level is not an automatic approval or
 safety guarantee; manual review remains required.
+
+Stage 17 adds an approved workspace export for output folders with saved manual
+review metadata. The export reads `_REVIEW_STATUS.json`, copies only `_ANON`
+files marked `approved` into an `approved/` staging folder, optionally copies
+matching `_RAPORT` files when present, and writes a safe
+`_APPROVED_INDEX.txt` manifest using basenames and metadata only. Existing
+approved workspace files are not overwritten; numbered suffixes such as `_2`
+and `_3` are used. `approved` remains a manual user decision and the approved
+workspace is a staging area, not a knowledge base or guarantee of complete
+anonymization.
 
 ## What Exists
 
@@ -139,6 +149,11 @@ accepts preloaded `sensitive_terms`.
   `high_risk` outputs first.
 - Safe `_REVIEW_STATUS.json` review manifest output.
 - Collision-safe `_REVIEW_SUMMARY.txt` review summary output.
+- Approved workspace export in `src/review.py` that reads
+  `_REVIEW_STATUS.json`, copies only approved `_ANON` basenames into
+  `approved/`, optionally copies matching `_RAPORT` files, and writes a safe
+  `_APPROVED_INDEX.txt` manifest.
+- GUI `Export approved` action in the manual review section.
 - Runtime dependency on `python-docx`.
 - Runtime dependency on `pypdf`.
 - Unit tests for the Stage 1 anonymizer using synthetic values only.
@@ -169,6 +184,10 @@ accepts preloaded `sensitive_terms`.
   report handling, manual statuses, safe review status JSON, safe review
   summary text, collision-safe review summary naming, Stage 12 regression, and
   report/audit regression using synthetic values only.
+- Unit tests for Stage 17 approved workspace export, missing review status,
+  no-approved handling, optional report copying, missing reports,
+  collision-safe export naming, and safe approved index contents using
+  synthetic values only.
 - Synthetic sample text files in `tests/sample_data/`.
 - Synthetic example dictionary in `examples/sensitive_terms.example.txt`.
 - Synthetic seed dictionary example in `examples/sensitive_terms.seed.example.txt`.
@@ -188,7 +207,8 @@ accepts preloaded `sensitive_terms`.
 - Detailed report generation beyond safe counters, safe audit metadata, and
   manual review notes.
 - Automatic approval based on audit results or report contents.
-- Moving reviewed files into approved/rejected folders.
+- Moving rejected or needs-review files into separate folders.
+- A real knowledge base built from approved outputs.
 - Automatic names, surnames, cities, organizations, or context-based detection.
 - Anonymized PDF output.
 - Scanned PDF processing.
@@ -247,6 +267,11 @@ python -m unittest discover -s tests
 - Review status and summary files contain safe generated basenames and status
   counts only, not full paths, source data, document excerpts, private
   dictionary terms, aliases, tracebacks, or replacement maps.
+- Approved workspace indexes contain safe basenames, copied report counts,
+  missing-report basenames, safe risk levels when already available, and
+  manual-decision disclaimers only. They do not contain document text, source
+  values, private dictionary terms, aliases, full paths, tracebacks, or
+  replacement maps.
 - Report files are plain TXT only and do not include a detailed audit trail.
 - Private dictionary matching is deterministic, case-insensitive, and tolerant
   of extra internal spaces, but it is not fuzzy matching, inflection handling,
@@ -265,20 +290,22 @@ python -m unittest discover -s tests
 
 ## Last Completed Committed Stage
 
-Stage 15: GUI usability cleanup.
+Stage 16: stronger audit and review prioritization.
 
 ```text
-6ce6f06 Improve GUI usability controls and readiness hints
+7183df6 Implement Stage 16 audit risk prioritization
 ```
 
 ## Next Logical Step
 
-Manually smoke test Stage 16 through the Tkinter GUI with synthetic files in a
-local output folder: stronger audit categories, risk levels in `_RAPORT.txt`,
-aggregate risk counts in `_BATCH_SUMMARY.txt`, and high-risk prioritization in
-the manual review list. Potential future work requires an explicit project
-decision, especially OCR, installer work, AI/API integration, local LLMs,
-databases, broad NLP/entity detection, packaging, or release automation.
+Manually smoke test Stage 17 through the Tkinter GUI with synthetic files in a
+local output folder: anonymize a batch, save review metadata with one approved
+file and one non-approved file, click `Export approved`, and confirm
+`approved/` contains only the approved `_ANON`, optional matching `_RAPORT`,
+and a safe `_APPROVED_INDEX.txt`. Potential future work requires an explicit
+project decision, especially OCR, installer work, AI/API integration, local
+LLMs, databases, broad NLP/entity detection, packaging, release automation, or
+knowledge-base creation.
 
 ## Warning
 

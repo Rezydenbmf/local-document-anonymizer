@@ -15,6 +15,7 @@ from anonymizer import BatchResult, anonymize_file, anonymize_file_with_audit
 from gui import (
     format_anonymize_readiness,
     format_audit_result,
+    format_approved_export_status,
     format_batch_audit_result,
     format_batch_status,
     format_dictionary_result,
@@ -204,6 +205,21 @@ class GuiWorkflowTests(unittest.TestCase):
             self.assertNotIn(str(output_dir), status)
             self.assertIn("Risk levels:", audit_status)
             self.assertIn("high_risk: 0", audit_status)
+
+    def test_gui_approved_export_status_is_plain_language_and_safe(self) -> None:
+        status = format_approved_export_status(
+            exported_output_count=2,
+            copied_report_count=1,
+            missing_report_count=1,
+            index_name="_APPROVED_INDEX.txt",
+        )
+
+        self.assertIn("Exported 2 approved _ANON files", status)
+        self.assertIn("Copied 1 matching report(s)", status)
+        self.assertIn("1 report(s) were missing", status)
+        self.assertIn("_APPROVED_INDEX.txt", status)
+        self.assertIn("manual user decision", status)
+        self.assertIn("not a guarantee", status)
 
     def test_gui_open_default_app_reports_missing_file(self) -> None:
         with workspace_temp_dir() as temp_dir:

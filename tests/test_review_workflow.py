@@ -17,6 +17,7 @@ from review import (
     REVIEW_STATUS_REJECTED,
     apply_review_statuses,
     detect_review_workspace,
+    export_approved_workspace,
     save_review_files,
 )
 
@@ -236,6 +237,183 @@ class ReviewWorkflowTests(unittest.TestCase):
             self.assertIn("Risk level: warning", report_text)
             self.assertNotIn("safe@example.test", report_text)
             self.assertNotIn(str(source_dir), report_text)
+
+    def test_exports_only_approved_anonymized_outputs_and_matching_reports(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            output_dir = Path(temp_dir)
+            (output_dir / "approved_ANON.txt").write_text(
+                "Approved anonymized content.", encoding="utf-8"
+            )
+            (output_dir / "approved_RAPORT.txt").write_text(
+                "Post-anonymization audit:\nRisk level: ok\n", encoding="utf-8"
+            )
+            (output_dir / "needs_ANON.txt").write_text(
+                "Needs review anonymized content.", encoding="utf-8"
+            )
+            (output_dir / "needs_RAPORT.txt").write_text(
+                "Post-anonymization audit:\nRisk level: warning\n", encoding="utf-8"
+            )
+            (output_dir / "rejected_ANON.txt").write_text(
+                "Rejected anonymized content.", encoding="utf-8"
+            )
+            (output_dir / "original.txt").write_text(
+                "Synthetic original source content.", encoding="utf-8"
+            )
+            workspace = detect_review_workspace(output_dir)
+            items = apply_review_statuses(
+                workspace.items,
+                {
+                    "approved_ANON.txt": REVIEW_STATUS_APPROVED,
+                    "needs_ANON.txt": REVIEW_STATUS_NEEDS_REVIEW,
+                    "rejected_ANON.txt": REVIEW_STATUS_REJECTED,
+                },
+            )
+            save_review_files(
+                output_dir,
+                items=items,
+                saved_at="2026-06-18T10:00:00Z",
+            )
+
+            export_result = export_approved_workspace(
+                output_dir,
+                exported_at="2026-06-18T11:00:00Z",
+            )
+
+            approved_dir = output_dir / "approved"
+            self.assertEqual(export_result.exported_output_count, 1)
+            self.assertEqual(export_result.copied_report_count, 1)
+            self.assertTrue((approved_dir / "approved_ANON.txt").exists())
+            self.assertTrue((approved_dir / "approved_RAPORT.txt").exists())
+            self.assertFalse((approved_dir / "needs_ANON.txt").exists())
+            self.assertFalse((approved_dir / "needs_RAPORT.txt").exists())
+            self.assertFalse((approved_dir / "rejected_ANON.txt").exists())
+            self.assertFalse((approved_dir / "original.txt").exists())
+
+    def test_export_handles_missing_report_and_records_safe_index(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            output_dir = Path(temp_dir)
+            source_personal_data = "private@example.test"
+            source_document_content = "Synthetic source content 11111111111"
+            private_dictionary_term = "Private Alias Example"
+            (output_dir / "document_ANON.txt").write_text(
+                (
+                    f"{source_document_content}\n"
+                    f"{source_personal_data}\n"
+                    f"{private_dictionary_term}\n"
+                ),
+                encoding="utf-8",
+            )
+            workspace = detect_review_workspace(output_dir)
+            items = apply_review_statuses(
+                workspace.items,
+                {"document_ANON.txt": REVIEW_STATUS_APPROVED},
+            )
+            save_review_files(
+                output_dir,
+                items=items,
+                saved_at="2026-06-18T10:00:00Z",
+            )
+
+            export_result = export_approved_workspace(
+                output_dir,
+                exported_at="2026-06-18T11:00:00Z",
+            )
+            index_text = export_result.index_path.read_text(encoding="utf-8")
+
+            self.assertEqual(export_result.exported_output_count, 1)
+            self.assertEqual(export_result.copied_report_count, 0)
+            self.assertEqual(export_result.missing_report_names, ["document_ANON.txt"])
+            self.assertIn("Approved workspace index", index_text)
+            self.assertIn("Approved anonymized files exported: 1", index_text)
+            self.assertIn("Reports copied: 0", index_text)
+            self.assertIn("Missing reports: 1", index_text)
+            self.assertIn("Approval is a manual user decision.", index_text)
+            self.assertIn(
+                (
+                    "Approved workspace is a staging area, "
+                    "not a guarantee of complete anonymization."
+                ),
+                index_text,
+            )
+            self.assertIn("Original source documents copied: no", index_text)
+            self.assertIn("Needs review files copied: no", index_text)
+            self.assertIn("Rejected files copied: no", index_text)
+            self.assertIn("output: document_ANON.txt", index_text)
+            self.assertIn("Document contents stored in index: no", index_text)
+            for unsafe_text in (
+                source_personal_data,
+                source_document_content,
+                private_dictionary_term,
+                str(output_dir),
+            ):
+                self.assertNotIn(unsafe_text, index_text)
+
+    def test_export_requires_review_status_file_and_approved_items(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            output_dir = Path(temp_dir)
+            (output_dir / "document_ANON.txt").write_text(
+                "Synthetic anonymized content.", encoding="utf-8"
+            )
+
+            with self.assertRaises(FileNotFoundError):
+                export_approved_workspace(output_dir)
+
+            workspace = detect_review_workspace(output_dir)
+            save_review_files(
+                output_dir,
+                items=workspace.items,
+                saved_at="2026-06-18T10:00:00Z",
+            )
+
+            with self.assertRaises(ValueError):
+                export_approved_workspace(output_dir)
+
+    def test_approved_export_uses_collision_safe_names(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            output_dir = Path(temp_dir)
+            approved_dir = output_dir / "approved"
+            approved_dir.mkdir()
+            (approved_dir / "document_ANON.txt").write_text(
+                "Existing anonymized content.", encoding="utf-8"
+            )
+            (approved_dir / "document_RAPORT.txt").write_text(
+                "Existing report.", encoding="utf-8"
+            )
+            (approved_dir / "_APPROVED_INDEX.txt").write_text(
+                "Existing index.", encoding="utf-8"
+            )
+            (output_dir / "document_ANON.txt").write_text(
+                "Synthetic anonymized content.", encoding="utf-8"
+            )
+            (output_dir / "document_RAPORT.txt").write_text(
+                "Post-anonymization audit:\nRisk level: warning\n",
+                encoding="utf-8",
+            )
+            workspace = detect_review_workspace(output_dir)
+            items = apply_review_statuses(
+                workspace.items,
+                {"document_ANON.txt": REVIEW_STATUS_APPROVED},
+            )
+            save_review_files(
+                output_dir,
+                items=items,
+                saved_at="2026-06-18T10:00:00Z",
+            )
+
+            export_result = export_approved_workspace(
+                output_dir,
+                exported_at="2026-06-18T11:00:00Z",
+            )
+
+            self.assertEqual(export_result.copied_output_names, ["document_ANON_2.txt"])
+            self.assertEqual(
+                export_result.copied_report_names,
+                ["document_RAPORT_2.txt"],
+            )
+            self.assertEqual(export_result.index_path.name, "_APPROVED_INDEX_2.txt")
+            self.assertTrue((approved_dir / "document_ANON.txt").exists())
+            self.assertTrue((approved_dir / "document_ANON_2.txt").exists())
+            self.assertTrue((approved_dir / "document_RAPORT_2.txt").exists())
 
 
 if __name__ == "__main__":

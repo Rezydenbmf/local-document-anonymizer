@@ -74,3 +74,10 @@ GUI list, or opening generated outputs should never delete source files,
 inspect document contents, expose private paths, or imply automatic approval.
 Status messages should use safe filenames and plain language. Disabled primary
 actions should explain what is missing before the user can continue.
+
+## 16. Approved staging is not proof of anonymization.
+
+An approved workspace can help organize manually reviewed `_ANON` files, but it
+must stay described as a staging area. It should copy only manual approvals,
+keep manifests to safe basenames and metadata, and avoid knowledge-base or
+complete-anonymization claims.

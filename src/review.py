@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path, PurePosixPath, PureWindowsPath
 import re
+import shutil
 
 try:
     from .audit import RISK_LEVEL_HIGH, RISK_LEVEL_OK, RISK_LEVEL_WARNING, RISK_LEVELS
@@ -29,6 +30,8 @@ DEFAULT_REVIEW_STATUS = REVIEW_STATUS_NEEDS_REVIEW
 REVIEW_STATUS_FILENAME = "_REVIEW_STATUS.json"
 REVIEW_SUMMARY_FILENAME = "_REVIEW_SUMMARY.txt"
 REVIEW_SCHEMA = "local-document-anonymizer.review-status.v1"
+APPROVED_WORKSPACE_DIRNAME = "approved"
+APPROVED_INDEX_FILENAME = "_APPROVED_INDEX.txt"
 
 _ANON_STEM_PATTERN = re.compile(r"^(?P<base>.+)_ANON(?P<number>_\d+)?$")
 _REPORT_STEM_PATTERN = re.compile(r"^(?P<base>.+)_RAPORT(?P<number>_\d+)?$")
@@ -72,6 +75,19 @@ class ReviewSaveResult:
     item_count: int
     status_counts: dict[str, int]
     manual_review_completed: bool
+
+
+@dataclass(frozen=True)
+class ApprovedExportResult:
+    """Safe metadata for an approved workspace export."""
+
+    approved_dir: Path
+    index_path: Path
+    exported_output_count: int
+    copied_report_count: int
+    missing_report_names: list[str]
+    copied_output_names: list[str]
+    copied_report_names: list[str]
 
 
 def _now_timestamp() -> str:
@@ -154,6 +170,14 @@ def _is_anonymized_output(path: Path) -> bool:
     return _ANON_STEM_PATTERN.match(path.stem) is not None
 
 
+def _is_report_file(path: Path) -> bool:
+    if not path.is_file():
+        return False
+    if path.suffix.lower() != ".txt":
+        return False
+    return _REPORT_STEM_PATTERN.match(path.stem) is not None
+
+
 def _report_names_by_stem(output_dir: Path) -> set[str]:
     report_names: set[str] = set()
     for path in output_dir.iterdir():
@@ -215,6 +239,16 @@ def build_review_status_path(output_dir: str | Path) -> Path:
 def build_review_summary_path(output_dir: str | Path) -> Path:
     """Return the default manual review summary path."""
     return Path(output_dir) / REVIEW_SUMMARY_FILENAME
+
+
+def build_approved_workspace_path(output_dir: str | Path) -> Path:
+    """Return the approved workspace path for an output workspace."""
+    return Path(output_dir) / APPROVED_WORKSPACE_DIRNAME
+
+
+def build_approved_index_path(approved_dir: str | Path) -> Path:
+    """Return the default approved workspace index path."""
+    return Path(approved_dir) / APPROVED_INDEX_FILENAME
 
 
 def detect_review_workspace(output_dir: str | Path) -> ReviewWorkspace:
@@ -298,6 +332,202 @@ def load_review_statuses(output_dir: str | Path) -> dict[str, str]:
         statuses[output_name] = str(status)
 
     return statuses
+
+
+def _load_review_status_payload(output_dir: str | Path) -> dict[str, object]:
+    status_path = build_review_status_path(output_dir)
+    if not status_path.exists():
+        raise FileNotFoundError(status_path)
+
+    payload = json.loads(status_path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("review status payload must be an object")
+    return payload
+
+
+def _approved_review_items_from_payload(
+    payload: Mapping[str, object],
+) -> list[ReviewItem]:
+    raw_items = payload.get("items", [])
+    if not isinstance(raw_items, list):
+        raise ValueError("review status items must be a list")
+
+    approved_items: list[ReviewItem] = []
+    for raw_item in raw_items:
+        if not isinstance(raw_item, Mapping):
+            continue
+        if raw_item.get("status") != REVIEW_STATUS_APPROVED:
+            continue
+
+        output_name = _safe_filename(raw_item.get("output_name", ""))
+        if output_name == "unknown":
+            continue
+
+        raw_report_name = raw_item.get("report_name")
+        report_name = (
+            _safe_filename(raw_report_name) if raw_report_name is not None else None
+        )
+        approved_items.append(
+            ReviewItem(
+                output_name=output_name,
+                report_name=report_name,
+                status=REVIEW_STATUS_APPROVED,
+                risk_level=_safe_risk_level(raw_item.get("risk_level")),
+            )
+        )
+
+    return _sorted_review_items(approved_items)
+
+
+def build_approved_index_text(
+    *,
+    exported_output_names: Iterable[str],
+    copied_report_names: Iterable[str],
+    missing_report_names: Iterable[str],
+    approved_items: Iterable[ReviewItem],
+    exported_at: str | None = None,
+) -> str:
+    """Build a safe approved workspace index using basenames only."""
+    output_names = sorted(_safe_filename(name) for name in exported_output_names)
+    report_names = sorted(_safe_filename(name) for name in copied_report_names)
+    missing_names = sorted(_safe_filename(name) for name in missing_report_names)
+    items_by_output_name = {
+        item.output_name: item for item in _sorted_review_items(approved_items)
+    }
+
+    lines = [
+        "Approved workspace index",
+        "",
+        f"Exported at: {exported_at or _now_timestamp()}",
+        f"Approved anonymized files exported: {len(output_names)}",
+        f"Reports copied: {len(report_names)}",
+        f"Missing reports: {len(missing_names)}",
+        "",
+        "Approval is a manual user decision.",
+        (
+            "Approved workspace is a staging area, "
+            "not a guarantee of complete anonymization."
+        ),
+        "Original source documents copied: no",
+        "Needs review files copied: no",
+        "Rejected files copied: no",
+        "",
+        "Files:",
+    ]
+
+    if output_names:
+        for output_name in output_names:
+            item = items_by_output_name.get(output_name)
+            risk_level = item.risk_level if item is not None else None
+            lines.append(f"* output: {output_name}")
+            lines.append(f"  risk level: {risk_level or 'unknown'}")
+    else:
+        lines.append("* none")
+
+    lines.extend(["", "Copied reports:"])
+    if report_names:
+        for report_name in report_names:
+            lines.append(f"* {report_name}")
+    else:
+        lines.append("* none")
+
+    lines.extend(["", "Missing reports by output basename:"])
+    if missing_names:
+        for missing_name in missing_names:
+            lines.append(f"* {missing_name}")
+    else:
+        lines.append("* none")
+
+    lines.extend(
+        [
+            "",
+            "Document contents stored in index: no",
+            "Original sensitive values stored: no",
+            "Source paths stored: no",
+            "Dictionary aliases stored: no",
+            "Dictionary private terms stored: no",
+            "Replacement map created: no",
+            "Tracebacks stored: no",
+            "Automatic approval used: no",
+        ]
+    )
+    return "\n".join(lines) + "\n"
+
+
+def export_approved_workspace(
+    output_dir: str | Path,
+    *,
+    exported_at: str | None = None,
+) -> ApprovedExportResult:
+    """Copy manually approved anonymized outputs into a safe approved workspace."""
+    folder = Path(output_dir)
+    payload = _load_review_status_payload(folder)
+    approved_items = _approved_review_items_from_payload(payload)
+    if not approved_items:
+        raise ValueError("no approved files found")
+
+    approved_dir = build_approved_workspace_path(folder)
+    approved_dir.mkdir(exist_ok=True)
+
+    copied_output_names: list[str] = []
+    copied_report_names: list[str] = []
+    missing_report_names: list[str] = []
+    exported_items: list[ReviewItem] = []
+
+    for item in approved_items:
+        source_output_path = folder / item.output_name
+        if not _is_anonymized_output(source_output_path):
+            continue
+
+        output_destination = build_collision_safe_path(approved_dir / item.output_name)
+        shutil.copy2(source_output_path, output_destination)
+        copied_output_names.append(output_destination.name)
+        exported_items.append(
+            ReviewItem(
+                output_name=output_destination.name,
+                report_name=item.report_name,
+                status=REVIEW_STATUS_APPROVED,
+                risk_level=item.risk_level,
+            )
+        )
+
+        if item.report_name is None:
+            missing_report_names.append(output_destination.name)
+            continue
+
+        source_report_path = folder / item.report_name
+        if not _is_report_file(source_report_path):
+            missing_report_names.append(output_destination.name)
+            continue
+
+        report_destination = build_collision_safe_path(approved_dir / item.report_name)
+        shutil.copy2(source_report_path, report_destination)
+        copied_report_names.append(report_destination.name)
+
+    if not copied_output_names:
+        raise ValueError("no approved anonymized files available to export")
+
+    index_path = build_collision_safe_path(build_approved_index_path(approved_dir))
+    index_path.write_text(
+        build_approved_index_text(
+            exported_output_names=copied_output_names,
+            copied_report_names=copied_report_names,
+            missing_report_names=missing_report_names,
+            approved_items=exported_items,
+            exported_at=exported_at,
+        ),
+        encoding="utf-8",
+    )
+
+    return ApprovedExportResult(
+        approved_dir=approved_dir,
+        index_path=index_path,
+        exported_output_count=len(copied_output_names),
+        copied_report_count=len(copied_report_names),
+        missing_report_names=missing_report_names,
+        copied_output_names=copied_output_names,
+        copied_report_names=copied_report_names,
+    )
 
 
 def load_review_workspace(output_dir: str | Path) -> ReviewWorkspace:

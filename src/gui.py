@@ -21,6 +21,7 @@ try:
         REVIEW_STATUS_APPROVED,
         ReviewItem,
         apply_review_statuses,
+        export_approved_workspace,
         load_review_workspace,
         save_review_files,
     )
@@ -37,6 +38,7 @@ except ImportError:
         REVIEW_STATUS_APPROVED,
         ReviewItem,
         apply_review_statuses,
+        export_approved_workspace,
         load_review_workspace,
         save_review_files,
     )
@@ -103,6 +105,30 @@ def format_batch_status(batch_result: BatchResult) -> str:
         f"{result_text} Outputs were written to {folder_name}. "
         f"Batch summary: {batch_result.summary_path.name}. "
         "Manual review is required before using or sharing results."
+    )
+
+
+def format_approved_export_status(
+    exported_output_count: int,
+    copied_report_count: int,
+    missing_report_count: int,
+    index_name: str,
+) -> str:
+    """Format a safe approved workspace export status."""
+    file_label = _file_word(exported_output_count)
+    if missing_report_count:
+        report_text = (
+            f"Copied {copied_report_count} matching report(s); "
+            f"{missing_report_count} report(s) were missing."
+        )
+    else:
+        report_text = f"Copied {copied_report_count} matching report(s)."
+
+    return (
+        f"Exported {exported_output_count} approved _ANON {file_label} "
+        f"to the approved workspace. {report_text} "
+        f"Index: {index_name}. "
+        "Approved is a manual user decision, not a guarantee of complete anonymization."
     )
 
 
@@ -805,6 +831,12 @@ class AnonymizerGui:
 
         ttk.Button(
             review_frame,
+            text="Export approved",
+            command=self.export_approved_review_files,
+        ).grid(row=2, column=3, sticky="w", padx=(8, 0), pady=(0, 8))
+
+        ttk.Button(
+            review_frame,
             text="Open selected output",
             command=self.open_selected_review_output,
         ).grid(row=3, column=0, sticky="w", pady=(0, 8))
@@ -1005,6 +1037,43 @@ class AnonymizerGui:
         self.review_status_var.set(
             f"Saved {save_result.status_path.name} and {save_result.summary_path.name}. "
             f"Manual review completed: {completed}."
+        )
+
+    def export_approved_review_files(self) -> None:
+        if self.review_dir is None:
+            self.review_status_var.set("Select an output folder for review first.")
+            return
+
+        try:
+            export_result = export_approved_workspace(self.review_dir)
+        except FileNotFoundError:
+            self.review_status_var.set(
+                "Missing _REVIEW_STATUS.json. "
+                "Save review status before exporting approved files."
+            )
+            return
+        except ValueError as exc:
+            message = str(exc)
+            if "no approved" in message:
+                self.review_status_var.set("No approved files found to export.")
+            else:
+                self.review_status_var.set(
+                    "Approved export failed safely; no source files were modified."
+                )
+            return
+        except OSError:
+            self.review_status_var.set(
+                "Approved export failed safely; no source files were modified."
+            )
+            return
+
+        self.review_status_var.set(
+            format_approved_export_status(
+                export_result.exported_output_count,
+                export_result.copied_report_count,
+                len(export_result.missing_report_names),
+                export_result.index_path.name,
+            )
         )
 
 
