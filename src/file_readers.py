@@ -1,4 +1,4 @@
-"""File readers for Stage 4 TXT, DOCX, and text-based PDF support."""
+"""File readers for TXT, DOCX, PDF, and OCR-capable input support."""
 
 from pathlib import Path
 
@@ -6,7 +6,8 @@ from pathlib import Path
 TXT_EXTENSION = ".txt"
 DOCX_EXTENSION = ".docx"
 PDF_EXTENSION = ".pdf"
-SUPPORTED_EXTENSIONS = (TXT_EXTENSION, DOCX_EXTENSION, PDF_EXTENSION)
+IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".tif", ".tiff")
+SUPPORTED_EXTENSIONS = (TXT_EXTENSION, DOCX_EXTENSION, PDF_EXTENSION, *IMAGE_EXTENSIONS)
 
 
 def _unsupported_extension_error(file_path: str | Path) -> ValueError:
@@ -14,7 +15,8 @@ def _unsupported_extension_error(file_path: str | Path) -> ValueError:
     suffix = path.suffix.lower() or "<none>"
     return ValueError(
         f"Unsupported file extension: {suffix}. "
-        "Only .txt, .docx, and .pdf files are supported."
+        "Only .txt, .docx, and .pdf files are supported by direct text readers. "
+        "OCR-capable image files are handled by the application dispatcher."
     )
 
 

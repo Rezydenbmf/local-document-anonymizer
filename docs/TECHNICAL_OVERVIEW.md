@@ -21,6 +21,12 @@ Stage 18 validates this full chain with synthetic end-to-end tests and a
 manual MVP smoke checklist. It does not change the architecture or add runtime
 features.
 
+Stage 19 adds an optional local OCR layer before anonymization for supported
+image inputs and scanned PDFs without extractable text. OCR output is treated
+as extracted text and then passes through the same deterministic
+anonymization, audit, report, batch, manual review, and approved export
+workflow.
+
 ## Module Responsibilities
 
 `main.py` is the application entry point. It starts the Stage 5 Tkinter GUI.
@@ -43,7 +49,16 @@ metadata, and export manually approved outputs to an `approved/` staging
 workspace. It does not display dictionary contents, original detected values,
 text snippets, dictionary terms, or document contents.
 
-`file_readers.py` reads UTF-8 TXT files, extracts basic text from local DOCX files, and extracts text from text-based PDFs. DOCX extraction covers normal paragraphs and simple table cells. PDF extraction requires an existing text layer and does not include OCR.
+`file_readers.py` reads UTF-8 TXT files, extracts basic text from local DOCX
+files, and extracts text from text-based PDFs. DOCX extraction covers normal
+paragraphs and simple table cells. PDF extraction uses an existing text layer
+first.
+
+`ocr.py` contains optional local OCR detection and extraction helpers. It
+checks for Python OCR dependencies, the local Tesseract executable, and PDF
+rendering support when needed. It returns controlled statuses such as
+`available`, `dependency_missing`, `engine_not_found`, and `unsupported_input`
+instead of exposing tracebacks or paths.
 
 `sensitive_terms.py` contains private dictionary support. It loads a UTF-8
 local dictionary file, parses `term = [LABEL]` and
@@ -64,9 +79,10 @@ dictionary status as `invalid`. It also exposes the Stage 2
 helper, the Stage 4 `anonymize_pdf_file(...)` helper, the Stage 5
 `anonymize_file(...)` dispatcher, and the Stage 12 `anonymize_batch(...)`
 workflow. Stage 9 adds `_with_audit` variants for TXT, DOCX, PDF, and
-dispatcher workflows. The existing helpers still return only the output path
-plus category counters, but they also run the audit and save it into the safe
-report.
+dispatcher workflows. Stage 19 adds an OCR image helper and scanned-PDF
+fallback inside the PDF workflow. The existing helpers still return only the
+output path plus category counters, but they also run the audit and save it
+into the safe report.
 
 `audit.py` contains the post-anonymization audit. It checks already anonymized
 output text for conservative suspicious remaining patterns. When a dictionary
@@ -80,30 +96,32 @@ only status, risk level, category counters, and a manual review flag. It never
 returns source values, text snippets, private dictionary terms, document text,
 or replacement maps.
 
-`file_writers.py` saves anonymized TXT, DOCX, and PDF-to-TXT copies without
-modifying original files. The output filename receives the `_ANON` suffix. For
-example, `document.txt` becomes `document_ANON.txt`, `document.docx` becomes
-`document_ANON.docx`, and `document.pdf` becomes `document_ANON.txt`. Stage 12
-allows these paths to target a selected output folder and uses numbered
-collision-safe names when a generated file already exists. It also builds safe
-report paths with the `_RAPORT.txt` suffix and the default
-`_BATCH_SUMMARY.txt` path.
+`file_writers.py` saves anonymized TXT, DOCX, PDF-to-TXT, and image-to-TXT
+copies without modifying original files. The output filename receives the
+`_ANON` suffix. For example, `document.txt` becomes `document_ANON.txt`,
+`document.docx` becomes `document_ANON.docx`, `document.pdf` becomes
+`document_ANON.txt`, and `scan.png` becomes `scan_ANON.txt`. Stage 12 allows
+these paths to target a selected output folder and uses numbered collision-safe
+names when a generated file already exists. It also builds safe report paths
+with the `_RAPORT.txt` suffix and the default `_BATCH_SUMMARY.txt` path.
 
 DOCX writing uses `python-docx` locally. It updates supported paragraph and simple table text in a copy of the original document. Basic paragraph and run formatting is preserved when possible, but full DOCX fidelity is not guaranteed.
 
 PDF reading uses `pypdf` locally. Stage 4 extracts text and writes anonymized
-TXT output only. It does not create anonymized PDF files, does not preserve PDF
-layout, and does not modify the original PDF.
+TXT output only. Stage 19 keeps that path first and attempts OCR only when a
+PDF has no extractable text. It does not create anonymized PDF files, does not
+preserve PDF layout, and does not modify the original PDF.
 
 `report.py` builds and saves safe TXT reports without original sensitive source
 values. It receives only status, input type, output type, anonymization
 category counters, safe dictionary status metadata, dictionary label counters,
-audit status, audit risk level, audit counters, and optional category ordering.
+safe OCR metadata, audit status, audit risk level, audit counters, and optional
+category ordering.
 Dictionary counters are labels only, such as `IMIE NAZWISKO: 2`; original
 dictionary terms are not passed to the report module. Stage 12 also adds safe
 batch summary text generation with safe filenames, aggregate counters, audit
-status counts, risk level counts, aggregate audit category counters, and
-controlled error descriptions only.
+status counts, risk level counts, aggregate audit category counters, aggregate
+OCR status counts, and controlled error descriptions only.
 
 `review.py` contains the manual review workflow metadata. It detects generated
 `_ANON` outputs in an output folder, pairs matching `_RAPORT` report basenames
@@ -131,7 +149,9 @@ outputs and local-only workspaces remain covered by `.gitignore`.
 
 ## Safety Design
 
-The project is local-first and offline. It must not add cloud services, APIs, network calls, AI services, OCR, databases, or large dependencies without explicit approval.
+The project is local-first and offline. Stage 19's OCR path is optional and
+local only. It must not add cloud services, APIs, network calls, AI services,
+databases, or large dependencies without explicit approval.
 
 Reports must not include original sensitive source values. The application must not store replacement maps containing original values.
 
@@ -165,12 +185,12 @@ implied by status, label names, and counters. It does not contain dictionary
 source aliases, document fragments, source file paths, or replacement maps.
 
 The project still does not use internet calls, APIs, cloud services, AI
-services, OCR, local LLMs, databases, drag and drop, document preview, or an
-editing workflow.
+services, local LLMs, databases, drag and drop, document preview, or an editing
+workflow. OCR, when available, uses only local dependencies.
 
-Stage 18 keeps those exclusions unchanged. The approved workspace remains a
-manual staging area, not automatic approval, not a knowledge base, and not a
-guarantee of complete anonymization.
+Stage 19 keeps those exclusions unchanged apart from optional local OCR. The
+approved workspace remains a manual staging area, not automatic approval, not
+a knowledge base, and not a guarantee of complete anonymization.
 
 ## GUI Limitations
 
@@ -189,7 +209,7 @@ Stage 11 private dictionary matching is deterministic, case-insensitive, and
 whitespace-tolerant for user-specified aliases. It helps the user manually
 specify known terms and variants, but it does not add fuzzy matching,
 inflection handling, automatic names, cities, organizations, addresses,
-context-based detection, OCR, AI, APIs, local LLMs, cloud services, databases,
+context-based detection, AI, APIs, local LLMs, cloud services, databases,
 or a replacement map.
 
 ## DOCX Limitations
@@ -200,6 +220,7 @@ using any anonymized DOCX output.
 
 ## PDF Limitations
 
-Stage 4 supports only PDFs that already contain extractable text. Scanned PDFs
-are not supported, OCR is not included, PDF layout preservation is not
-guaranteed, and PDF input produces TXT output only.
+Stage 4 supports PDFs that already contain extractable text. Stage 19 can
+attempt OCR for scanned PDFs when local OCR dependencies are available. OCR can
+be inaccurate, PDF layout preservation is not guaranteed, and PDF input still
+produces TXT output only.

@@ -2,8 +2,8 @@
 
 ## Current Status
 
-The project is in Stage 18: end-to-end workflow validation and MVP
-stabilization, pending user review and commit.
+The project is in Stage 19: optional local OCR foundation, pending user review
+and commit.
 
 The Stage 0-13 MVP implementation contains a narrow regex-based engine that
 accepts a Python string and returns anonymized text plus category counters. It
@@ -93,6 +93,17 @@ Stage 18 also includes a small dictionary stabilization fix: a leading UTF-8
 BOM at the start of a dictionary file is ignored so the first alias on the
 first line matches consistently with later aliases.
 
+Stage 19 adds an optional local OCR foundation. It introduces controlled OCR
+availability detection, image input OCR for PNG/JPG/JPEG/TIFF when local OCR
+dependencies and Tesseract are installed, and scanned-PDF fallback only when a
+PDF has no extractable text layer. OCR text feeds into the existing
+anonymization, report, audit, batch, GUI, manual review, and approved export
+workflow as anonymized TXT output. Reports and batch summaries include safe OCR
+metadata only. Stage 19 does not add cloud OCR, API OCR, OpenAI API calls,
+online processing, NER, local LLMs, split-screen review, preview,
+highlighting, drag and drop, installer work, packaging, edited image output,
+or anonymized PDF output.
+
 ## What Exists
 
 - Repository structure.
@@ -108,6 +119,15 @@ first line matches consistently with later aliases.
 - Text-based PDF extraction in `src/file_readers.py`.
 - PDF integration helper `anonymize_pdf_file(...)`, which saves anonymized PDF
   text as `_ANON.txt`.
+- Optional local OCR support in `src/ocr.py` with controlled statuses:
+  `available`, `unavailable`, `dependency_missing`, `engine_not_found`, and
+  `unsupported_input`.
+- Optional image OCR workflow for `.png`, `.jpg`, `.jpeg`, `.tif`, and `.tiff`
+  inputs, saving anonymized OCR text as `_ANON.txt`.
+- Optional scanned PDF OCR fallback when a PDF has no extractable text and
+  local OCR dependencies are available.
+- Safe OCR metadata in per-file `_RAPORT.txt` reports and aggregate
+  `_BATCH_SUMMARY.txt` reports.
 - Single-file application dispatcher `anonymize_file(...)`, with optional
   output directory support.
 - Batch workflow `anonymize_batch(...)`.
@@ -119,6 +139,8 @@ first line matches consistently with later aliases.
   deleting files from disk.
 - GUI readiness hint that explains whether input files or an output folder are
   still needed before anonymization can start.
+- GUI file selection for implemented OCR-capable image inputs and safe
+  aggregate OCR status display in the existing audit/status area.
 - Manual review GUI actions to open a selected `_ANON` output or matching
   `_RAPORT` report with the operating system default application.
 - Default GUI entry point in `src/main.py`.
@@ -204,6 +226,10 @@ accepts preloaded `sensitive_terms`.
   low-risk TXT approval/export, mixed-risk review prioritization, dictionary
   aliases, DOCX and text-based PDF participation, safe metadata, and generated
   output ignore coverage using synthetic values only.
+- Unit tests for Stage 19 OCR availability detection, missing-dependency and
+  missing-engine behavior, mocked image OCR, text-based PDF non-OCR
+  regression, scanned PDF OCR fallback, safe OCR report metadata, and safe OCR
+  batch summary errors using synthetic inputs only.
 - Manual MVP smoke-test checklist in `docs/MVP_MANUAL_TEST_CHECKLIST.md`.
 - Synthetic sample text files in `tests/sample_data/`.
 - Synthetic example dictionary in `examples/sensitive_terms.example.txt`.
@@ -220,15 +246,16 @@ accepts preloaded `sensitive_terms`.
 
 - Advanced GUI preview or editing workflow.
 - Drag and drop.
-- OCR, AI, API calls, cloud services, local LLMs, or databases.
+- AI, API calls, cloud services, local LLMs, or databases.
+- Edited image output or anonymized PDF output.
+- Bundled Tesseract binaries, OCR language models, or OCR installers.
 - Detailed report generation beyond safe counters, safe audit metadata, and
   manual review notes.
 - Automatic approval based on audit results or report contents.
 - Moving rejected or needs-review files into separate folders.
 - A real knowledge base built from approved outputs.
 - Automatic names, surnames, cities, organizations, or context-based detection.
-- Anonymized PDF output.
-- Scanned PDF processing.
+- Production-grade OCR quality handling.
 
 ## How to Run
 
@@ -253,11 +280,13 @@ python -m unittest discover -s tests
 ## Current Limitations
 
 - The core engine processes only a plain Python string.
-- File input/output supports `.txt` files, basic `.docx` files, and
-  text-based `.pdf` input.
+- File input/output supports `.txt` files, basic `.docx` files, `.pdf` files
+  with extractable text or optional OCR fallback, and OCR-capable image inputs.
 - TXT outputs are written to the selected output folder with an `_ANON` suffix.
 - DOCX outputs are written to the selected output folder with an `_ANON` suffix.
 - PDF input is extracted as text and saved as `_ANON.txt`; no anonymized PDF is
+  created.
+- Image input is OCR-extracted and saved as `_ANON.txt`; no edited image is
   created.
 - Existing output files are not overwritten silently; numbered suffixes such as
   `_2` and `_3` are used when needed.
@@ -273,8 +302,12 @@ python -m unittest discover -s tests
 - DOCX formatting preservation is basic only.
 - DOCX headers, footers, comments, footnotes, form fields, text in images, and
   advanced elements are not handled.
-- PDF support requires an existing text layer. Scanned PDFs are not supported,
-  OCR is not included, and PDF layout preservation is not guaranteed.
+- OCR is optional, local, and dependency-dependent. Scanned PDF fallback and
+  image OCR require local Python OCR libraries plus the Tesseract executable
+  and language data installed outside the repository.
+- OCR can be inaccurate. OCR output still goes through deterministic
+  anonymization and must be manually reviewed.
+- PDF layout preservation is not guaranteed.
 - The GUI processes selected files sequentially and does not include document
   preview, editing, or drag and drop.
 - The manual review workflow tracks statuses only. It does not inspect,
@@ -290,9 +323,11 @@ python -m unittest discover -s tests
   values, private dictionary terms, aliases, full paths, tracebacks, or
   replacement maps.
 - Report files are plain TXT only and do not include a detailed audit trail.
+- Reports and batch summaries include safe OCR metadata only; they do not
+  include raw OCR text.
 - Private dictionary matching is deterministic, case-insensitive, and tolerant
   of extra internal spaces, but it is not fuzzy matching, inflection handling,
-  automatic entity recognition, OCR, AI, or NER.
+  automatic entity recognition, AI, or NER.
 - The real private dictionary must stay outside git, either outside the
   repository or inside an ignored folder such as `private/`.
 - Post-anonymization audit matching is conservative and regex-based. It can
@@ -307,23 +342,22 @@ python -m unittest discover -s tests
 
 ## Last Completed Committed Stage
 
-Stage 17: approved workspace staging.
+Stage 18: end-to-end workflow validation and MVP stabilization.
 
 ```text
-6034034 Implement Stage 17 approved workspace staging
+bcdfd7d Stabilize Stage 18 MVP workflow validation
 ```
 
 ## Next Logical Step
 
-Manually smoke test Stage 18 through the Tkinter GUI with synthetic files,
-following `docs/MVP_MANUAL_TEST_CHECKLIST.md`: anonymize a batch, inspect safe
-reports and risk levels, save review metadata with approved and non-approved
-files, export approved files, and confirm `approved/` contains only approved
-generated outputs, optional matching `_RAPORT` files, and a safe
-`_APPROVED_INDEX.txt`. Potential future work requires an explicit project
-decision, especially OCR, installer work, AI/API integration, local LLMs,
-databases, broad NLP/entity detection, packaging, release automation, or
-knowledge-base creation.
+Manually smoke test Stage 19 through the Tkinter GUI with synthetic files:
+anonymize normal TXT/DOCX/text-based PDF files, try a synthetic image or
+scanned PDF only on a machine with local OCR dependencies installed, inspect
+safe OCR metadata in `_RAPORT.txt` and `_BATCH_SUMMARY.txt`, then run manual
+review and approved export as before. Potential future work requires an
+explicit project decision, especially OCR quality improvements, installer
+work, AI/API integration, local LLMs, databases, broad NLP/entity detection,
+packaging, release automation, or knowledge-base creation.
 
 ## Warning
 

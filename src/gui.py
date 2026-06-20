@@ -258,6 +258,22 @@ def format_batch_audit_result(batch_result: BatchResult | None) -> str:
         lines.append("Audit warning categories:")
         for label, count in non_zero_categories:
             lines.append(f"{label}: {count}")
+    ocr_used_count = sum(
+        1 for result in batch_result.results if result.get("ocr_used") is True
+    )
+    ocr_unavailable_count = sum(
+        1
+        for result in batch_result.results
+        if result.get("ocr_status")
+        in ("dependency_missing", "engine_not_found", "unavailable")
+    )
+    lines.extend(
+        [
+            "OCR:",
+            f"used: {ocr_used_count}",
+            f"unavailable or failed: {ocr_unavailable_count}",
+        ]
+    )
     return "\n".join(lines)
 
 
@@ -575,10 +591,11 @@ class AnonymizerGui:
         file_paths = filedialog.askopenfilenames(
             title="Select files",
             filetypes=[
-                ("Supported files", "*.txt *.docx *.pdf"),
+                ("Supported files", "*.txt *.docx *.pdf *.png *.jpg *.jpeg *.tif *.tiff"),
                 ("TXT files", "*.txt"),
                 ("DOCX files", "*.docx"),
                 ("PDF files", "*.pdf"),
+                ("Image files", "*.png *.jpg *.jpeg *.tif *.tiff"),
                 ("All files", "*.*"),
             ],
         )

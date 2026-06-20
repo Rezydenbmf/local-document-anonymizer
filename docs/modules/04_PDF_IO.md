@@ -9,15 +9,19 @@ successful anonymization. Stage 8 lets the workflow receive optional private
 sensitive terms. Stage 9 audits the anonymized PDF-to-TXT output before saving
 the safe report. Stage 10.1 lets the workflow receive a dictionary path and
 report safe dictionary status. Stage 12 lets the workflow write to a selected
-output folder with collision-safe names.
+output folder with collision-safe names. Stage 19 keeps text-based extraction
+first and adds optional local OCR fallback only when a PDF has no extractable
+text layer.
 
 ## Related files
 
 - `src/file_readers.py`
 - `src/file_writers.py`
 - `src/anonymizer.py`
+- `src/ocr.py`
 - `src/sensitive_terms.py`
 - `tests/test_pdf_io.py`
+- `tests/test_ocr.py`
 - `tests/test_sensitive_terms.py`
 
 ## Runtime dependency
@@ -28,8 +32,9 @@ Stage 4 adds one runtime dependency:
 pypdf
 ```
 
-The dependency is used locally to read extractable text from PDF files. It does
-not add internet calls, APIs, cloud services, AI, OCR, local LLMs, databases, or
+The dependency is used locally to read extractable text from PDF files. Stage
+19 can optionally use local OCR dependencies for scanned PDFs, but it does not
+add internet calls, APIs, cloud services, AI, local LLMs, databases, or
 batch-specific PDF logic.
 
 ## Public API
@@ -53,14 +58,16 @@ create separate PDF-specific anonymization regex logic.
 The PDF workflow is:
 
 1. `read_pdf_file()` extracts text from a local `.pdf` file with `pypdf`.
-2. `anonymize_pdf_file()` loads an optional dictionary path and passes the
+2. If no extractable text is found, Stage 19 attempts local OCR when optional
+   dependencies are available.
+3. `anonymize_pdf_file()` loads an optional dictionary path and passes the
    extracted text to `anonymize_text()`.
-3. `save_anonymized_pdf_txt_copy()` writes the anonymized text as UTF-8 TXT.
-4. The output file is saved with an `_ANON.txt` suffix, in the selected output
+4. `save_anonymized_pdf_txt_copy()` writes the anonymized text as UTF-8 TXT.
+5. The output file is saved with an `_ANON.txt` suffix, in the selected output
    folder when one is provided.
-5. `audit_text()` checks the anonymized TXT output.
-6. A safe report file is saved with a `_RAPORT.txt` suffix. The report includes
-   safe dictionary status and label counters only.
+6. `audit_text()` checks the anonymized TXT output.
+7. A safe report file is saved with a `_RAPORT.txt` suffix. The report includes
+   safe dictionary status, label counters, and OCR metadata only.
 
 Example:
 
@@ -72,18 +79,19 @@ output folder / document_RAPORT.txt
 The original PDF file is not modified. Existing generated files are not
 overwritten silently; numbered names are used when needed.
 
-## Unsupported PDFs
+## Scanned PDFs and OCR
 
-Stage 4 supports only PDFs that already contain an extractable text layer. If a
-PDF has no extractable text, the reader raises a clear `ValueError`.
+Stage 4 supports PDFs that already contain an extractable text layer. Stage 19
+adds optional scanned-PDF fallback after that path fails.
 
-Stage 4 does not support:
+If OCR dependencies or the local Tesseract engine are unavailable, the workflow
+returns a controlled OCR status/error. It does not silently pretend that a
+scanned PDF was processed.
 
-- scanned PDFs,
-- OCR,
+The PDF workflow still does not support:
+
 - PDF layout preservation,
 - anonymized PDF output,
-- image text extraction,
 - handwritten text extraction.
 
 ## Safety assumptions
@@ -91,6 +99,7 @@ Stage 4 does not support:
 - PDF files are read locally.
 - The original source PDF is left unchanged.
 - PDF input produces TXT output only.
+- Scanned PDF OCR is optional and local.
 - No anonymized PDF file is created.
 - The safe report file receives the `_RAPORT.txt` suffix.
 - Generated files can be written to a selected output folder.
@@ -103,9 +112,10 @@ Stage 4 does not support:
   metadata.
 - Dictionary workflow metadata contains only status names, labels, and
   counters.
+- OCR metadata contains only used/status/input-type/page-count/warning fields.
 - Audit results contain only status, category counters, and the manual review
-  flag. They do not contain source values, snippets, dictionary terms, or a
-  replacement map.
+  flag. They do not contain source values, snippets, dictionary terms, raw OCR
+  text, or a replacement map.
 - Tests use only generated synthetic temporary PDFs.
 
 ## How to test
@@ -117,12 +127,11 @@ python -m unittest discover -s tests
 ```
 
 The Stage 4 tests cover reading a simple text-based PDF, rejecting PDFs without
-extractable text, writing `_ANON.txt` output, preserving the original PDF,
-PDF-to-TXT anonymization integration, safe counters without source values, and
-the absence of `_ANON.pdf` output. Stage 9 tests cover audit report safety and
-dispatcher audit metadata. Stage 10.1 tests cover dictionary path replacement
-and report safety for PDF-to-TXT output. Stage 12 tests cover text-based PDF
-processing through the batch workflow.
+extractable text at the reader layer, writing `_ANON.txt` output, preserving
+the original PDF, PDF-to-TXT anonymization integration, safe counters without
+source values, and the absence of `_ANON.pdf` output. Stage 19 tests cover
+text-based PDF non-OCR regression, mocked scanned-PDF OCR fallback, and
+controlled OCR-unavailable batch behavior.
 
 ## Known limitations
 
@@ -130,11 +139,10 @@ processing through the batch workflow.
 - Private dictionary matching is deterministic, case-insensitive, and
   whitespace-tolerant, but not fuzzy matching or automatic entity detection.
 - Extracted PDF text may not preserve visual layout or reading order.
-- Scanned PDFs are not supported.
-- OCR is not included.
+- Scanned PDF OCR requires optional local OCR dependencies and Tesseract.
+- OCR can be inaccurate and must be manually reviewed.
 - No anonymized PDF output is created.
 - PDF input still writes `document_ANON.txt`, but Stage 12 collision-safe
   naming prevents silent overwrites in the output folder.
-- Stage 9 audit checks only the extracted anonymized TXT output and does not
-  add OCR or scanned PDF support.
+- Stage 9 audit checks only the extracted anonymized TXT output.
 - Manual review is still required before trusting or sharing anonymized output.

@@ -18,6 +18,10 @@ a safe report, and expects manual review before any result is trusted.
 - TXT input and UTF-8 TXT output.
 - Basic DOCX input and output for paragraphs and simple tables.
 - Text-based PDF input with anonymized TXT output.
+- Optional local OCR foundation for image inputs and scanned PDFs when local
+  OCR dependencies are installed.
+- PNG, JPG/JPEG, and TIFF image inputs with anonymized TXT output when OCR is
+  available.
 - Collision-safe `_ANON`, `_RAPORT`, and `_BATCH_SUMMARY` naming.
 - Regex anonymization for `PESEL`, `EMAIL`, `TELEFON`, and `DATA`.
 - Optional private dictionary with aliases, case-insensitive matching, and
@@ -44,7 +48,9 @@ a safe report, and expects manual review before any result is trusted.
 ## Privacy And Local-First Assumptions
 
 The application is designed to run locally. It does not use AI, APIs, cloud
-services, network calls, OCR, local LLMs, or databases.
+services, network calls, local LLMs, or databases. Optional OCR runs only
+through local system dependencies when they are installed; no OCR data is sent
+to cloud services or APIs.
 
 The repository must not contain real documents, real personal data, private
 dictionaries, generated `_ANON` files, generated `_RAPORT` files, logs, local
@@ -62,11 +68,15 @@ review-support tool. Manual review is required for every anonymized output.
 | `document.txt` | `document_ANON.txt` | `document_RAPORT.txt` |
 | `document.docx` | `document_ANON.docx` | `document_RAPORT.txt` |
 | `document.pdf` | `document_ANON.txt` | `document_RAPORT.txt` |
+| `image.png` / `image.jpg` / `image.tiff` | `image_ANON.txt` | `image_RAPORT.txt` |
 
 All generated files are saved in the output folder selected by the user.
-Original files are not modified. PDF support requires an existing extractable
-text layer and does not create anonymized PDF files. If an output name already
-exists, the app writes the next safe numbered name, such as
+Original files are not modified. Text-based PDF support uses the existing
+extractable text layer first and does not create anonymized PDF files. If a
+PDF has no extractable text, the app can attempt local OCR when optional OCR
+dependencies and the local Tesseract engine are available. Image inputs also
+produce anonymized TXT output, not edited image output. If an output name
+already exists, the app writes the next safe numbered name, such as
 `document_ANON_2.txt` or `document_RAPORT_2.txt`.
 
 ## How Anonymization Works
@@ -159,6 +169,7 @@ Each successful file workflow writes a safe `_RAPORT.txt` report containing:
 - anonymization category counters,
 - dictionary used/status/matches-found metadata,
 - dictionary label counters,
+- OCR used/status/input-type metadata and page/image counts,
 - post-anonymization audit status, risk level, and counters,
 - manual review requirement,
 - confirmation that original sensitive values are not stored,
@@ -169,10 +180,11 @@ paths, dictionary aliases, text snippets, logs, or replacement maps.
 
 Batch runs also write `_BATCH_SUMMARY.txt` in the selected output folder. The
 summary contains batch counts, aggregate category counters, audit status
-counts, risk level counts, aggregate audit category counters, safe
-input/output/report filenames, and controlled safe error descriptions. It does
-not include source text, private dictionary terms, aliases, full paths,
-exception messages, or a replacement map.
+counts, risk level counts, aggregate audit category counters, aggregate OCR
+status counts, safe input/output/report filenames, and controlled safe error
+descriptions. It does not include source text, raw OCR text, private
+dictionary terms, aliases, full paths, exception messages, or a replacement
+map.
 
 Manual review runs can write `_REVIEW_STATUS.json` and
 `_REVIEW_SUMMARY.txt` in the selected output folder. The status file tracks
@@ -214,6 +226,11 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
+OCR is optional and local. The Python packages in `requirements.txt` include
+the OCR adapter libraries, but the Tesseract executable and language data must
+be installed separately on the user's computer. The repository does not bundle
+Tesseract binaries, OCR models, external installers, or real OCR outputs.
+
 ## How To Run
 
 Run the GUI:
@@ -237,8 +254,8 @@ python -m unittest discover -s tests
 ## Basic Usage
 
 1. Start the app with `python src/main.py` or `python -m src.gui`.
-2. Add one or more `.txt`, `.docx`, or text-based `.pdf` files and check the
-   selected-file count.
+2. Add one or more `.txt`, `.docx`, `.pdf`, `.png`, `.jpg`, `.jpeg`, `.tif`,
+   or `.tiff` files and check the selected-file count.
 3. Select an output folder.
 4. Optionally select a private dictionary file.
 5. If `Anonymize batch` is disabled, read the readiness hint beside the button.
@@ -279,6 +296,13 @@ output folder / document_ANON.txt
 output folder / document_RAPORT.txt
 ```
 
+For an OCR image file:
+
+```text
+output folder / scan_ANON.txt
+output folder / scan_RAPORT.txt
+```
+
 For a batch run:
 
 ```text
@@ -298,6 +322,7 @@ src/
   file_writers.py      _ANON output and _RAPORT path helpers
   gui.py               Tkinter GUI
   main.py              GUI entry point
+  ocr.py               Optional local OCR detection and extraction helpers
   report.py            Safe report generation
   review.py            Safe manual review and approved workspace metadata
   sensitive_terms.py   Private dictionary parsing and matching
@@ -338,13 +363,13 @@ python -m unittest discover -s tests
 ## Current Limitations
 
 - Manual review is always required.
+- OCR is optional, local, dependency-dependent, and imperfect.
 - Audit risk levels are review-prioritization hints only, not proof that a
   document is safe.
 - This is not production-ready full anonymization.
 - Regex detection is narrow and conservative.
 - Private dictionary matching is not fuzzy matching, inflection handling, NER,
   ML, or LLM-based detection.
-- No OCR or scanned PDF support.
 - No anonymized PDF output.
 - Batch processing is sequential; one file's error is recorded safely and does
   not stop later files.
@@ -359,8 +384,12 @@ python -m unittest discover -s tests
 - DOCX support is limited to basic paragraphs and simple tables.
 - DOCX headers, footers, comments, footnotes, form fields, text in images, and
   advanced elements are not handled.
-- PDF support requires an extractable text layer and does not preserve layout.
+- Scanned PDF and image OCR require optional local OCR dependencies and the
+  local Tesseract engine; if OCR is unavailable, the file fails with a
+  controlled safe status instead of being silently treated as processed.
+- PDF support does not preserve layout.
 - Reports contain safe counters and metadata only, not a detailed audit trail.
+- Reports and batch summaries do not include raw OCR text.
 - Batch summary reports use safe filenames and controlled error descriptions
   only; they do not include private paths or exception text.
 
@@ -371,13 +400,15 @@ basic DOCX IO, text-based PDF input, Tkinter GUI, safe reports, private
 dictionary support, post-anonymization audit, manual validation fixes, the
 Stage 11 smart dictionary foundation, Stage 12 safe output workspace with
 batch processing, the Stage 13 manual review workflow, the Stage 15 GUI
-usability cleanup, Stage 16 stronger audit risk prioritization, and Stage 17
-approved workspace staging. Stage 18 adds end-to-end synthetic validation and
-a manual MVP smoke checklist without expanding the runtime feature set.
+usability cleanup, Stage 16 stronger audit risk prioritization, Stage 17
+approved workspace staging, and Stage 18 end-to-end synthetic validation with
+a manual MVP smoke checklist. Stage 19 adds an optional local OCR foundation
+for image inputs and scanned PDF fallback without adding cloud/API processing
+or edited image/PDF output.
 
-Potential future work requires explicit approval, especially OCR, scanned PDF
-support, stronger entity detection, installer packaging, release automation,
-AI/API integration, local LLMs, databases, or broad NLP features.
+Potential future work requires explicit approval, especially OCR quality
+improvements, installer packaging, release automation, stronger entity
+detection, AI/API integration, local LLMs, databases, or broad NLP features.
 
 ## Portfolio Note
 

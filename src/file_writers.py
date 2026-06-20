@@ -1,4 +1,4 @@
-"""File writers for Stage 6 TXT, DOCX, PDF-to-TXT, and report support."""
+"""File writers for TXT, DOCX, PDF-to-TXT, image-to-TXT, and reports."""
 
 from collections.abc import Callable
 from pathlib import Path
@@ -7,6 +7,7 @@ from pathlib import Path
 TXT_EXTENSION = ".txt"
 DOCX_EXTENSION = ".docx"
 PDF_EXTENSION = ".pdf"
+IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".tif", ".tiff")
 ANON_SUFFIX = "_ANON"
 REPORT_SUFFIX = "_RAPORT"
 BATCH_SUMMARY_FILENAME = "_BATCH_SUMMARY.txt"
@@ -18,7 +19,8 @@ def _unsupported_extension_error(file_path: str | Path) -> ValueError:
     suffix = path.suffix.lower() or "<none>"
     return ValueError(
         f"Unsupported file extension: {suffix}. "
-        "Only .txt, .docx, and .pdf files are supported."
+        "Only .txt, .docx, and .pdf files are supported by direct text writers. "
+        "OCR-capable image files are handled by image TXT output helpers."
     )
 
 
@@ -51,6 +53,18 @@ def _ensure_pdf_path(file_path: str | Path) -> Path:
         raise ValueError(
             f"Unsupported file extension for PDF TXT output: {suffix}. "
             "Only .pdf files are supported by PDF TXT output helpers."
+        )
+    return path
+
+
+def _ensure_image_path(file_path: str | Path) -> Path:
+    path = Path(file_path)
+    if path.suffix.lower() not in IMAGE_EXTENSIONS:
+        suffix = path.suffix or "<none>"
+        raise ValueError(
+            f"Unsupported file extension for image TXT output: {suffix}. "
+            "Only .png, .jpg, .jpeg, .tif, and .tiff files are supported by "
+            "image TXT output helpers."
         )
     return path
 
@@ -99,12 +113,25 @@ def build_anonymized_pdf_txt_path(
     return _output_directory(path, output_dir) / f"{path.stem}{ANON_SUFFIX}{TXT_EXTENSION}"
 
 
+def build_anonymized_image_txt_path(
+    source_path: str | Path, output_dir: str | Path | None = None
+) -> Path:
+    """Return the anonymized TXT output path for an OCR image source file."""
+    path = _ensure_image_path(source_path)
+    return _output_directory(path, output_dir) / f"{path.stem}{ANON_SUFFIX}{TXT_EXTENSION}"
+
+
 def build_report_path(
     source_path: str | Path, output_dir: str | Path | None = None
 ) -> Path:
     """Return the safe report output path for a supported source file."""
     path = Path(source_path)
-    if path.suffix.lower() not in (TXT_EXTENSION, DOCX_EXTENSION, PDF_EXTENSION):
+    if path.suffix.lower() not in (
+        TXT_EXTENSION,
+        DOCX_EXTENSION,
+        PDF_EXTENSION,
+        *IMAGE_EXTENSIONS,
+    ):
         raise _unsupported_extension_error(path)
 
     return _output_directory(path, output_dir) / f"{path.stem}{REPORT_SUFFIX}{TXT_EXTENSION}"
@@ -142,6 +169,22 @@ def save_anonymized_pdf_txt_copy(
 
     output_path = build_collision_safe_path(
         build_anonymized_pdf_txt_path(source_path, output_dir=output_dir)
+    )
+    output_path.write_text(anonymized_text, encoding="utf-8")
+    return output_path
+
+
+def save_anonymized_image_txt_copy(
+    source_path: str | Path,
+    anonymized_text: str,
+    output_dir: str | Path | None = None,
+) -> Path:
+    """Write anonymized OCR text as UTF-8 TXT without modifying the image."""
+    if not isinstance(anonymized_text, str):
+        raise TypeError("anonymized_text must be a string")
+
+    output_path = build_collision_safe_path(
+        build_anonymized_image_txt_path(source_path, output_dir=output_dir)
     )
     output_path.write_text(anonymized_text, encoding="utf-8")
     return output_path
@@ -261,6 +304,10 @@ def save_anonymized_copy(
     if path.suffix.lower() == PDF_EXTENSION:
         return str(
             save_anonymized_pdf_txt_copy(path, anonymized_text, output_dir=output_dir)
+        )
+    if path.suffix.lower() in IMAGE_EXTENSIONS:
+        return str(
+            save_anonymized_image_txt_copy(path, anonymized_text, output_dir=output_dir)
         )
 
     raise _unsupported_extension_error(path)

@@ -3,7 +3,7 @@
 ## Purpose
 
 This module implements a small local Tkinter desktop interface for anonymizing
-selected `.txt`, `.docx`, or `.pdf` files. Stage 6 extends the GUI status
+selected `.txt`, `.docx`, `.pdf`, or OCR-capable image files. Stage 6 extends the GUI status
 area to show the saved report file path. Stage 8 adds optional private
 sensitive terms file selection. Stage 9 adds safe post-anonymization audit
 status and counters. Stage 10.1 keeps the GUI path-based for dictionaries and
@@ -20,7 +20,8 @@ aggregate risk counts to the audit display and a safe risk column to the manual
 review list. Stage 17 adds an `Export approved` action that creates an
 approved staging workspace from saved manual review decisions. Stage 18
 validates the complete GUI-backed MVP workflow with synthetic end-to-end tests
-and a manual smoke checklist.
+and a manual smoke checklist. Stage 19 adds minimal image-file selection and
+safe aggregate OCR status display without redesigning the GUI.
 
 ## Related files
 
@@ -28,6 +29,7 @@ and a manual smoke checklist.
 - `src/main.py`
 - `src/anonymizer.py`
 - `src/review.py`
+- `src/ocr.py`
 - `src/sensitive_terms.py`
 - `tests/test_gui_workflow.py`
 - `tests/test_review_workflow.py`
@@ -55,6 +57,7 @@ workflows:
 - `anonymize_txt_file(...)`
 - `anonymize_docx_file(...)`
 - `anonymize_pdf_file(...)`
+- `anonymize_image_file(...)`
 
 The GUI does not parse TXT, DOCX, or PDF files itself and does not duplicate
 anonymization logic.
@@ -100,6 +103,7 @@ The GUI shows:
 - post-anonymization audit status counts,
 - post-anonymization risk level counts,
 - aggregate audit warning categories,
+- aggregate OCR status counts,
 - output filenames,
 - report filenames and batch summary filename,
 - generated output filenames detected for manual review,
@@ -112,6 +116,8 @@ The GUI shows:
 - approved workspace export counts and approved index filename,
 - missing-report warnings during approved export,
 - clear errors from unsupported file types or PDFs without extractable text,
+- clear controlled errors when local OCR dependencies or Tesseract are
+  unavailable,
 - clear errors when `_REVIEW_STATUS.json` is missing or no approved files
   exist,
 - a reminder that manual review is required.
@@ -152,6 +158,13 @@ output folder / document_ANON.txt
 output folder / document_RAPORT.txt
 ```
 
+OCR image input:
+
+```text
+output folder / scan_ANON.txt
+output folder / scan_RAPORT.txt
+```
+
 Original files are not modified.
 
 Batch run:
@@ -187,6 +200,7 @@ and approved indexes.
 - The GUI displays category names and counts only.
 - The GUI displays audit status counts, risk counts, and audit category counts
   only.
+- The GUI displays OCR status counts only.
 - The GUI displays dictionary status names and safe match metadata only.
 - The GUI does not display original detected source values.
 - The GUI does not display private dictionary contents.
@@ -206,8 +220,8 @@ and approved indexes.
 - The approved workspace is a staging area only, not a knowledge base or
   guarantee of complete anonymization.
 - No source data is logged.
-- No OCR, AI, API, cloud service, database, drag and drop, preview, editing, or
-  PDF writing is added.
+- OCR is optional and local; no AI, API, cloud service, database, drag and
+  drop, preview, editing, edited image output, or PDF writing is added.
 
 ## How to test
 
@@ -231,7 +245,9 @@ batch status, and missing external file open handling are covered by
 approved export helper text is covered by `tests/test_gui_workflow.py`, and
 approved export behavior is covered by `tests/test_review_workflow.py`. Stage
 18 end-to-end workflow coverage is in `tests/test_stage18_end_to_end.py`.
-Fragile widget tests are not included.
+Stage 19 OCR GUI-adjacent status formatting is covered by
+`tests/test_ocr.py` and `tests/test_gui_workflow.py`. Fragile widget tests are
+not included.
 
 ## Known limitations
 
@@ -248,7 +264,9 @@ Fragile widget tests are not included.
   contents.
 - Approved export copies manually approved outputs into a staging folder only;
   it does not validate contents or create a knowledge base.
-- The GUI does not support drag and drop, OCR, scanned PDFs, or anonymized PDF
-  output.
+- OCR requires optional local dependencies and Tesseract; the GUI does not
+  install or configure those dependencies.
+- The GUI does not support drag and drop, preview, split-screen review,
+  highlighting, edited image output, or anonymized PDF output.
 - DOCX and PDF limitations from Stages 3 and 4 still apply.
 - Manual review remains required before trusting any anonymized result.

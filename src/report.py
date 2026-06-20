@@ -17,6 +17,8 @@ BATCH_ERROR_EMPTY_TEXT_PDF = "PDF has no extractable text"
 BATCH_ERROR_TEXT_DECODING = "TXT file could not be decoded as UTF-8"
 BATCH_ERROR_FILE_IO = "file could not be read or written"
 BATCH_ERROR_MISSING_DEPENDENCY = "required local document dependency is unavailable"
+BATCH_ERROR_OCR_UNAVAILABLE = "OCR unavailable for image-based input"
+BATCH_ERROR_OCR_FAILED = "OCR failed for image-based input"
 BATCH_ERROR_PROCESSING_FAILED = "file processing failed"
 BATCH_ERROR_DESCRIPTIONS = (
     BATCH_ERROR_UNSUPPORTED_FILE_TYPE,
@@ -24,6 +26,8 @@ BATCH_ERROR_DESCRIPTIONS = (
     BATCH_ERROR_TEXT_DECODING,
     BATCH_ERROR_FILE_IO,
     BATCH_ERROR_MISSING_DEPENDENCY,
+    BATCH_ERROR_OCR_UNAVAILABLE,
+    BATCH_ERROR_OCR_FAILED,
     BATCH_ERROR_PROCESSING_FAILED,
 )
 RISK_LEVEL_OK = "ok"
@@ -33,6 +37,23 @@ RISK_LEVELS = (
     RISK_LEVEL_OK,
     RISK_LEVEL_WARNING,
     RISK_LEVEL_HIGH,
+)
+OCR_STATUSES = (
+    "available",
+    "unavailable",
+    "dependency_missing",
+    "engine_not_found",
+    "unsupported_input",
+    "not_used",
+)
+OCR_INPUT_TYPES = ("image", "pdf", "none")
+OCR_WARNING_TEXTS = (
+    "",
+    "local OCR dependency is missing",
+    "local OCR engine not found",
+    "input type is not supported for OCR",
+    "OCR completed but no text was extracted",
+    "OCR failed safely",
 )
 
 
@@ -96,6 +117,52 @@ def _safe_risk_level(value: object, fallback_status: object = None) -> str:
     if fallback_status == "ok":
         return RISK_LEVEL_OK
     return RISK_LEVEL_WARNING
+
+
+def _safe_ocr_status(value: object) -> str:
+    status = str(value).strip()
+    if status in OCR_STATUSES:
+        return status
+    return "unavailable"
+
+
+def _safe_ocr_input_type(value: object) -> str:
+    input_type = str(value).strip()
+    if input_type in OCR_INPUT_TYPES:
+        return input_type
+    return "none"
+
+
+def _safe_ocr_warning(value: object) -> str:
+    warning = str(value or "").strip()
+    if warning in OCR_WARNING_TEXTS:
+        return warning
+    return "OCR failed safely" if warning else ""
+
+
+def _ocr_section_lines(ocr_result: Mapping[str, object] | None) -> list[str]:
+    if ocr_result is None:
+        return []
+
+    used = bool(ocr_result.get("used", False))
+    status = _safe_ocr_status(ocr_result.get("status"))
+    input_type = _safe_ocr_input_type(ocr_result.get("input_type"))
+    items_processed = ocr_result.get("items_processed", 0)
+    _validate_count(items_processed)
+    warning = _safe_ocr_warning(ocr_result.get("warning", ""))
+
+    lines = [
+        "",
+        "OCR:",
+        f"OCR used: {'yes' if used else 'no'}",
+        f"OCR status: {status}",
+        f"OCR input type: {input_type}",
+        f"OCR pages/images processed: {items_processed}",
+    ]
+    if warning:
+        lines.append(f"OCR warning: {warning}")
+
+    return lines
 
 
 def _audit_section_lines(
@@ -197,6 +264,7 @@ def build_report_text(
     audit_result: Mapping[str, object] | None = None,
     audit_category_order: Iterable[str] | None = None,
     dictionary_result: Mapping[str, object] | None = None,
+    ocr_result: Mapping[str, object] | None = None,
 ) -> str:
     """Build a safe text report without source values or replacement maps."""
     if not isinstance(status, str):
@@ -222,6 +290,7 @@ def build_report_text(
         lines.append("* none: 0")
 
     lines.extend(_dictionary_section_lines(dictionary_result))
+    lines.extend(_ocr_section_lines(ocr_result))
     lines.extend(_audit_section_lines(audit_result, audit_category_order))
 
     lines.extend(
@@ -246,6 +315,7 @@ def save_report_file(
     audit_result: Mapping[str, object] | None = None,
     audit_category_order: Iterable[str] | None = None,
     dictionary_result: Mapping[str, object] | None = None,
+    ocr_result: Mapping[str, object] | None = None,
 ) -> Path:
     """Save a safe anonymization report and return the report path."""
     path = Path(report_path)
@@ -258,6 +328,7 @@ def save_report_file(
         audit_result=audit_result,
         audit_category_order=audit_category_order,
         dictionary_result=dictionary_result,
+        ocr_result=ocr_result,
     )
     path.write_text(report_text, encoding="utf-8")
     return path
@@ -336,8 +407,27 @@ def build_batch_summary_text(
     else:
         lines.append("* none: 0")
 
+    ocr_used_count = 0
+    ocr_unavailable_or_failed_count = 0
+    materialized_results = list(results)
+    for result in materialized_results:
+        if result.get("ocr_used") is True:
+            ocr_used_count += 1
+        ocr_status = _safe_ocr_status(result.get("ocr_status", "not_used"))
+        if ocr_status in ("dependency_missing", "engine_not_found", "unavailable"):
+            ocr_unavailable_or_failed_count += 1
+
+    lines.extend(
+        [
+            "",
+            "OCR:",
+            f"* files processed with OCR: {ocr_used_count}",
+            f"* OCR unavailable or failed: {ocr_unavailable_or_failed_count}",
+        ]
+    )
+
     lines.extend(["", "Files:"])
-    for result in results:
+    for result in materialized_results:
         file_status = str(result.get("status", "error"))
         input_name = _safe_filename(result.get("input_name", "unknown"))
         lines.append(f"* input: {input_name}")
@@ -354,6 +444,9 @@ def build_batch_summary_text(
             lines.append(f"  error: {_safe_batch_error(result.get('error', ''))}")
             lines.append("  output: not created")
             lines.append("  report: not created")
+        if "ocr_status" in result:
+            lines.append(f"  OCR used: {'yes' if result.get('ocr_used') is True else 'no'}")
+            lines.append(f"  OCR status: {_safe_ocr_status(result.get('ocr_status'))}")
 
     lines.extend(
         [

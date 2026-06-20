@@ -88,3 +88,12 @@ Module tests are useful, but the MVP workflow also needs synthetic tests that
 cross module boundaries: batch output, reports, audit risk levels, manual
 review, approved export, and approved index safety. These tests should verify
 what is not stored just as carefully as they verify what is created.
+
+## 18. OCR must be optional, local, and treated as imperfect extraction.
+
+OCR support should start with controlled availability detection and mocked
+synthetic tests. Missing Python packages, missing Tesseract, unsupported input,
+or empty OCR text should become safe statuses, not crashes or tracebacks.
+Reports and summaries may record OCR metadata, but they must not store raw OCR
+text. Manual review remains required because OCR can miss or distort sensitive
+data.

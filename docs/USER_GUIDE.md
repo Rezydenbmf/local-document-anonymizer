@@ -6,12 +6,13 @@ Local Document Anonymizer is a local desktop tool for replacing supported
 sensitive values in documents with general labels.
 
 The workflow is local-first. It does not use cloud services, API calls, AI,
-OCR, local LLMs, or a database.
+local LLMs, or a database. Optional OCR runs only on the user's computer when
+local OCR dependencies are installed.
 
 ## 2. What This Application Is Not For
 
-It is not a cloud service, compliance guarantee, OCR tool, document editor, or
-automatic privacy solution.
+It is not a cloud service, compliance guarantee, production OCR product,
+document editor, or automatic privacy solution.
 
 ## 3. Basic Workflow
 
@@ -48,8 +49,9 @@ document contents, source values, private dictionary terms, or full local paths.
 
 ## 4. Supported Files in Current Stage
 
-The current MVP supports ordinary `.txt` files, basic `.docx` files, and text-based
-`.pdf` files.
+The current MVP supports ordinary `.txt` files, basic `.docx` files,
+text-based `.pdf` files, and optional OCR for `.png`, `.jpg`, `.jpeg`, `.tif`,
+and `.tiff` image files when local OCR dependencies are available.
 
 TXT files are read locally as UTF-8 text. The anonymized result is saved as a
 separate copy with `_ANON` added to the filename:
@@ -80,17 +82,36 @@ document.pdf -> document_RAPORT.txt
 Original PDF files are not modified. The application does not create
 `document_ANON.pdf` or any other anonymized PDF output.
 
+If a PDF has no extractable text layer, the application can attempt local OCR
+when optional OCR dependencies and the local Tesseract engine are installed.
+If OCR is unavailable, the file is reported with a controlled safe error
+instead of being silently treated as processed.
+
+Image files are not edited. OCR-extracted image text is anonymized into a TXT
+file:
+
+```text
+scan.png -> scan_ANON.txt
+scan.png -> scan_RAPORT.txt
+```
+
 DOCX support is basic. It covers ordinary paragraphs and simple tables. It does
 not cover headers, footers, comments, footnotes, form fields, text in images, or
 advanced DOCX elements. Basic formatting is preserved only in a limited MVP
 range.
 
-PDF support requires an existing text layer. Scanned PDFs are not supported,
-OCR is not included, and PDF layout preservation is not guaranteed.
+PDF layout preservation is not guaranteed. OCR is optional, dependency
+dependent, and can be imperfect. Manual review is still required for OCR
+outputs.
 
-OCR, AI, APIs, cloud services, databases, drag and drop, advanced document
-preview, PDF writing, automatic entity detection, and detailed audit reports
-with source snippets are not supported.
+AI, APIs, cloud services, databases, drag and drop, advanced document preview,
+PDF writing, edited image output, automatic entity detection, and detailed
+audit reports with source snippets are not supported.
+
+Optional OCR requires local Python OCR libraries and the Tesseract executable
+with needed language data installed on the user's computer. The repository
+does not include Tesseract binaries, OCR models, external installers, or real
+OCR outputs.
 
 ## 5. Report Files
 
@@ -105,14 +126,15 @@ The report contains:
 - category counters,
 - dictionary used/status/matches-found information,
 - dictionary label counters,
+- OCR used/status/input-type metadata and page/image counts,
 - post-anonymization audit status, risk level, and category counters,
 - manual review requirement,
 - confirmation that original sensitive values are not stored,
 - confirmation that no replacement map was created.
 
-The report does not contain document text, original sensitive values, full
-input paths, source filenames, private dictionary terms, text snippets, or
-replacement maps.
+The report does not contain document text, raw OCR text, original sensitive
+values, full input paths, source filenames, private dictionary terms, text
+snippets, or replacement maps.
 
 For each batch run, the application writes `_BATCH_SUMMARY.txt` in the selected
 output folder. If that name already exists, it writes `_BATCH_SUMMARY_2.txt`,
@@ -125,12 +147,13 @@ output folder. If that name already exists, it writes `_BATCH_SUMMARY_2.txt`,
 - audit status counts,
 - risk level counts,
 - aggregate audit warning category counters,
+- aggregate OCR status counts,
 - safe input, output, and report filenames,
 - controlled safe error descriptions.
 
-The batch summary does not contain source document text, original sensitive
-values, private dictionary terms, aliases, replacement maps, full paths, or raw
-exception messages.
+The batch summary does not contain source document text, raw OCR text,
+original sensitive values, private dictionary terms, aliases, replacement maps,
+full paths, or raw exception messages.
 
 ## 6. Manual Review Workflow
 
@@ -286,7 +309,7 @@ replacements in `_ANON`. Use small synthetic files for the first check.
 
 Private dictionary matching is deterministic, case-insensitive, and tolerant of
 extra spaces inside matched terms. It is not fuzzy matching, inflection
-handling, OCR, AI, automatic names or address detection, NER, a database, or
+handling, AI, automatic names or address detection, NER, a database, or
 automatic deletion of originals.
 
 ## 11. Post-Anonymization Audit
@@ -359,13 +382,14 @@ Approved workspace exports use the same collision-safe numbering style inside
 
 ## 14. What Is Not Implemented Yet
 
-The current MVP includes plain string anonymization, TXT file input/output, basic DOCX
-file input/output, text-based PDF input with TXT output, a simple Tkinter GUI,
-batch processing, an output folder workflow, collision-safe output names, safe
-reports, optional private dictionary input, dictionary status reporting, a
-safe post-anonymization audit with risk prioritization, and manual review
-status tracking with approved workspace staging. Automatic names, broad
-addresses, cities, organizations, OCR, AI, APIs, cloud services, local LLMs,
-databases, drag and drop, advanced preview, editing workflow, automatic
+The current MVP includes plain string anonymization, TXT file input/output,
+basic DOCX file input/output, text-based PDF input with TXT output, optional
+local OCR foundation for image inputs and scanned-PDF fallback, a simple
+Tkinter GUI, batch processing, an output folder workflow, collision-safe output
+names, safe reports, optional private dictionary input, dictionary status
+reporting, a safe post-anonymization audit with risk prioritization, and
+manual review status tracking with approved workspace staging. Automatic
+names, broad addresses, cities, organizations, AI, APIs, cloud services, local
+LLMs, databases, drag and drop, advanced preview, editing workflow, automatic
 approval, real knowledge-base creation, rejected/needs-review folder routing,
-and anonymized PDF output are not implemented.
+edited image output, and anonymized PDF output are not implemented.

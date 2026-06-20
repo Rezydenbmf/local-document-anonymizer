@@ -1,2 +1,7 @@
 python-docx
 pypdf
+
+# Optional local OCR foundation; Tesseract itself is a separate local system dependency.
+pytesseract
+Pillow
+PyMuPDF

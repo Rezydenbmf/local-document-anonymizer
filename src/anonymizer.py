@@ -9,6 +9,7 @@ try:
     from .audit import AUDIT_CATEGORY_ORDER, RISK_LEVELS, audit_text
     from .file_readers import (
         DOCX_EXTENSION,
+        IMAGE_EXTENSIONS,
         PDF_EXTENSION,
         SUPPORTED_EXTENSIONS,
         TXT_EXTENSION,
@@ -21,13 +22,24 @@ try:
         build_collision_safe_path,
         build_report_path,
         save_anonymized_docx_copy,
+        save_anonymized_image_txt_copy,
         save_anonymized_pdf_txt_copy,
         save_anonymized_txt_copy,
+    )
+    from .ocr import (
+        OCR_INPUT_TYPE_IMAGE,
+        OCR_INPUT_TYPE_NONE,
+        OCR_INPUT_TYPE_PDF,
+        OcrUnavailableError,
+        build_ocr_not_used_metadata,
+        extract_text_with_ocr,
     )
     from .report import (
         BATCH_ERROR_EMPTY_TEXT_PDF,
         BATCH_ERROR_FILE_IO,
         BATCH_ERROR_MISSING_DEPENDENCY,
+        BATCH_ERROR_OCR_FAILED,
+        BATCH_ERROR_OCR_UNAVAILABLE,
         BATCH_ERROR_PROCESSING_FAILED,
         BATCH_ERROR_TEXT_DECODING,
         BATCH_ERROR_UNSUPPORTED_FILE_TYPE,
@@ -42,6 +54,7 @@ except ImportError:
     from audit import AUDIT_CATEGORY_ORDER, RISK_LEVELS, audit_text
     from file_readers import (
         DOCX_EXTENSION,
+        IMAGE_EXTENSIONS,
         PDF_EXTENSION,
         SUPPORTED_EXTENSIONS,
         TXT_EXTENSION,
@@ -54,13 +67,24 @@ except ImportError:
         build_collision_safe_path,
         build_report_path,
         save_anonymized_docx_copy,
+        save_anonymized_image_txt_copy,
         save_anonymized_pdf_txt_copy,
         save_anonymized_txt_copy,
+    )
+    from ocr import (
+        OCR_INPUT_TYPE_IMAGE,
+        OCR_INPUT_TYPE_NONE,
+        OCR_INPUT_TYPE_PDF,
+        OcrUnavailableError,
+        build_ocr_not_used_metadata,
+        extract_text_with_ocr,
     )
     from report import (
         BATCH_ERROR_EMPTY_TEXT_PDF,
         BATCH_ERROR_FILE_IO,
         BATCH_ERROR_MISSING_DEPENDENCY,
+        BATCH_ERROR_OCR_FAILED,
+        BATCH_ERROR_OCR_UNAVAILABLE,
         BATCH_ERROR_PROCESSING_FAILED,
         BATCH_ERROR_TEXT_DECODING,
         BATCH_ERROR_UNSUPPORTED_FILE_TYPE,
@@ -84,6 +108,7 @@ class FileWorkflowResult:
     report_path: Path
     counters: dict[str, int]
     audit_result: dict[str, object]
+    ocr_result: dict[str, object]
 
 
 @dataclass(frozen=True)
@@ -294,15 +319,17 @@ def _anonymize_txt_file_result(
         audit_text(anonymized, sensitive_terms=terms),
         dictionary_result,
     )
+    ocr_result = build_ocr_not_used_metadata(OCR_INPUT_TYPE_NONE)
     report_path = _save_anonymization_report(
         source_path,
         output_path,
         counters,
         audit_result,
         dictionary_result,
+        ocr_result,
         output_dir=output_dir,
     )
-    return FileWorkflowResult(output_path, report_path, counters, audit_result)
+    return FileWorkflowResult(output_path, report_path, counters, audit_result, ocr_result)
 
 
 def anonymize_docx_file(
@@ -378,15 +405,17 @@ def _anonymize_docx_file_result(
         audit_text(anonymized_text, sensitive_terms=terms),
         dictionary_result,
     )
+    ocr_result = build_ocr_not_used_metadata(OCR_INPUT_TYPE_NONE)
     report_path = _save_anonymization_report(
         source_path,
         output_path,
         counters,
         audit_result,
         dictionary_result,
+        ocr_result,
         output_dir=output_dir,
     )
-    return FileWorkflowResult(output_path, report_path, counters, audit_result)
+    return FileWorkflowResult(output_path, report_path, counters, audit_result, ocr_result)
 
 
 def anonymize_pdf_file(
@@ -431,7 +460,15 @@ def _anonymize_pdf_file_result(
     terms, dictionary_status = _prepare_workflow_dictionary(
         sensitive_terms, sensitive_terms_path
     )
-    text = read_pdf_file(source_path)
+    try:
+        text = read_pdf_file(source_path)
+        ocr_result = build_ocr_not_used_metadata(OCR_INPUT_TYPE_PDF)
+    except ValueError as error:
+        if "no extractable text" not in str(error):
+            raise
+        extraction = extract_text_with_ocr(source_path)
+        text = extraction.text
+        ocr_result = extraction.metadata
     anonymized, counters, dictionary_counters = (
         _anonymize_text_with_dictionary_counters(text, sensitive_terms=terms)
     )
@@ -453,9 +490,86 @@ def _anonymize_pdf_file_result(
         counters,
         audit_result,
         dictionary_result,
+        ocr_result,
         output_dir=output_dir,
     )
-    return FileWorkflowResult(output_path, report_path, counters, audit_result)
+    return FileWorkflowResult(output_path, report_path, counters, audit_result, ocr_result)
+
+
+def anonymize_image_file(
+    source_path: str | Path,
+    sensitive_terms: Iterable[SensitiveTerm] | None = None,
+    sensitive_terms_path: str | Path | None = None,
+    output_dir: str | Path | None = None,
+) -> tuple[Path, dict[str, int]]:
+    """Anonymize OCR text from an image and save TXT output plus a safe report."""
+    output_path, counters, _ = anonymize_image_file_with_audit(
+        source_path,
+        sensitive_terms=sensitive_terms,
+        sensitive_terms_path=sensitive_terms_path,
+        output_dir=output_dir,
+    )
+    return output_path, counters
+
+
+def anonymize_image_file_with_audit(
+    source_path: str | Path,
+    sensitive_terms: Iterable[SensitiveTerm] | None = None,
+    sensitive_terms_path: str | Path | None = None,
+    output_dir: str | Path | None = None,
+) -> tuple[Path, dict[str, int], dict[str, object]]:
+    """Anonymize OCR text from an image and return safe audit metadata."""
+    result = _anonymize_image_file_result(
+        source_path,
+        sensitive_terms=sensitive_terms,
+        sensitive_terms_path=sensitive_terms_path,
+        output_dir=output_dir,
+    )
+    return result.output_path, result.counters, result.audit_result
+
+
+def _anonymize_image_file_result(
+    source_path: str | Path,
+    sensitive_terms: Iterable[SensitiveTerm] | None = None,
+    sensitive_terms_path: str | Path | None = None,
+    output_dir: str | Path | None = None,
+) -> FileWorkflowResult:
+    """Anonymize OCR text from an image and return paths for batch processing."""
+    terms, dictionary_status = _prepare_workflow_dictionary(
+        sensitive_terms, sensitive_terms_path
+    )
+    extraction = extract_text_with_ocr(source_path)
+    anonymized, counters, dictionary_counters = (
+        _anonymize_text_with_dictionary_counters(extraction.text, sensitive_terms=terms)
+    )
+    output_path = save_anonymized_image_txt_copy(
+        source_path, anonymized, output_dir=output_dir
+    )
+    dictionary_result = _dictionary_result(
+        status=dictionary_status,
+        sensitive_terms=terms,
+        label_counters=dictionary_counters,
+    )
+    audit_result = _attach_dictionary_result(
+        audit_text(anonymized, sensitive_terms=terms),
+        dictionary_result,
+    )
+    report_path = _save_anonymization_report(
+        source_path,
+        output_path,
+        counters,
+        audit_result,
+        dictionary_result,
+        extraction.metadata,
+        output_dir=output_dir,
+    )
+    return FileWorkflowResult(
+        output_path,
+        report_path,
+        counters,
+        audit_result,
+        extraction.metadata,
+    )
 
 
 def _save_anonymization_report(
@@ -464,6 +578,7 @@ def _save_anonymization_report(
     counters: dict[str, int],
     audit_result: dict[str, object],
     dictionary_result: dict[str, object],
+    ocr_result: dict[str, object],
     output_dir: str | Path | None = None,
 ) -> Path:
     source = Path(source_path)
@@ -480,6 +595,7 @@ def _save_anonymization_report(
         audit_result=audit_result,
         audit_category_order=AUDIT_CATEGORY_ORDER,
         dictionary_result=dictionary_result,
+        ocr_result=ocr_result,
     )
 
 
@@ -545,6 +661,13 @@ def _anonymize_file_result(
             sensitive_terms_path=sensitive_terms_path,
             output_dir=output_dir,
         )
+    if path.suffix.lower() in IMAGE_EXTENSIONS:
+        return _anonymize_image_file_result(
+            path,
+            sensitive_terms=sensitive_terms,
+            sensitive_terms_path=sensitive_terms_path,
+            output_dir=output_dir,
+        )
 
     suffix = path.suffix.lower() or "<none>"
     supported = ", ".join(SUPPORTED_EXTENSIONS)
@@ -555,6 +678,10 @@ def _anonymize_file_result(
 
 
 def _safe_batch_error_description(error: Exception) -> str:
+    if isinstance(error, OcrUnavailableError):
+        if error.status in ("dependency_missing", "engine_not_found"):
+            return BATCH_ERROR_OCR_UNAVAILABLE
+        return BATCH_ERROR_OCR_FAILED
     if isinstance(error, UnicodeDecodeError):
         return BATCH_ERROR_TEXT_DECODING
     if isinstance(error, ValueError) and "no extractable text" in str(error):
@@ -646,12 +773,16 @@ def anonymize_batch(
         except Exception as error:
             error_count += 1
             audit_status_counts["not run"] += 1
+            error_result = {
+                "input_name": path.name,
+                "status": "error",
+                "error": _safe_batch_error_description(error),
+            }
+            if isinstance(error, OcrUnavailableError):
+                error_result["ocr_used"] = False
+                error_result["ocr_status"] = error.status
             results.append(
-                {
-                    "input_name": path.name,
-                    "status": "error",
-                    "error": _safe_batch_error_description(error),
-                }
+                error_result
             )
             continue
 
@@ -675,6 +806,8 @@ def anonymize_batch(
                 "audit_status": result.audit_result.get("status", "unknown"),
                 "risk_level": result.audit_result.get("risk_level", "unknown"),
                 "dictionary_status": dictionary_status,
+                "ocr_used": result.ocr_result.get("used", False),
+                "ocr_status": result.ocr_result.get("status", "not_used"),
             }
         )
 

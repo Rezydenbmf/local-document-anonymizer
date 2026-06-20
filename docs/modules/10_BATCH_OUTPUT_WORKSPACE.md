@@ -9,6 +9,9 @@ All generated `_ANON`, `_RAPORT`, and `_BATCH_SUMMARY` files are written to
 that output folder instead of next to the source files. Generated names are
 collision-safe, so existing files are not silently overwritten.
 
+Stage 19 keeps batch processing sequential and adds safe OCR status metadata
+for image inputs and scanned-PDF fallback.
+
 ## Related files
 
 - `src/anonymizer.py`
@@ -16,6 +19,7 @@ collision-safe, so existing files are not silently overwritten.
 - `src/report.py`
 - `src/gui.py`
 - `tests/test_batch_processing.py`
+- `tests/test_ocr.py`
 
 ## Public API
 
@@ -35,8 +39,8 @@ chosen output workspace.
 
 `anonymize_batch(...)` returns safe batch metadata including the summary path,
 input count, success count, error count, aggregate counters, audit status
-counts, risk level counts, aggregate audit category counters, and per-file
-result entries using filenames only.
+counts, risk level counts, aggregate audit category counters, aggregate OCR
+counts, and per-file result entries using filenames only.
 
 ## Output Workspace
 
@@ -46,6 +50,7 @@ The output folder is selected by the user in the GUI. The workflow writes:
 document.txt  -> document_ANON.txt  + document_RAPORT.txt
 document.docx -> document_ANON.docx + document_RAPORT.txt
 document.pdf  -> document_ANON.txt  + document_RAPORT.txt
+scan.png      -> scan_ANON.txt      + scan_RAPORT.txt
 batch run     -> _BATCH_SUMMARY.txt
 ```
 
@@ -69,11 +74,13 @@ summary reports.
 ## Batch Processing
 
 Batch processing is sequential. Each input path is processed through the same
-TXT, DOCX, or text-based PDF workflow used by the single-file dispatcher.
+TXT, DOCX, text-based PDF, scanned-PDF OCR fallback, or image OCR workflow used
+by the single-file dispatcher.
 
 If one file fails, the batch continues with later files. Unsupported files are
-recorded as safe errors. Runtime errors are converted to controlled safe error
-descriptions before they enter the batch summary.
+recorded as safe errors. OCR-unavailable files are recorded as controlled OCR
+errors. Runtime errors are converted to controlled safe error descriptions
+before they enter the batch summary.
 
 ## Batch Summary Report
 
@@ -86,6 +93,7 @@ The `_BATCH_SUMMARY.txt` report may contain:
 - audit status counts,
 - risk level counts,
 - aggregate audit warning category counters,
+- aggregate OCR status counts,
 - safe input filenames,
 - safe generated output filenames,
 - safe generated report filenames,
@@ -102,6 +110,7 @@ The batch summary must not contain:
 - full source paths,
 - full output paths,
 - raw exception messages,
+- raw OCR text,
 - logs or snippets.
 
 ## GUI Behavior
@@ -113,8 +122,8 @@ The GUI now supports this Stage 12 flow:
 3. Optionally select a private dictionary file.
 4. Run `Anonymize batch`.
 5. Review the completion status, aggregate counters, aggregate audit status,
-   aggregate risk levels, output filenames, report filenames, and batch summary
-   filename.
+   aggregate risk levels, aggregate OCR status, output filenames, report
+   filenames, and batch summary filename.
 6. Manually review every generated anonymized output.
 
 The GUI shows safe filenames and counts. It does not show source values,
@@ -123,7 +132,8 @@ dictionary contents, audit snippets, or raw exception text.
 ## Safety Assumptions
 
 - Processing remains local and offline.
-- No OCR, AI, API, cloud service, local LLM, NER, or database is added.
+- Optional OCR remains local and dependency-detected; no AI, API, cloud
+  service, local LLM, NER, or database is added.
 - No drag and drop, document preview, or editor is added.
 - Original files are not modified.
 - Reports do not store replacement maps.
@@ -144,7 +154,8 @@ sequential batch processing across TXT/DOCX/text-based PDF, safe continuation
 after unsupported files, and safe batch summary contents. Stage 16 tests cover
 aggregate risk counts, aggregate audit category counters, and source-value-safe
 risk metadata in the batch summary. Stage 18 tests cover batch output as part
-of the complete MVP chain through manual review and approved export.
+of the complete MVP chain through manual review and approved export. Stage 19
+tests cover safe OCR batch continuation and OCR status summary metadata.
 
 ## Known Limitations
 
@@ -152,6 +163,8 @@ of the complete MVP chain through manual review and approved export.
 - The GUI does not show a per-file progress table.
 - The batch summary is a plain TXT report.
 - Risk counts and audit warning categories are conservative review hints only.
+- OCR counts are status metadata only and do not guarantee complete text
+  extraction.
 - The batch summary uses safe filenames, but filenames themselves should still
   be chosen carefully by the user.
 - Manual review is still required.
