@@ -22,6 +22,8 @@ approved staging workspace from saved manual review decisions. Stage 18
 validates the complete GUI-backed MVP workflow with synthetic end-to-end tests
 and a manual smoke checklist. Stage 19 adds minimal image-file selection and
 safe aggregate OCR status display without redesigning the GUI.
+Stage 20 adds one optional local NER checkbox and safe aggregate NER status
+display without redesigning the GUI.
 
 ## Related files
 
@@ -30,6 +32,7 @@ safe aggregate OCR status display without redesigning the GUI.
 - `src/anonymizer.py`
 - `src/review.py`
 - `src/ocr.py`
+- `src/ner.py`
 - `src/sensitive_terms.py`
 - `tests/test_gui_workflow.py`
 - `tests/test_review_workflow.py`
@@ -71,20 +74,22 @@ The GUI supports this flow:
 3. Select an output folder.
 4. Optionally select a private sensitive terms file. The GUI stores the path
    and the workflow loads the dictionary.
-5. Check the readiness hint if `Anonymize batch` is disabled.
-6. Click `Anonymize batch`.
-7. Review the status, safe dictionary status, category counters, aggregate
-   audit status counts, aggregate risk counts, generated output filenames,
-   generated report filenames, batch summary filename, and manual review
-   warning.
-8. Manually inspect every anonymized output file before using or sharing it.
-9. Load the output folder in the manual review section.
-10. Optionally open the selected `_ANON` output or matching `_RAPORT` report in
+5. Leave `Use local NER if available` checked to request local NER, or uncheck
+   it for dictionary/regex-only processing.
+6. Check the readiness hint if `Anonymize batch` is disabled.
+7. Click `Anonymize batch`.
+8. Review the status, safe dictionary status, category counters, aggregate
+   audit status counts, aggregate risk counts, aggregate OCR/NER status,
+   generated output filenames, generated report filenames, batch summary
+   filename, and manual review warning.
+9. Manually inspect every anonymized output file before using or sharing it.
+10. Load the output folder in the manual review section.
+11. Optionally open the selected `_ANON` output or matching `_RAPORT` report in
    the operating system default application.
-11. Assign each generated output one manual status: `approved`,
+12. Assign each generated output one manual status: `approved`,
    `needs_review`, or `rejected`.
-12. Save `_REVIEW_STATUS.json` and a collision-safe `_REVIEW_SUMMARY.txt`.
-13. Optionally click `Export approved` to copy approved `_ANON` files into
+13. Save `_REVIEW_STATUS.json` and a collision-safe `_REVIEW_SUMMARY.txt`.
+14. Optionally click `Export approved` to copy approved `_ANON` files into
     `approved/` and write `_APPROVED_INDEX.txt`.
 
 `Remove selected` and `Clear files` affect only the GUI selected-file list.
@@ -104,6 +109,7 @@ The GUI shows:
 - post-anonymization risk level counts,
 - aggregate audit warning categories,
 - aggregate OCR status counts,
+- aggregate NER status counts,
 - output filenames,
 - report filenames and batch summary filename,
 - generated output filenames detected for manual review,
@@ -201,6 +207,7 @@ and approved indexes.
 - The GUI displays audit status counts, risk counts, and audit category counts
   only.
 - The GUI displays OCR status counts only.
+- The GUI displays NER status counts only.
 - The GUI displays dictionary status names and safe match metadata only.
 - The GUI does not display original detected source values.
 - The GUI does not display private dictionary contents.
@@ -220,8 +227,9 @@ and approved indexes.
 - The approved workspace is a staging area only, not a knowledge base or
   guarantee of complete anonymization.
 - No source data is logged.
-- OCR is optional and local; no AI, API, cloud service, database, drag and
-  drop, preview, editing, edited image output, or PDF writing is added.
+- OCR and NER are optional and local; no AI, API, cloud service, database,
+  drag and drop, preview, editing, edited image output, or PDF writing is
+  added.
 
 ## How to test
 
@@ -246,8 +254,9 @@ approved export helper text is covered by `tests/test_gui_workflow.py`, and
 approved export behavior is covered by `tests/test_review_workflow.py`. Stage
 18 end-to-end workflow coverage is in `tests/test_stage18_end_to_end.py`.
 Stage 19 OCR GUI-adjacent status formatting is covered by
-`tests/test_ocr.py` and `tests/test_gui_workflow.py`. Fragile widget tests are
-not included.
+`tests/test_ocr.py` and `tests/test_gui_workflow.py`. Stage 20 NER status
+formatting is covered by `tests/test_ner.py` and `tests/test_gui_workflow.py`.
+Fragile widget tests are not included.
 
 ## Known limitations
 
@@ -266,6 +275,8 @@ not included.
   it does not validate contents or create a knowledge base.
 - OCR requires optional local dependencies and Tesseract; the GUI does not
   install or configure those dependencies.
+- NER requires optional local spaCy dependencies and a local Polish model; the
+  GUI does not install, download, or configure those dependencies.
 - The GUI does not support drag and drop, preview, split-screen review,
   highlighting, edited image output, or anonymized PDF output.
 - DOCX and PDF limitations from Stages 3 and 4 still apply.

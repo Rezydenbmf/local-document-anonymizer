@@ -10,7 +10,8 @@ that output folder instead of next to the source files. Generated names are
 collision-safe, so existing files are not silently overwritten.
 
 Stage 19 keeps batch processing sequential and adds safe OCR status metadata
-for image inputs and scanned-PDF fallback.
+for image inputs and scanned-PDF fallback. Stage 20 adds safe NER status and
+category metadata when local NER is enabled.
 
 ## Related files
 
@@ -20,6 +21,7 @@ for image inputs and scanned-PDF fallback.
 - `src/gui.py`
 - `tests/test_batch_processing.py`
 - `tests/test_ocr.py`
+- `tests/test_ner.py`
 
 ## Public API
 
@@ -40,7 +42,7 @@ chosen output workspace.
 `anonymize_batch(...)` returns safe batch metadata including the summary path,
 input count, success count, error count, aggregate counters, audit status
 counts, risk level counts, aggregate audit category counters, aggregate OCR
-counts, and per-file result entries using filenames only.
+counts, aggregate NER counts, and per-file result entries using filenames only.
 
 ## Output Workspace
 
@@ -94,6 +96,7 @@ The `_BATCH_SUMMARY.txt` report may contain:
 - risk level counts,
 - aggregate audit warning category counters,
 - aggregate OCR status counts,
+- aggregate NER status counts and NER category counters,
 - safe input filenames,
 - safe generated output filenames,
 - safe generated report filenames,
@@ -111,6 +114,7 @@ The batch summary must not contain:
 - full output paths,
 - raw exception messages,
 - raw OCR text,
+- detected entity text,
 - logs or snippets.
 
 ## GUI Behavior
@@ -122,7 +126,7 @@ The GUI now supports this Stage 12 flow:
 3. Optionally select a private dictionary file.
 4. Run `Anonymize batch`.
 5. Review the completion status, aggregate counters, aggregate audit status,
-   aggregate risk levels, aggregate OCR status, output filenames, report
+   aggregate risk levels, aggregate OCR/NER status, output filenames, report
    filenames, and batch summary filename.
 6. Manually review every generated anonymized output.
 
@@ -132,8 +136,8 @@ dictionary contents, audit snippets, or raw exception text.
 ## Safety Assumptions
 
 - Processing remains local and offline.
-- Optional OCR remains local and dependency-detected; no AI, API, cloud
-  service, local LLM, NER, or database is added.
+- Optional OCR and NER remain local and dependency-detected; no AI, API, cloud
+  service, local LLM, or database is added.
 - No drag and drop, document preview, or editor is added.
 - Original files are not modified.
 - Reports do not store replacement maps.
@@ -155,7 +159,8 @@ after unsupported files, and safe batch summary contents. Stage 16 tests cover
 aggregate risk counts, aggregate audit category counters, and source-value-safe
 risk metadata in the batch summary. Stage 18 tests cover batch output as part
 of the complete MVP chain through manual review and approved export. Stage 19
-tests cover safe OCR batch continuation and OCR status summary metadata.
+tests cover safe OCR batch continuation and OCR status summary metadata. Stage
+20 tests cover safe NER status summary metadata with mocked model output.
 
 ## Known Limitations
 
@@ -165,6 +170,8 @@ tests cover safe OCR batch continuation and OCR status summary metadata.
 - Risk counts and audit warning categories are conservative review hints only.
 - OCR counts are status metadata only and do not guarantee complete text
   extraction.
+- NER counts are status metadata only and do not guarantee complete entity
+  detection.
 - The batch summary uses safe filenames, but filenames themselves should still
   be chosen carefully by the user.
 - Manual review is still required.

@@ -5,9 +5,10 @@
 Local Document Anonymizer is a local desktop tool for replacing supported
 sensitive values in documents with general labels.
 
-The workflow is local-first. It does not use cloud services, API calls, AI,
-local LLMs, or a database. Optional OCR runs only on the user's computer when
-local OCR dependencies are installed.
+The workflow is local-first. It does not use cloud services, API calls, local
+LLMs, prompt-based review, or a database. Optional OCR and optional NER run
+only on the user's computer when local dependencies and local models are
+installed.
 
 ## 2. What This Application Is Not For
 
@@ -22,16 +23,18 @@ The current MVP workflow is:
 2. Add one or more supported files and check the selected-file count.
 3. Select an output folder.
 4. Optionally select a private sensitive terms file.
-5. If `Anonymize batch` is disabled, read the readiness hint beside the button.
-6. Click `Anonymize batch`.
-7. Check the status, dictionary status, category counters, aggregate audit
-   status, aggregate risk levels, generated filenames, and batch summary
-   filename.
-8. Manually review each anonymized output file before using or sharing it.
-9. Use the manual review section to load the output folder, optionally open the
+5. Leave `Use local NER if available` checked when you want the optional local
+   spaCy NER layer to run, or uncheck it for dictionary/regex-only processing.
+6. If `Anonymize batch` is disabled, read the readiness hint beside the button.
+7. Click `Anonymize batch`.
+8. Check the status, dictionary status, category counters, aggregate audit
+   status, aggregate risk levels, aggregate OCR/NER status, generated
+   filenames, and batch summary filename.
+9. Manually review each anonymized output file before using or sharing it.
+10. Use the manual review section to load the output folder, optionally open the
    selected generated output or matching report in the operating system
    default application, assign statuses, and save safe review metadata.
-10. Optionally export approved files to an `approved/` staging workspace.
+11. Optionally export approved files to an `approved/` staging workspace.
 
 The application saves output files before manual review. It does not provide an
 in-app document preview or editing screen.
@@ -104,14 +107,24 @@ PDF layout preservation is not guaranteed. OCR is optional, dependency
 dependent, and can be imperfect. Manual review is still required for OCR
 outputs.
 
-AI, APIs, cloud services, databases, drag and drop, advanced document preview,
-PDF writing, edited image output, automatic entity detection, and detailed
-audit reports with source snippets are not supported.
+Optional NER can detect and replace people, organizations, locations, and safe
+miscellaneous entity labels when spaCy and a local Polish model are installed.
+NER can miss or misclassify entities. Manual review is still required for NER
+outputs.
+
+APIs, cloud services, databases, drag and drop, advanced document preview, PDF
+writing, edited image output, LLM-based review, online NLP, and detailed audit
+reports with source snippets are not supported.
 
 Optional OCR requires local Python OCR libraries and the Tesseract executable
 with needed language data installed on the user's computer. The repository
 does not include Tesseract binaries, OCR models, external installers, or real
 OCR outputs.
+
+Optional NER requires `spacy` plus a local Polish model such as
+`pl_core_news_sm` installed in the user's Python environment. The application
+does not download models automatically and the repository does not include
+spaCy model files.
 
 ## 5. Report Files
 
@@ -127,14 +140,15 @@ The report contains:
 - dictionary used/status/matches-found information,
 - dictionary label counters,
 - OCR used/status/input-type metadata and page/image counts,
+- NER enabled/used/status/model metadata and NER category counters,
 - post-anonymization audit status, risk level, and category counters,
 - manual review requirement,
 - confirmation that original sensitive values are not stored,
 - confirmation that no replacement map was created.
 
-The report does not contain document text, raw OCR text, original sensitive
-values, full input paths, source filenames, private dictionary terms, text
-snippets, or replacement maps.
+The report does not contain document text, raw OCR text, detected entity text,
+original sensitive values, full input paths, source filenames, private
+dictionary terms, text snippets, or replacement maps.
 
 For each batch run, the application writes `_BATCH_SUMMARY.txt` in the selected
 output folder. If that name already exists, it writes `_BATCH_SUMMARY_2.txt`,
@@ -148,12 +162,13 @@ output folder. If that name already exists, it writes `_BATCH_SUMMARY_2.txt`,
 - risk level counts,
 - aggregate audit warning category counters,
 - aggregate OCR status counts,
+- aggregate NER status counts and NER category counters,
 - safe input, output, and report filenames,
 - controlled safe error descriptions.
 
-The batch summary does not contain source document text, raw OCR text,
-original sensitive values, private dictionary terms, aliases, replacement maps,
-full paths, or raw exception messages.
+The batch summary does not contain source document text, raw OCR text, detected
+entity text, original sensitive values, private dictionary terms, aliases,
+replacement maps, full paths, or raw exception messages.
 
 ## 6. Manual Review Workflow
 
@@ -312,7 +327,29 @@ extra spaces inside matched terms. It is not fuzzy matching, inflection
 handling, AI, automatic names or address detection, NER, a database, or
 automatic deletion of originals.
 
-## 11. Post-Anonymization Audit
+## 11. Local NER / NLP
+
+The optional NER layer uses spaCy locally. It is meant as a review-support
+foundation, not a guarantee that every name, organization, or location is
+found.
+
+To enable it, install dependencies and a Polish spaCy model in your local
+Python environment:
+
+```bash
+pip install -r requirements.txt
+python -m spacy download pl_core_news_sm
+python -c "import spacy; spacy.load('pl_core_news_sm'); print('NER model available')"
+```
+
+The app does not run model download commands automatically. If spaCy or the
+model is missing, the workflow still processes supported files and records a
+controlled NER status such as `dependency_missing` or `model_missing`.
+
+Safe reports and batch summaries show NER status and category counters only.
+They never include detected entity text.
+
+## 12. Post-Anonymization Audit
 
 Stage 9 adds a safe audit after the `_ANON` output is generated. The workflow
 passes successfully loaded dictionary aliases into that audit. The audit checks
@@ -346,12 +383,12 @@ High-risk categories are `EMAIL`, `PESEL`, `TELEFON`,
 `LONG_NUMBER_SEQUENCE`. The risk level is not a guarantee that anonymization is
 complete and it does not approve a file automatically.
 
-## 12. Why Manual Review Is Required
+## 13. Why Manual Review Is Required
 
 Automatic detection and the audit may miss data or replace text incorrectly.
 Manual review is required before using the result.
 
-## 13. Where Output Files Are Saved
+## 14. Where Output Files Are Saved
 
 The application saves anonymized TXT and DOCX copies in the output folder
 selected by the user with the `_ANON` suffix. PDF input is saved in the output
@@ -380,16 +417,17 @@ _REVIEW_SUMMARY_3.txt
 Approved workspace exports use the same collision-safe numbering style inside
 `approved/` for copied files and `_APPROVED_INDEX.txt`.
 
-## 14. What Is Not Implemented Yet
+## 15. What Is Not Implemented Yet
 
 The current MVP includes plain string anonymization, TXT file input/output,
 basic DOCX file input/output, text-based PDF input with TXT output, optional
-local OCR foundation for image inputs and scanned-PDF fallback, a simple
-Tkinter GUI, batch processing, an output folder workflow, collision-safe output
-names, safe reports, optional private dictionary input, dictionary status
-reporting, a safe post-anonymization audit with risk prioritization, and
-manual review status tracking with approved workspace staging. Automatic
-names, broad addresses, cities, organizations, AI, APIs, cloud services, local
-LLMs, databases, drag and drop, advanced preview, editing workflow, automatic
-approval, real knowledge-base creation, rejected/needs-review folder routing,
-edited image output, and anonymized PDF output are not implemented.
+local OCR foundation for image inputs and scanned-PDF fallback, optional local
+spaCy NER, a simple Tkinter GUI, batch processing, an output folder workflow,
+collision-safe output names, safe reports, optional private dictionary input,
+dictionary status reporting, a safe post-anonymization audit with risk
+prioritization, and manual review status tracking with approved workspace
+staging. Production-grade entity detection, NER candidate export, AI, APIs,
+cloud services, local LLMs, databases, drag and drop, advanced preview,
+editing workflow, automatic approval, real knowledge-base creation,
+rejected/needs-review folder routing, edited image output, and anonymized PDF
+output are not implemented.

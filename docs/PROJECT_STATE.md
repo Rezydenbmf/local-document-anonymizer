@@ -2,8 +2,8 @@
 
 ## Current Status
 
-The project is in Stage 19: optional local OCR foundation, pending user review
-and commit.
+The project is in Stage 20: optional local NER/NLP detection foundation,
+pending user review.
 
 The Stage 0-13 MVP implementation contains a narrow regex-based engine that
 accepts a Python string and returns anonymized text plus category counters. It
@@ -104,6 +104,20 @@ online processing, NER, local LLMs, split-screen review, preview,
 highlighting, drag and drop, installer work, packaging, edited image output,
 or anonymized PDF output.
 
+Stage 20 adds an optional local NER/NLP foundation. It introduces controlled
+spaCy availability detection, local Polish model loading without runtime
+downloads, internal NER labels for people, organizations, locations, and safe
+miscellaneous entities, and safe NER metadata in reports, batch summaries, and
+the GUI status area. NER runs only when enabled and available, after private
+dictionary and regex replacements, and skips existing placeholders to avoid
+double replacement. Missing spaCy, missing local models, disabled NER, and
+processing errors are controlled statuses and do not crash the application.
+Stage 20.1 adds a conservative local PERSON left-expansion heuristic to reduce
+partial person masking in simple adjacent-token cases. Stage 20 does not add
+Ollama, Bielik, OpenAI API calls, cloud/API processing, online NLP, local LLMs,
+candidate export files, document preview, highlighting, drag and drop,
+databases, or model downloads at runtime.
+
 ## What Exists
 
 - Repository structure.
@@ -122,11 +136,20 @@ or anonymized PDF output.
 - Optional local OCR support in `src/ocr.py` with controlled statuses:
   `available`, `unavailable`, `dependency_missing`, `engine_not_found`, and
   `unsupported_input`.
+- Optional local NER support in `src/ner.py` with controlled statuses:
+  `available`, `unavailable`, `dependency_missing`, `model_missing`,
+  `disabled`, and `processing_error`.
+- Optional spaCy NER model loading with no automatic model download and no
+  committed model files.
+- Internal NER labels: `NER_PERSON`, `NER_ORG`, `NER_LOCATION`, and
+  `NER_MISC`.
 - Optional image OCR workflow for `.png`, `.jpg`, `.jpeg`, `.tif`, and `.tiff`
   inputs, saving anonymized OCR text as `_ANON.txt`.
 - Optional scanned PDF OCR fallback when a PDF has no extractable text and
   local OCR dependencies are available.
 - Safe OCR metadata in per-file `_RAPORT.txt` reports and aggregate
+  `_BATCH_SUMMARY.txt` reports.
+- Safe NER metadata in per-file `_RAPORT.txt` reports and aggregate
   `_BATCH_SUMMARY.txt` reports.
 - Single-file application dispatcher `anonymize_file(...)`, with optional
   output directory support.
@@ -230,6 +253,11 @@ accepts preloaded `sensitive_terms`.
   missing-engine behavior, mocked image OCR, text-based PDF non-OCR
   regression, scanned PDF OCR fallback, safe OCR report metadata, and safe OCR
   batch summary errors using synthetic inputs only.
+- Unit tests for Stage 20 NER availability detection, missing spaCy behavior,
+  missing local model behavior, mocked entity detection, PERSON/ORG/location
+  anonymization, NER counters, safe report metadata, safe batch summary
+  metadata, DOCX workflow integration, and no-crash fallback using synthetic
+  inputs only.
 - Manual MVP smoke-test checklist in `docs/MVP_MANUAL_TEST_CHECKLIST.md`.
 - Synthetic sample text files in `tests/sample_data/`.
 - Synthetic example dictionary in `examples/sensitive_terms.example.txt`.
@@ -254,7 +282,8 @@ accepts preloaded `sensitive_terms`.
 - Automatic approval based on audit results or report contents.
 - Moving rejected or needs-review files into separate folders.
 - A real knowledge base built from approved outputs.
-- Automatic names, surnames, cities, organizations, or context-based detection.
+- Production-grade names, surnames, cities, organizations, or context-based
+  detection.
 - Production-grade OCR quality handling.
 
 ## How to Run
@@ -305,6 +334,10 @@ python -m unittest discover -s tests
 - OCR is optional, local, and dependency-dependent. Scanned PDF fallback and
   image OCR require local Python OCR libraries plus the Tesseract executable
   and language data installed outside the repository.
+- NER is optional, local, and dependency/model-dependent. It requires spaCy and
+  a local Polish model installed outside the repository.
+- NER can miss or misclassify people, organizations, locations, and other
+  entities.
 - OCR can be inaccurate. OCR output still goes through deterministic
   anonymization and must be manually reviewed.
 - PDF layout preservation is not guaranteed.
@@ -325,6 +358,8 @@ python -m unittest discover -s tests
 - Report files are plain TXT only and do not include a detailed audit trail.
 - Reports and batch summaries include safe OCR metadata only; they do not
   include raw OCR text.
+- Reports and batch summaries include safe NER metadata only; they do not
+  include detected entity text.
 - Private dictionary matching is deterministic, case-insensitive, and tolerant
   of extra internal spaces, but it is not fuzzy matching, inflection handling,
   automatic entity recognition, AI, or NER.
@@ -342,22 +377,22 @@ python -m unittest discover -s tests
 
 ## Last Completed Committed Stage
 
-Stage 18: end-to-end workflow validation and MVP stabilization.
+Stage 19: optional local OCR foundation.
 
 ```text
-bcdfd7d Stabilize Stage 18 MVP workflow validation
+eef1d03 Implement Stage 19 local OCR foundation
 ```
 
 ## Next Logical Step
 
-Manually smoke test Stage 19 through the Tkinter GUI with synthetic files:
-anonymize normal TXT/DOCX/text-based PDF files, try a synthetic image or
-scanned PDF only on a machine with local OCR dependencies installed, inspect
-safe OCR metadata in `_RAPORT.txt` and `_BATCH_SUMMARY.txt`, then run manual
-review and approved export as before. Potential future work requires an
-explicit project decision, especially OCR quality improvements, installer
-work, AI/API integration, local LLMs, databases, broad NLP/entity detection,
-packaging, release automation, or knowledge-base creation.
+Manually smoke test Stage 20 through the Tkinter GUI with synthetic files:
+anonymize normal TXT/DOCX/text-based PDF files with the local NER checkbox on,
+inspect safe NER metadata in `_RAPORT.txt` and `_BATCH_SUMMARY.txt`, and repeat
+with spaCy/model unavailable to confirm the controlled fallback status.
+Potential future work requires an explicit project decision, especially OCR
+quality improvements, NER candidate export, installer work, AI/API integration,
+local LLMs, databases, broad NLP/entity detection, packaging, release
+automation, or knowledge-base creation.
 
 ## Warning
 

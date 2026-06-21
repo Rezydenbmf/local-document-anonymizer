@@ -1,7 +1,7 @@
 """Regex-based plain text anonymization engine."""
 
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 import re
 
@@ -34,6 +34,8 @@ try:
         build_ocr_not_used_metadata,
         extract_text_with_ocr,
     )
+    from .ner import DEFAULT_NER_MODEL, NER_LABELS, NER_STATUSES, anonymize_text_with_ner
+    from .ner import build_ner_metadata, prepare_ner_context
     from .report import (
         BATCH_ERROR_EMPTY_TEXT_PDF,
         BATCH_ERROR_FILE_IO,
@@ -79,6 +81,8 @@ except ImportError:
         build_ocr_not_used_metadata,
         extract_text_with_ocr,
     )
+    from ner import DEFAULT_NER_MODEL, NER_LABELS, NER_STATUSES, anonymize_text_with_ner
+    from ner import build_ner_metadata, prepare_ner_context
     from report import (
         BATCH_ERROR_EMPTY_TEXT_PDF,
         BATCH_ERROR_FILE_IO,
@@ -98,6 +102,7 @@ except ImportError:
 
 
 SUPPORTED_LABELS = ("PESEL", "EMAIL", "TELEFON", "DATA")
+REPORT_CATEGORY_ORDER = (*SUPPORTED_LABELS, *NER_LABELS)
 
 
 @dataclass(frozen=True)
@@ -109,6 +114,7 @@ class FileWorkflowResult:
     counters: dict[str, int]
     audit_result: dict[str, object]
     ocr_result: dict[str, object]
+    ner_result: dict[str, object]
 
 
 @dataclass(frozen=True)
@@ -124,6 +130,8 @@ class BatchResult:
     risk_level_counts: dict[str, int]
     audit_category_counters: dict[str, int]
     results: list[dict[str, object]]
+    ner_status_counts: dict[str, int] = field(default_factory=dict)
+    ner_category_counters: dict[str, int] = field(default_factory=dict)
 
 _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
@@ -167,19 +175,28 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
 
 
 def anonymize_text(
-    text: str, sensitive_terms: Iterable[SensitiveTerm] | None = None
+    text: str,
+    sensitive_terms: Iterable[SensitiveTerm] | None = None,
+    *,
+    use_ner: bool = False,
+    ner_model_name: str = DEFAULT_NER_MODEL,
 ) -> tuple[str, dict[str, int]]:
     """Replace high-confidence sensitive values with category placeholders."""
-    anonymized, counters, _ = _anonymize_text_with_dictionary_counters(
-        text, sensitive_terms=sensitive_terms
+    ner_context = prepare_ner_context(enabled=use_ner, model_name=ner_model_name)
+    anonymized, counters, _, _ = _anonymize_text_with_dictionary_counters(
+        text,
+        sensitive_terms=sensitive_terms,
+        ner_context=ner_context,
     )
     return anonymized, counters
 
 
 def _anonymize_text_with_dictionary_counters(
-    text: str, sensitive_terms: Iterable[SensitiveTerm] | None = None
-) -> tuple[str, dict[str, int], dict[str, int]]:
-    """Return anonymized text, all counters, and dictionary-label counters."""
+    text: str,
+    sensitive_terms: Iterable[SensitiveTerm] | None = None,
+    ner_context=None,
+) -> tuple[str, dict[str, int], dict[str, int], dict[str, object]]:
+    """Return anonymized text, counters, dictionary counters, and NER metadata."""
     if not isinstance(text, str):
         raise TypeError("text must be a string")
 
@@ -191,7 +208,20 @@ def _anonymize_text_with_dictionary_counters(
         if count:
             counters[label] = counters.get(label, 0) + count
 
-    return anonymized, counters, dictionary_counters
+    if ner_context is None:
+        ner_result = build_ner_metadata(
+            enabled=False,
+            used=False,
+            status="disabled",
+            model_name=DEFAULT_NER_MODEL,
+        )
+    else:
+        anonymized, ner_counters, ner_result = anonymize_text_with_ner(
+            anonymized, ner_context
+        )
+        _merge_counters(counters, ner_counters)
+
+    return anonymized, counters, dictionary_counters, ner_result
 
 
 def _reusable_sensitive_terms(
@@ -256,6 +286,15 @@ def _attach_dictionary_result(
     return audit_with_dictionary
 
 
+def _attach_ner_result(
+    audit_result: dict[str, object],
+    ner_result: dict[str, object],
+) -> dict[str, object]:
+    audit_with_ner = dict(audit_result)
+    audit_with_ner["ner"] = ner_result
+    return audit_with_ner
+
+
 def _merge_counters(target: dict[str, int], source: dict[str, int]) -> None:
     for label, count in source.items():
         target[label] = target.get(label, 0) + count
@@ -266,6 +305,9 @@ def anonymize_txt_file(
     sensitive_terms: Iterable[SensitiveTerm] | None = None,
     sensitive_terms_path: str | Path | None = None,
     output_dir: str | Path | None = None,
+    *,
+    use_ner: bool = False,
+    ner_model_name: str = DEFAULT_NER_MODEL,
 ) -> tuple[Path, dict[str, int]]:
     """Anonymize a TXT file and save output plus a safe report."""
     output_path, counters, _ = anonymize_txt_file_with_audit(
@@ -273,6 +315,8 @@ def anonymize_txt_file(
         sensitive_terms=sensitive_terms,
         sensitive_terms_path=sensitive_terms_path,
         output_dir=output_dir,
+        use_ner=use_ner,
+        ner_model_name=ner_model_name,
     )
     return output_path, counters
 
@@ -282,6 +326,9 @@ def anonymize_txt_file_with_audit(
     sensitive_terms: Iterable[SensitiveTerm] | None = None,
     sensitive_terms_path: str | Path | None = None,
     output_dir: str | Path | None = None,
+    *,
+    use_ner: bool = False,
+    ner_model_name: str = DEFAULT_NER_MODEL,
 ) -> tuple[Path, dict[str, int], dict[str, object]]:
     """Anonymize a TXT file and return safe audit metadata."""
     result = _anonymize_txt_file_result(
@@ -289,6 +336,8 @@ def anonymize_txt_file_with_audit(
         sensitive_terms=sensitive_terms,
         sensitive_terms_path=sensitive_terms_path,
         output_dir=output_dir,
+        use_ner=use_ner,
+        ner_model_name=ner_model_name,
     )
     return result.output_path, result.counters, result.audit_result
 
@@ -298,14 +347,22 @@ def _anonymize_txt_file_result(
     sensitive_terms: Iterable[SensitiveTerm] | None = None,
     sensitive_terms_path: str | Path | None = None,
     output_dir: str | Path | None = None,
+    *,
+    use_ner: bool = False,
+    ner_model_name: str = DEFAULT_NER_MODEL,
 ) -> FileWorkflowResult:
     """Anonymize a TXT file and return paths needed by batch processing."""
     terms, dictionary_status = _prepare_workflow_dictionary(
         sensitive_terms, sensitive_terms_path
     )
+    ner_context = prepare_ner_context(enabled=use_ner, model_name=ner_model_name)
     text = read_txt_file(source_path)
-    anonymized, counters, dictionary_counters = (
-        _anonymize_text_with_dictionary_counters(text, sensitive_terms=terms)
+    anonymized, counters, dictionary_counters, ner_result = (
+        _anonymize_text_with_dictionary_counters(
+            text,
+            sensitive_terms=terms,
+            ner_context=ner_context,
+        )
     )
     output_path = save_anonymized_txt_copy(
         source_path, anonymized, output_dir=output_dir
@@ -319,6 +376,7 @@ def _anonymize_txt_file_result(
         audit_text(anonymized, sensitive_terms=terms),
         dictionary_result,
     )
+    audit_result = _attach_ner_result(audit_result, ner_result)
     ocr_result = build_ocr_not_used_metadata(OCR_INPUT_TYPE_NONE)
     report_path = _save_anonymization_report(
         source_path,
@@ -327,9 +385,17 @@ def _anonymize_txt_file_result(
         audit_result,
         dictionary_result,
         ocr_result,
+        ner_result,
         output_dir=output_dir,
     )
-    return FileWorkflowResult(output_path, report_path, counters, audit_result, ocr_result)
+    return FileWorkflowResult(
+        output_path,
+        report_path,
+        counters,
+        audit_result,
+        ocr_result,
+        ner_result,
+    )
 
 
 def anonymize_docx_file(
@@ -337,6 +403,9 @@ def anonymize_docx_file(
     sensitive_terms: Iterable[SensitiveTerm] | None = None,
     sensitive_terms_path: str | Path | None = None,
     output_dir: str | Path | None = None,
+    *,
+    use_ner: bool = False,
+    ner_model_name: str = DEFAULT_NER_MODEL,
 ) -> tuple[Path, dict[str, int]]:
     """Anonymize a DOCX file and save output plus a safe report."""
     output_path, counters, _ = anonymize_docx_file_with_audit(
@@ -344,6 +413,8 @@ def anonymize_docx_file(
         sensitive_terms=sensitive_terms,
         sensitive_terms_path=sensitive_terms_path,
         output_dir=output_dir,
+        use_ner=use_ner,
+        ner_model_name=ner_model_name,
     )
     return output_path, counters
 
@@ -353,6 +424,9 @@ def anonymize_docx_file_with_audit(
     sensitive_terms: Iterable[SensitiveTerm] | None = None,
     sensitive_terms_path: str | Path | None = None,
     output_dir: str | Path | None = None,
+    *,
+    use_ner: bool = False,
+    ner_model_name: str = DEFAULT_NER_MODEL,
 ) -> tuple[Path, dict[str, int], dict[str, object]]:
     """Anonymize a DOCX file and return safe audit metadata."""
     result = _anonymize_docx_file_result(
@@ -360,6 +434,8 @@ def anonymize_docx_file_with_audit(
         sensitive_terms=sensitive_terms,
         sensitive_terms_path=sensitive_terms_path,
         output_dir=output_dir,
+        use_ner=use_ner,
+        ner_model_name=ner_model_name,
     )
     return result.output_path, result.counters, result.audit_result
 
@@ -369,22 +445,51 @@ def _anonymize_docx_file_result(
     sensitive_terms: Iterable[SensitiveTerm] | None = None,
     sensitive_terms_path: str | Path | None = None,
     output_dir: str | Path | None = None,
+    *,
+    use_ner: bool = False,
+    ner_model_name: str = DEFAULT_NER_MODEL,
 ) -> FileWorkflowResult:
     """Anonymize a DOCX file and return paths needed by batch processing."""
     terms, dictionary_status = _prepare_workflow_dictionary(
         sensitive_terms, sensitive_terms_path
     )
+    ner_context = prepare_ner_context(enabled=use_ner, model_name=ner_model_name)
     dictionary_counters: dict[str, int] = {}
+    ner_counters: dict[str, int] = {}
+    ner_status = build_ner_metadata(
+        enabled=ner_context.enabled,
+        used=False,
+        status=ner_context.status,
+        model_name=ner_context.model_name,
+        warning=ner_context.warning,
+    )
 
     def anonymize_docx_text(text: str) -> tuple[str, dict[str, int]]:
-        anonymized, counters, paragraph_dictionary_counters = (
-            _anonymize_text_with_dictionary_counters(text, sensitive_terms=terms)
+        nonlocal ner_status
+        paragraph_result = _anonymize_text_with_dictionary_counters(
+            text,
+            sensitive_terms=terms,
+            ner_context=ner_context,
+        )
+        anonymized, counters, paragraph_dictionary_counters, paragraph_ner_result = (
+            paragraph_result
         )
         _merge_counters(dictionary_counters, paragraph_dictionary_counters)
+        paragraph_ner_counters = paragraph_ner_result.get("counters", {})
+        if isinstance(paragraph_ner_counters, dict):
+            _merge_counters(
+                ner_counters,
+                {
+                    label: count
+                    for label, count in paragraph_ner_counters.items()
+                    if isinstance(count, int)
+                },
+            )
+        ner_status = paragraph_ner_result
         return anonymized, counters
 
     def anonymize_docx_run(text: str) -> tuple[str, dict[str, int]]:
-        anonymized, counters, _ = _anonymize_text_with_dictionary_counters(
+        anonymized, counters, _, _ = _anonymize_text_with_dictionary_counters(
             text, sensitive_terms=terms
         )
         return anonymized, counters
@@ -401,10 +506,18 @@ def _anonymize_docx_file_result(
         sensitive_terms=terms,
         label_counters=dictionary_counters,
     )
+    ner_result = dict(ner_status)
+    if ner_counters:
+        ner_result["used"] = True
+        ner_result["counters"] = {
+            label: ner_counters.get(label, 0)
+            for label in NER_LABELS
+        }
     audit_result = _attach_dictionary_result(
         audit_text(anonymized_text, sensitive_terms=terms),
         dictionary_result,
     )
+    audit_result = _attach_ner_result(audit_result, ner_result)
     ocr_result = build_ocr_not_used_metadata(OCR_INPUT_TYPE_NONE)
     report_path = _save_anonymization_report(
         source_path,
@@ -413,9 +526,17 @@ def _anonymize_docx_file_result(
         audit_result,
         dictionary_result,
         ocr_result,
+        ner_result,
         output_dir=output_dir,
     )
-    return FileWorkflowResult(output_path, report_path, counters, audit_result, ocr_result)
+    return FileWorkflowResult(
+        output_path,
+        report_path,
+        counters,
+        audit_result,
+        ocr_result,
+        ner_result,
+    )
 
 
 def anonymize_pdf_file(
@@ -423,6 +544,9 @@ def anonymize_pdf_file(
     sensitive_terms: Iterable[SensitiveTerm] | None = None,
     sensitive_terms_path: str | Path | None = None,
     output_dir: str | Path | None = None,
+    *,
+    use_ner: bool = False,
+    ner_model_name: str = DEFAULT_NER_MODEL,
 ) -> tuple[Path, dict[str, int]]:
     """Anonymize text from a PDF and save TXT output plus a safe report."""
     output_path, counters, _ = anonymize_pdf_file_with_audit(
@@ -430,6 +554,8 @@ def anonymize_pdf_file(
         sensitive_terms=sensitive_terms,
         sensitive_terms_path=sensitive_terms_path,
         output_dir=output_dir,
+        use_ner=use_ner,
+        ner_model_name=ner_model_name,
     )
     return output_path, counters
 
@@ -439,6 +565,9 @@ def anonymize_pdf_file_with_audit(
     sensitive_terms: Iterable[SensitiveTerm] | None = None,
     sensitive_terms_path: str | Path | None = None,
     output_dir: str | Path | None = None,
+    *,
+    use_ner: bool = False,
+    ner_model_name: str = DEFAULT_NER_MODEL,
 ) -> tuple[Path, dict[str, int], dict[str, object]]:
     """Anonymize text from a PDF and return safe audit metadata."""
     result = _anonymize_pdf_file_result(
@@ -446,6 +575,8 @@ def anonymize_pdf_file_with_audit(
         sensitive_terms=sensitive_terms,
         sensitive_terms_path=sensitive_terms_path,
         output_dir=output_dir,
+        use_ner=use_ner,
+        ner_model_name=ner_model_name,
     )
     return result.output_path, result.counters, result.audit_result
 
@@ -455,11 +586,15 @@ def _anonymize_pdf_file_result(
     sensitive_terms: Iterable[SensitiveTerm] | None = None,
     sensitive_terms_path: str | Path | None = None,
     output_dir: str | Path | None = None,
+    *,
+    use_ner: bool = False,
+    ner_model_name: str = DEFAULT_NER_MODEL,
 ) -> FileWorkflowResult:
     """Anonymize a PDF file and return paths needed by batch processing."""
     terms, dictionary_status = _prepare_workflow_dictionary(
         sensitive_terms, sensitive_terms_path
     )
+    ner_context = prepare_ner_context(enabled=use_ner, model_name=ner_model_name)
     try:
         text = read_pdf_file(source_path)
         ocr_result = build_ocr_not_used_metadata(OCR_INPUT_TYPE_PDF)
@@ -469,8 +604,12 @@ def _anonymize_pdf_file_result(
         extraction = extract_text_with_ocr(source_path)
         text = extraction.text
         ocr_result = extraction.metadata
-    anonymized, counters, dictionary_counters = (
-        _anonymize_text_with_dictionary_counters(text, sensitive_terms=terms)
+    anonymized, counters, dictionary_counters, ner_result = (
+        _anonymize_text_with_dictionary_counters(
+            text,
+            sensitive_terms=terms,
+            ner_context=ner_context,
+        )
     )
     output_path = save_anonymized_pdf_txt_copy(
         source_path, anonymized, output_dir=output_dir
@@ -484,6 +623,7 @@ def _anonymize_pdf_file_result(
         audit_text(anonymized, sensitive_terms=terms),
         dictionary_result,
     )
+    audit_result = _attach_ner_result(audit_result, ner_result)
     report_path = _save_anonymization_report(
         source_path,
         output_path,
@@ -491,9 +631,17 @@ def _anonymize_pdf_file_result(
         audit_result,
         dictionary_result,
         ocr_result,
+        ner_result,
         output_dir=output_dir,
     )
-    return FileWorkflowResult(output_path, report_path, counters, audit_result, ocr_result)
+    return FileWorkflowResult(
+        output_path,
+        report_path,
+        counters,
+        audit_result,
+        ocr_result,
+        ner_result,
+    )
 
 
 def anonymize_image_file(
@@ -501,6 +649,9 @@ def anonymize_image_file(
     sensitive_terms: Iterable[SensitiveTerm] | None = None,
     sensitive_terms_path: str | Path | None = None,
     output_dir: str | Path | None = None,
+    *,
+    use_ner: bool = False,
+    ner_model_name: str = DEFAULT_NER_MODEL,
 ) -> tuple[Path, dict[str, int]]:
     """Anonymize OCR text from an image and save TXT output plus a safe report."""
     output_path, counters, _ = anonymize_image_file_with_audit(
@@ -508,6 +659,8 @@ def anonymize_image_file(
         sensitive_terms=sensitive_terms,
         sensitive_terms_path=sensitive_terms_path,
         output_dir=output_dir,
+        use_ner=use_ner,
+        ner_model_name=ner_model_name,
     )
     return output_path, counters
 
@@ -517,6 +670,9 @@ def anonymize_image_file_with_audit(
     sensitive_terms: Iterable[SensitiveTerm] | None = None,
     sensitive_terms_path: str | Path | None = None,
     output_dir: str | Path | None = None,
+    *,
+    use_ner: bool = False,
+    ner_model_name: str = DEFAULT_NER_MODEL,
 ) -> tuple[Path, dict[str, int], dict[str, object]]:
     """Anonymize OCR text from an image and return safe audit metadata."""
     result = _anonymize_image_file_result(
@@ -524,6 +680,8 @@ def anonymize_image_file_with_audit(
         sensitive_terms=sensitive_terms,
         sensitive_terms_path=sensitive_terms_path,
         output_dir=output_dir,
+        use_ner=use_ner,
+        ner_model_name=ner_model_name,
     )
     return result.output_path, result.counters, result.audit_result
 
@@ -533,14 +691,22 @@ def _anonymize_image_file_result(
     sensitive_terms: Iterable[SensitiveTerm] | None = None,
     sensitive_terms_path: str | Path | None = None,
     output_dir: str | Path | None = None,
+    *,
+    use_ner: bool = False,
+    ner_model_name: str = DEFAULT_NER_MODEL,
 ) -> FileWorkflowResult:
     """Anonymize OCR text from an image and return paths for batch processing."""
     terms, dictionary_status = _prepare_workflow_dictionary(
         sensitive_terms, sensitive_terms_path
     )
+    ner_context = prepare_ner_context(enabled=use_ner, model_name=ner_model_name)
     extraction = extract_text_with_ocr(source_path)
-    anonymized, counters, dictionary_counters = (
-        _anonymize_text_with_dictionary_counters(extraction.text, sensitive_terms=terms)
+    anonymized, counters, dictionary_counters, ner_result = (
+        _anonymize_text_with_dictionary_counters(
+            extraction.text,
+            sensitive_terms=terms,
+            ner_context=ner_context,
+        )
     )
     output_path = save_anonymized_image_txt_copy(
         source_path, anonymized, output_dir=output_dir
@@ -554,6 +720,7 @@ def _anonymize_image_file_result(
         audit_text(anonymized, sensitive_terms=terms),
         dictionary_result,
     )
+    audit_result = _attach_ner_result(audit_result, ner_result)
     report_path = _save_anonymization_report(
         source_path,
         output_path,
@@ -561,6 +728,7 @@ def _anonymize_image_file_result(
         audit_result,
         dictionary_result,
         extraction.metadata,
+        ner_result,
         output_dir=output_dir,
     )
     return FileWorkflowResult(
@@ -569,6 +737,7 @@ def _anonymize_image_file_result(
         counters,
         audit_result,
         extraction.metadata,
+        ner_result,
     )
 
 
@@ -579,6 +748,7 @@ def _save_anonymization_report(
     audit_result: dict[str, object],
     dictionary_result: dict[str, object],
     ocr_result: dict[str, object],
+    ner_result: dict[str, object],
     output_dir: str | Path | None = None,
 ) -> Path:
     source = Path(source_path)
@@ -591,11 +761,12 @@ def _save_anonymization_report(
         counters=counters,
         input_extension=source.suffix,
         output_extension=output.suffix,
-        category_order=SUPPORTED_LABELS,
+        category_order=REPORT_CATEGORY_ORDER,
         audit_result=audit_result,
         audit_category_order=AUDIT_CATEGORY_ORDER,
         dictionary_result=dictionary_result,
         ocr_result=ocr_result,
+        ner_result=ner_result,
     )
 
 
@@ -604,6 +775,9 @@ def anonymize_file(
     sensitive_terms: Iterable[SensitiveTerm] | None = None,
     sensitive_terms_path: str | Path | None = None,
     output_dir: str | Path | None = None,
+    *,
+    use_ner: bool = False,
+    ner_model_name: str = DEFAULT_NER_MODEL,
 ) -> tuple[Path, dict[str, int]]:
     """Anonymize one supported application file using existing workflows."""
     output_path, counters, _ = anonymize_file_with_audit(
@@ -611,6 +785,8 @@ def anonymize_file(
         sensitive_terms=sensitive_terms,
         sensitive_terms_path=sensitive_terms_path,
         output_dir=output_dir,
+        use_ner=use_ner,
+        ner_model_name=ner_model_name,
     )
     return output_path, counters
 
@@ -620,6 +796,9 @@ def anonymize_file_with_audit(
     sensitive_terms: Iterable[SensitiveTerm] | None = None,
     sensitive_terms_path: str | Path | None = None,
     output_dir: str | Path | None = None,
+    *,
+    use_ner: bool = False,
+    ner_model_name: str = DEFAULT_NER_MODEL,
 ) -> tuple[Path, dict[str, int], dict[str, object]]:
     """Anonymize one supported file and return safe audit metadata."""
     result = _anonymize_file_result(
@@ -627,6 +806,8 @@ def anonymize_file_with_audit(
         sensitive_terms=sensitive_terms,
         sensitive_terms_path=sensitive_terms_path,
         output_dir=output_dir,
+        use_ner=use_ner,
+        ner_model_name=ner_model_name,
     )
     return result.output_path, result.counters, result.audit_result
 
@@ -636,6 +817,9 @@ def _anonymize_file_result(
     sensitive_terms: Iterable[SensitiveTerm] | None = None,
     sensitive_terms_path: str | Path | None = None,
     output_dir: str | Path | None = None,
+    *,
+    use_ner: bool = False,
+    ner_model_name: str = DEFAULT_NER_MODEL,
 ) -> FileWorkflowResult:
     """Anonymize one supported file and return paths needed by batch processing."""
     path = Path(source_path)
@@ -646,6 +830,8 @@ def _anonymize_file_result(
             sensitive_terms=sensitive_terms,
             sensitive_terms_path=sensitive_terms_path,
             output_dir=output_dir,
+            use_ner=use_ner,
+            ner_model_name=ner_model_name,
         )
     if path.suffix.lower() == DOCX_EXTENSION:
         return _anonymize_docx_file_result(
@@ -653,6 +839,8 @@ def _anonymize_file_result(
             sensitive_terms=sensitive_terms,
             sensitive_terms_path=sensitive_terms_path,
             output_dir=output_dir,
+            use_ner=use_ner,
+            ner_model_name=ner_model_name,
         )
     if path.suffix.lower() == PDF_EXTENSION:
         return _anonymize_pdf_file_result(
@@ -660,6 +848,8 @@ def _anonymize_file_result(
             sensitive_terms=sensitive_terms,
             sensitive_terms_path=sensitive_terms_path,
             output_dir=output_dir,
+            use_ner=use_ner,
+            ner_model_name=ner_model_name,
         )
     if path.suffix.lower() in IMAGE_EXTENSIONS:
         return _anonymize_image_file_result(
@@ -667,6 +857,8 @@ def _anonymize_file_result(
             sensitive_terms=sensitive_terms,
             sensitive_terms_path=sensitive_terms_path,
             output_dir=output_dir,
+            use_ner=use_ner,
+            ner_model_name=ner_model_name,
         )
 
     suffix = path.suffix.lower() or "<none>"
@@ -733,6 +925,9 @@ def anonymize_batch(
     output_dir: str | Path,
     sensitive_terms: Iterable[SensitiveTerm] | None = None,
     sensitive_terms_path: str | Path | None = None,
+    *,
+    use_ner: bool = False,
+    ner_model_name: str = DEFAULT_NER_MODEL,
 ) -> BatchResult:
     """Anonymize supported files sequentially into one output workspace."""
     if sensitive_terms is not None and sensitive_terms_path is not None:
@@ -746,6 +941,8 @@ def anonymize_batch(
     audit_status_counts = {"ok": 0, "warning": 0, "not run": 0}
     risk_level_counts = {risk_level: 0 for risk_level in RISK_LEVELS}
     audit_category_counters = {category: 0 for category in AUDIT_CATEGORY_ORDER}
+    ner_status_counts = {status: 0 for status in NER_STATUSES}
+    ner_category_counters = {label: 0 for label in NER_LABELS}
     results: list[dict[str, object]] = []
     success_count = 0
     error_count = 0
@@ -769,6 +966,8 @@ def anonymize_batch(
                 sensitive_terms=reusable_terms,
                 sensitive_terms_path=sensitive_terms_path,
                 output_dir=output_dir,
+                use_ner=use_ner,
+                ner_model_name=ner_model_name,
             )
         except Exception as error:
             error_count += 1
@@ -791,6 +990,18 @@ def anonymize_batch(
         _merge_audit_status_count(audit_status_counts, result.audit_result)
         _merge_risk_level_count(risk_level_counts, result.audit_result)
         _merge_audit_findings(audit_category_counters, result.audit_result)
+        ner_status = str(result.ner_result.get("status", "unavailable"))
+        if ner_status not in ner_status_counts:
+            ner_status = "unavailable"
+        ner_status_counts[ner_status] = ner_status_counts.get(ner_status, 0) + 1
+        ner_result_counters = result.ner_result.get("counters", {})
+        if isinstance(ner_result_counters, dict):
+            for label in NER_LABELS:
+                count = ner_result_counters.get(label, 0)
+                if isinstance(count, int):
+                    ner_category_counters[label] = (
+                        ner_category_counters.get(label, 0) + count
+                    )
         dictionary_result = result.audit_result.get("dictionary", {})
         dictionary_status = (
             dictionary_result.get("status")
@@ -808,6 +1019,8 @@ def anonymize_batch(
                 "dictionary_status": dictionary_status,
                 "ocr_used": result.ocr_result.get("used", False),
                 "ocr_status": result.ocr_result.get("status", "not_used"),
+                "ner_used": result.ner_result.get("used", False),
+                "ner_status": result.ner_result.get("status", "unavailable"),
             }
         )
 
@@ -821,8 +1034,10 @@ def anonymize_batch(
         audit_status_counts=audit_status_counts,
         risk_level_counts=risk_level_counts,
         audit_category_counters=audit_category_counters,
+        ner_status_counts=ner_status_counts,
+        ner_category_counters=ner_category_counters,
         results=results,
-        category_order=SUPPORTED_LABELS,
+        category_order=REPORT_CATEGORY_ORDER,
         audit_category_order=AUDIT_CATEGORY_ORDER,
         manual_review_required=True,
     )
@@ -837,4 +1052,6 @@ def anonymize_batch(
         risk_level_counts=risk_level_counts,
         audit_category_counters=audit_category_counters,
         results=results,
+        ner_status_counts=ner_status_counts,
+        ner_category_counters=ner_category_counters,
     )

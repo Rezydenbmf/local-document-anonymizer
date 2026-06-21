@@ -20,10 +20,14 @@ a safe report, and expects manual review before any result is trusted.
 - Text-based PDF input with anonymized TXT output.
 - Optional local OCR foundation for image inputs and scanned PDFs when local
   OCR dependencies are installed.
+- Optional local NER/NLP foundation through spaCy and a locally installed
+  Polish model.
 - PNG, JPG/JPEG, and TIFF image inputs with anonymized TXT output when OCR is
   available.
 - Collision-safe `_ANON`, `_RAPORT`, and `_BATCH_SUMMARY` naming.
 - Regex anonymization for `PESEL`, `EMAIL`, `TELEFON`, and `DATA`.
+- Optional local NER anonymization for people, organizations, locations, and
+  safe miscellaneous entity labels when spaCy and a local model are available.
 - Optional private dictionary with aliases, case-insensitive matching, and
   whitespace-tolerant term matching.
 - Safe post-anonymization audit with category counters and a per-file risk
@@ -47,10 +51,12 @@ a safe report, and expects manual review before any result is trusted.
 
 ## Privacy And Local-First Assumptions
 
-The application is designed to run locally. It does not use AI, APIs, cloud
-services, network calls, local LLMs, or databases. Optional OCR runs only
-through local system dependencies when they are installed; no OCR data is sent
-to cloud services or APIs.
+The application is designed to run locally. It does not use APIs, cloud
+services, network calls, local LLMs, prompt-based review, or databases.
+Optional OCR and optional NER run only through local system dependencies when
+they are installed; no OCR text, NER text, document text, or dictionary data is
+sent to cloud services or APIs. Stage 20 does not use Ollama, Bielik, OpenAI
+API calls, online NLP, or any LLM.
 
 The repository must not contain real documents, real personal data, private
 dictionaries, generated `_ANON` files, generated `_RAPORT` files, logs, local
@@ -86,12 +92,14 @@ The core engine processes plain text deterministically:
 1. Load an optional private dictionary from a UTF-8 text file.
 2. Replace dictionary aliases with their configured labels.
 3. Replace supported regex categories: `EMAIL`, `PESEL`, `TELEFON`, `DATA`.
-4. Save an anonymized output copy in the selected output folder.
-5. Audit the anonymized output for suspicious remaining patterns and assign a
+4. If enabled and available, run local spaCy NER on the remaining text and
+   replace supported named entities with internal NER labels.
+5. Save an anonymized output copy in the selected output folder.
+6. Audit the anonymized output for suspicious remaining patterns and assign a
    safe review-prioritization risk level.
-6. Save a safe per-file report.
-7. For batch runs, save a safe batch summary report.
-8. Let the user manually mark generated outputs as `approved`,
+7. Save a safe per-file report.
+8. For batch runs, save a safe batch summary report.
+9. Let the user manually mark generated outputs as `approved`,
    `needs_review`, or `rejected`.
 
 Counters contain labels and counts only. The app does not create or store a
@@ -124,6 +132,27 @@ Synthetic examples are provided in:
 - `examples/dictionary_candidates.example.txt`
 
 Real private dictionaries must not be committed.
+
+## Local NER / NLP
+
+NER is optional, local, and used only when explicitly enabled by the caller or
+the GUI checkbox. It uses spaCy when installed locally and tries to load a
+local Polish model such as `pl_core_news_sm`. The application never downloads a
+model at runtime and the repository must not contain spaCy model files.
+
+Supported internal NER labels are:
+
+- `NER_PERSON`
+- `NER_ORG`
+- `NER_LOCATION`
+- `NER_MISC`
+
+NER runs after private dictionary and regex replacements, so existing
+deterministic replacements stay first. Existing placeholders are skipped to
+avoid double replacement. Stage 20.1 adds a conservative local PERSON
+left-expansion heuristic to reduce partial person masking in simple cases. NER
+can miss entities or misclassify text, especially with short, inflected,
+noisy, OCR-derived, or domain-specific text. Manual review is still required.
 
 ## Post-Anonymization Audit
 
@@ -170,19 +199,22 @@ Each successful file workflow writes a safe `_RAPORT.txt` report containing:
 - dictionary used/status/matches-found metadata,
 - dictionary label counters,
 - OCR used/status/input-type metadata and page/image counts,
+- NER enabled/used/status/model metadata and NER category counters,
 - post-anonymization audit status, risk level, and counters,
 - manual review requirement,
 - confirmation that original sensitive values are not stored,
 - confirmation that no replacement map was created.
 
-Reports do not include document text, original sensitive values, full input
-paths, dictionary aliases, text snippets, logs, or replacement maps.
+Reports do not include document text, detected entity text, original sensitive
+values, full input paths, dictionary aliases, text snippets, logs, or
+replacement maps.
 
 Batch runs also write `_BATCH_SUMMARY.txt` in the selected output folder. The
 summary contains batch counts, aggregate category counters, audit status
 counts, risk level counts, aggregate audit category counters, aggregate OCR
-status counts, safe input/output/report filenames, and controlled safe error
-descriptions. It does not include source text, raw OCR text, private
+status counts, aggregate NER status counts, aggregate NER category counters,
+safe input/output/report filenames, and controlled safe error descriptions. It
+does not include source text, raw OCR text, detected entity text, private
 dictionary terms, aliases, full paths, exception messages, or a replacement
 map.
 
@@ -230,6 +262,17 @@ OCR is optional and local. The Python packages in `requirements.txt` include
 the OCR adapter libraries, but the Tesseract executable and language data must
 be installed separately on the user's computer. The repository does not bundle
 Tesseract binaries, OCR models, external installers, or real OCR outputs.
+
+NER is optional and local. Install the Python package from `requirements.txt`
+and install a Polish spaCy model separately in the same environment, for
+example:
+
+```bash
+python -m spacy download pl_core_news_sm
+python -c "import spacy; spacy.load('pl_core_news_sm'); print('NER model available')"
+```
+
+The application does not run those commands automatically.
 
 ## How To Run
 
@@ -322,6 +365,7 @@ src/
   file_writers.py      _ANON output and _RAPORT path helpers
   gui.py               Tkinter GUI
   main.py              GUI entry point
+  ner.py               Optional local spaCy NER helpers
   ocr.py               Optional local OCR detection and extraction helpers
   report.py            Safe report generation
   review.py            Safe manual review and approved workspace metadata
@@ -352,7 +396,8 @@ TXT/DOCX/PDF workflows, GUI dispatcher layer, private dictionary parsing and
 matching, safe reports, post-anonymization audit metadata, collision-safe
 output naming, output workspace behavior, batch processing, manual review
 metadata, approved workspace export, safe approved index generation, and
-Stage 18 end-to-end MVP workflow validation.
+Stage 18 end-to-end MVP workflow validation. Stage 20 tests use mocked NER
+model output, so they do not require a real spaCy Polish model.
 
 Run:
 
@@ -364,12 +409,15 @@ python -m unittest discover -s tests
 
 - Manual review is always required.
 - OCR is optional, local, dependency-dependent, and imperfect.
+- NER is optional, local, dependency/model-dependent, and imperfect.
+- NER can miss or misclassify names, organizations, locations, and other
+  entities.
 - Audit risk levels are review-prioritization hints only, not proof that a
   document is safe.
 - This is not production-ready full anonymization.
 - Regex detection is narrow and conservative.
-- Private dictionary matching is not fuzzy matching, inflection handling, NER,
-  ML, or LLM-based detection.
+- Private dictionary matching is not fuzzy matching, inflection handling, ML,
+  or LLM-based detection.
 - No anonymized PDF output.
 - Batch processing is sequential; one file's error is recorded safely and does
   not stop later files.
@@ -390,6 +438,7 @@ python -m unittest discover -s tests
 - PDF support does not preserve layout.
 - Reports contain safe counters and metadata only, not a detailed audit trail.
 - Reports and batch summaries do not include raw OCR text.
+- Reports and batch summaries do not include detected NER entity text.
 - Batch summary reports use safe filenames and controlled error descriptions
   only; they do not include private paths or exception text.
 
@@ -404,11 +453,14 @@ usability cleanup, Stage 16 stronger audit risk prioritization, Stage 17
 approved workspace staging, and Stage 18 end-to-end synthetic validation with
 a manual MVP smoke checklist. Stage 19 adds an optional local OCR foundation
 for image inputs and scanned PDF fallback without adding cloud/API processing
-or edited image/PDF output.
+or edited image/PDF output. Stage 20 adds an optional local spaCy NER
+foundation without runtime model downloads, cloud/API processing, Ollama,
+Bielik, OpenAI API calls, online NLP, or LLM-based review.
 
 Potential future work requires explicit approval, especially OCR quality
 improvements, installer packaging, release automation, stronger entity
-detection, AI/API integration, local LLMs, databases, or broad NLP features.
+detection, dictionary candidate export from NER findings, AI/API integration,
+local LLMs, databases, or broad NLP features.
 
 ## Portfolio Note
 

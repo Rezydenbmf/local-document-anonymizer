@@ -55,6 +55,27 @@ OCR_WARNING_TEXTS = (
     "OCR completed but no text was extracted",
     "OCR failed safely",
 )
+NER_STATUSES = (
+    "available",
+    "unavailable",
+    "dependency_missing",
+    "model_missing",
+    "disabled",
+    "processing_error",
+)
+NER_LABELS = (
+    "NER_PERSON",
+    "NER_ORG",
+    "NER_LOCATION",
+    "NER_MISC",
+)
+NER_WARNING_TEXTS = (
+    "",
+    "local NER dependency is missing",
+    "local NER model is missing",
+    "local NER model could not be loaded",
+    "local NER processing failed safely",
+)
 
 
 def _safe_file_type(value: str) -> str:
@@ -140,6 +161,29 @@ def _safe_ocr_warning(value: object) -> str:
     return "OCR failed safely" if warning else ""
 
 
+def _safe_ner_status(value: object) -> str:
+    status = str(value).strip()
+    if status in NER_STATUSES:
+        return status
+    return "unavailable"
+
+
+def _safe_ner_model_name(value: object) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return "unknown"
+    if text.replace("_", "").replace(".", "").replace("-", "").isalnum():
+        return text
+    return "local_model"
+
+
+def _safe_ner_warning(value: object) -> str:
+    warning = str(value or "").strip()
+    if warning in NER_WARNING_TEXTS:
+        return warning
+    return "local NER processing failed safely" if warning else ""
+
+
 def _ocr_section_lines(ocr_result: Mapping[str, object] | None) -> list[str]:
     if ocr_result is None:
         return []
@@ -161,6 +205,45 @@ def _ocr_section_lines(ocr_result: Mapping[str, object] | None) -> list[str]:
     ]
     if warning:
         lines.append(f"OCR warning: {warning}")
+
+    return lines
+
+
+def _ner_section_lines(ner_result: Mapping[str, object] | None) -> list[str]:
+    if ner_result is None:
+        return []
+
+    enabled = bool(ner_result.get("enabled", False))
+    used = bool(ner_result.get("used", False))
+    status = _safe_ner_status(ner_result.get("status"))
+    model_name = _safe_ner_model_name(ner_result.get("model_name"))
+    warning = _safe_ner_warning(ner_result.get("warning", ""))
+    raw_counters = ner_result.get("counters", {})
+    if not isinstance(raw_counters, Mapping):
+        raise TypeError("NER counters must be a mapping")
+
+    lines = [
+        "",
+        "Local NER:",
+        f"NER enabled: {'yes' if enabled else 'no'}",
+        f"NER used: {'yes' if used else 'no'}",
+        f"NER status: {status}",
+        f"NER model: {model_name}",
+        "NER categories:",
+    ]
+
+    has_counter = False
+    for label in NER_LABELS:
+        count = raw_counters.get(label, 0)
+        _validate_count(count)
+        lines.append(f"* {label}: {count}")
+        if count:
+            has_counter = True
+
+    if not has_counter and not NER_LABELS:
+        lines.append("* none: 0")
+    if warning:
+        lines.append(f"NER warning: {warning}")
 
     return lines
 
@@ -265,6 +348,7 @@ def build_report_text(
     audit_category_order: Iterable[str] | None = None,
     dictionary_result: Mapping[str, object] | None = None,
     ocr_result: Mapping[str, object] | None = None,
+    ner_result: Mapping[str, object] | None = None,
 ) -> str:
     """Build a safe text report without source values or replacement maps."""
     if not isinstance(status, str):
@@ -291,6 +375,7 @@ def build_report_text(
 
     lines.extend(_dictionary_section_lines(dictionary_result))
     lines.extend(_ocr_section_lines(ocr_result))
+    lines.extend(_ner_section_lines(ner_result))
     lines.extend(_audit_section_lines(audit_result, audit_category_order))
 
     lines.extend(
@@ -316,6 +401,7 @@ def save_report_file(
     audit_category_order: Iterable[str] | None = None,
     dictionary_result: Mapping[str, object] | None = None,
     ocr_result: Mapping[str, object] | None = None,
+    ner_result: Mapping[str, object] | None = None,
 ) -> Path:
     """Save a safe anonymization report and return the report path."""
     path = Path(report_path)
@@ -329,6 +415,7 @@ def save_report_file(
         audit_category_order=audit_category_order,
         dictionary_result=dictionary_result,
         ocr_result=ocr_result,
+        ner_result=ner_result,
     )
     path.write_text(report_text, encoding="utf-8")
     return path
@@ -344,6 +431,8 @@ def build_batch_summary_text(
     results: Iterable[Mapping[str, object]],
     risk_level_counts: Mapping[str, int] | None = None,
     audit_category_counters: Mapping[str, int] | None = None,
+    ner_status_counts: Mapping[str, int] | None = None,
+    ner_category_counters: Mapping[str, int] | None = None,
     category_order: Iterable[str] | None = None,
     audit_category_order: Iterable[str] | None = None,
     status: str = "completed",
@@ -426,6 +515,43 @@ def build_batch_summary_text(
         ]
     )
 
+    ner_used_count = 0
+    ner_unavailable_or_disabled_count = 0
+    for result in materialized_results:
+        if result.get("ner_used") is True:
+            ner_used_count += 1
+        ner_status = _safe_ner_status(result.get("ner_status", "disabled"))
+        if ner_status in (
+            "dependency_missing",
+            "model_missing",
+            "disabled",
+            "unavailable",
+            "processing_error",
+        ):
+            ner_unavailable_or_disabled_count += 1
+
+    lines.extend(
+        [
+            "",
+            "Local NER:",
+            f"* files processed with NER: {ner_used_count}",
+            f"* NER unavailable or disabled: {ner_unavailable_or_disabled_count}",
+            "NER statuses:",
+        ]
+    )
+    status_counts = ner_status_counts or {}
+    for status_name in NER_STATUSES:
+        count = status_counts.get(status_name, 0)
+        _validate_count(count)
+        lines.append(f"* {status_name}: {count}")
+
+    lines.append("NER categories:")
+    category_counts = ner_category_counters or {}
+    for label in NER_LABELS:
+        count = category_counts.get(label, 0)
+        _validate_count(count)
+        lines.append(f"* {label}: {count}")
+
     lines.extend(["", "Files:"])
     for result in materialized_results:
         file_status = str(result.get("status", "error"))
@@ -447,6 +573,9 @@ def build_batch_summary_text(
         if "ocr_status" in result:
             lines.append(f"  OCR used: {'yes' if result.get('ocr_used') is True else 'no'}")
             lines.append(f"  OCR status: {_safe_ocr_status(result.get('ocr_status'))}")
+        if "ner_status" in result:
+            lines.append(f"  NER used: {'yes' if result.get('ner_used') is True else 'no'}")
+            lines.append(f"  NER status: {_safe_ner_status(result.get('ner_status'))}")
 
     lines.extend(
         [
@@ -472,6 +601,8 @@ def save_batch_summary_file(
     results: Iterable[Mapping[str, object]],
     risk_level_counts: Mapping[str, int] | None = None,
     audit_category_counters: Mapping[str, int] | None = None,
+    ner_status_counts: Mapping[str, int] | None = None,
+    ner_category_counters: Mapping[str, int] | None = None,
     category_order: Iterable[str] | None = None,
     audit_category_order: Iterable[str] | None = None,
     status: str = "completed",
@@ -487,6 +618,8 @@ def save_batch_summary_file(
         audit_status_counts=audit_status_counts,
         risk_level_counts=risk_level_counts,
         audit_category_counters=audit_category_counters,
+        ner_status_counts=ner_status_counts,
+        ner_category_counters=ner_category_counters,
         results=results,
         category_order=category_order,
         audit_category_order=audit_category_order,

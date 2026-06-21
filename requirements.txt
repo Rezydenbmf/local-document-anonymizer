@@ -5,3 +5,6 @@ pypdf
 pytesseract
 Pillow
 PyMuPDF
+
+# Optional local NER/NLP foundation; Polish spaCy models are installed separately.
+spacy

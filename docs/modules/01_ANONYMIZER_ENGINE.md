@@ -13,10 +13,13 @@ Stage 12 adds optional output-directory support to file workflows and a
 sequential batch workflow while keeping the plain text engine API unchanged.
 Stage 16 adds audit risk metadata around the engine workflow without changing
 the plain text engine return shape.
+Stage 20 adds keyword-only optional local NER controls. Existing callers remain
+dictionary/regex-only unless `use_ner=True` is passed.
 
 ## Related files
 
 - `src/anonymizer.py`
+- `src/ner.py`
 - `src/sensitive_terms.py`
 - `tests/test_anonymizer.py`
 - `tests/test_sensitive_terms.py`
@@ -24,10 +27,10 @@ the plain text engine return shape.
 ## Core Public API
 
 ```python
-anonymize_text(text: str, sensitive_terms=None) -> tuple[str, dict[str, int]]
-anonymize_file(source_path: str | Path, sensitive_terms=None, sensitive_terms_path=None, output_dir=None) -> tuple[Path, dict[str, int]]
+anonymize_text(text: str, sensitive_terms=None, use_ner=False, ner_model_name="pl_core_news_sm") -> tuple[str, dict[str, int]]
+anonymize_file(source_path: str | Path, sensitive_terms=None, sensitive_terms_path=None, output_dir=None, use_ner=False, ner_model_name="pl_core_news_sm") -> tuple[Path, dict[str, int]]
 anonymize_file_with_audit(source_path: str | Path, sensitive_terms=None, sensitive_terms_path=None, output_dir=None)
-anonymize_batch(source_paths, output_dir, sensitive_terms=None, sensitive_terms_path=None)
+anonymize_batch(source_paths, output_dir, sensitive_terms=None, sensitive_terms_path=None, use_ner=False, ner_model_name="pl_core_news_sm")
 ```
 
 The function returns:
@@ -65,6 +68,9 @@ The engine can also replace user-provided private dictionary aliases with
 labels from a private dictionary, for example `[IMIE NAZWISKO]`. These labels
 are dynamic and are not automatic entity detection.
 
+When local NER is explicitly enabled and available, Stage 20 can also emit
+internal labels `NER_PERSON`, `NER_ORG`, `NER_LOCATION`, and `NER_MISC`.
+
 Address and postal-code detection are not implemented as automatic regex
 categories.
 
@@ -80,6 +86,9 @@ The engine then applies deterministic regular expressions in a fixed order:
 2. `PESEL`
 3. `TELEFON`
 4. `DATA`
+
+If `use_ner=True`, the engine then applies local spaCy NER to the remaining
+text and skips existing placeholders to avoid double replacement.
 
 Counters are based on actual replacements performed by `re.subn`.
 
@@ -156,27 +165,30 @@ Stage 10.1 tests also cover dictionary-path workflow status and report safety.
 Stage 11 tests cover aliases, case-insensitive matching, whitespace
 normalization, label-only counters, and audit dictionary matching. Stage 12
 tests cover output workspace dispatch and batch processing. Stage 16 tests
-cover audit risk levels and safe risk metadata propagation.
+cover audit risk levels and safe risk metadata propagation. Stage 20 tests
+cover optional local NER with mocked model output.
 
 ## Known limitations
 
-- The engine is regex-only and conservative.
+- The default engine path is dictionary/regex-only and conservative.
 - PESEL detection checks only the 11-digit format, not checksum validity.
 - Phone detection focuses on high-confidence Polish-style numeric forms with a
   prefix or separators.
 - Date detection is limited to `YYYY-MM-DD` and `DD.MM.YYYY`.
-- Automatic names, surnames, cities, organizations, context-based detection,
-  uppercase word detection, addresses, and postal codes are not implemented.
+- Production-grade names, surnames, cities, organizations, context-based
+  detection, uppercase word detection, addresses, and postal codes are not
+  implemented.
 - Private dictionary matching is deterministic, case-insensitive, and
   whitespace-tolerant, but not fuzzy matching, inflection handling, NER, or
   automatic entity detection.
 - PDF file input is handled by the Stage 4 file workflow, not by new regex
   logic in the core engine.
-- OCR, AI, API calls, cloud services, local LLMs, databases, and replacement
-  maps are not implemented.
+- OCR, API calls, cloud services, local LLMs, databases, and replacement maps
+  are not implemented in the core engine.
 - Safe report files are created by the file workflows in Stage 6; the core
   engine itself still returns only anonymized text and counters.
 - Stage 9/16 audit is conservative and does not guarantee complete
   anonymization.
-- Stage 12 batch processing is sequential and does not add OCR, AI, NER, APIs,
-  cloud services, local LLMs, databases, preview, or editing.
+- Stage 12 batch processing is sequential. Stage 20 NER remains optional and
+  local; it does not add APIs, cloud services, local LLMs, databases, preview,
+  or editing.

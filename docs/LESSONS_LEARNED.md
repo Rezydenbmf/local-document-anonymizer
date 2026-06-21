@@ -97,3 +97,12 @@ or empty OCR text should become safe statuses, not crashes or tracebacks.
 Reports and summaries may record OCR metadata, but they must not store raw OCR
 text. Manual review remains required because OCR can miss or distort sensitive
 data.
+
+## 19. NER must be optional, local, and treated as imperfect detection.
+
+NER support should start with controlled availability detection and mocked
+synthetic tests. Missing spaCy, missing local models, disabled NER, or
+processing errors should become safe statuses, not crashes or tracebacks.
+Reports and summaries may record NER metadata and internal category counters,
+but they must not store detected entity text. Manual review remains required
+because NER can miss or misclassify sensitive data.

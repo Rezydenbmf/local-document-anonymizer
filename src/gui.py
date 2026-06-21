@@ -274,6 +274,28 @@ def format_batch_audit_result(batch_result: BatchResult | None) -> str:
             f"unavailable or failed: {ocr_unavailable_count}",
         ]
     )
+    ner_used_count = sum(
+        1 for result in batch_result.results if result.get("ner_used") is True
+    )
+    ner_unavailable_or_disabled_count = sum(
+        1
+        for result in batch_result.results
+        if result.get("ner_status")
+        in (
+            "dependency_missing",
+            "model_missing",
+            "disabled",
+            "unavailable",
+            "processing_error",
+        )
+    )
+    lines.extend(
+        [
+            "Local NER:",
+            f"used: {ner_used_count}",
+            f"unavailable or disabled: {ner_unavailable_or_disabled_count}",
+        ]
+    )
     return "\n".join(lines)
 
 
@@ -311,6 +333,7 @@ class AnonymizerGui:
         )
         self.output_dir_var = tk.StringVar(value="No output folder selected.")
         self.sensitive_terms_var = tk.StringVar(value=format_dictionary_result(None))
+        self.use_ner_var = tk.BooleanVar(value=True)
         self.readiness_var = tk.StringVar(
             value=format_anonymize_readiness(0, False)
         )
@@ -453,34 +476,41 @@ class AnonymizerGui:
         terms_label.grid(row=7, column=1, columnspan=2, sticky="ew", pady=(0, 10))
         self.wrap_labels.append(terms_label)
 
+        ttk.Checkbutton(
+            main,
+            text="Use local NER if available",
+            variable=self.use_ner_var,
+            command=self._reset_batch_display,
+        ).grid(row=8, column=0, columnspan=3, sticky="w", pady=(0, 10))
+
         self.anonymize_button = ttk.Button(
             main,
             text="Anonymize batch",
             command=self.anonymize_selected_files,
             state="disabled",
         )
-        self.anonymize_button.grid(row=8, column=0, sticky="w", pady=(0, 14))
+        self.anonymize_button.grid(row=9, column=0, sticky="w", pady=(0, 14))
 
         readiness_label = ttk.Label(
             main,
             textvariable=self.readiness_var,
             wraplength=500,
         )
-        readiness_label.grid(row=8, column=1, columnspan=2, sticky="ew", pady=(0, 14))
+        readiness_label.grid(row=9, column=1, columnspan=2, sticky="ew", pady=(0, 14))
         self.wrap_labels.append(readiness_label)
 
         ttk.Label(main, text="Status:").grid(
-            row=9, column=0, sticky="nw", pady=(0, 10)
+            row=10, column=0, sticky="nw", pady=(0, 10)
         )
         status_label = ttk.Label(
             main, textvariable=self.status_var, wraplength=500
         )
-        status_label.grid(row=9, column=1, columnspan=2, sticky="ew", pady=(0, 10))
+        status_label.grid(row=10, column=1, columnspan=2, sticky="ew", pady=(0, 10))
         self.wrap_labels.append(status_label)
 
         counters_frame = ttk.LabelFrame(main, text="Category counters", padding=10)
         counters_frame.grid(
-            row=10, column=0, columnspan=3, sticky="ew", pady=(0, 14)
+            row=11, column=0, columnspan=3, sticky="ew", pady=(0, 14)
         )
         counters_frame.columnconfigure(0, weight=1)
         ttk.Label(
@@ -493,7 +523,7 @@ class AnonymizerGui:
             main, text="Post-anonymization audit", padding=10
         )
         audit_frame.grid(
-            row=11, column=0, columnspan=3, sticky="ew", pady=(0, 14)
+            row=12, column=0, columnspan=3, sticky="ew", pady=(0, 14)
         )
         audit_frame.columnconfigure(0, weight=1)
         ttk.Label(
@@ -503,24 +533,24 @@ class AnonymizerGui:
         ).grid(row=0, column=0, sticky="w")
 
         ttk.Label(main, text="Output files:").grid(
-            row=12, column=0, sticky="nw", pady=(0, 10)
+            row=13, column=0, sticky="nw", pady=(0, 10)
         )
         output_label = ttk.Label(
             main, textvariable=self.output_path_var, wraplength=500
         )
-        output_label.grid(row=12, column=1, columnspan=2, sticky="ew", pady=(0, 10))
+        output_label.grid(row=13, column=1, columnspan=2, sticky="ew", pady=(0, 10))
         self.wrap_labels.append(output_label)
 
         ttk.Label(main, text="Reports:").grid(
-            row=13, column=0, sticky="nw", pady=(0, 10)
+            row=14, column=0, sticky="nw", pady=(0, 10)
         )
         report_label = ttk.Label(
             main, textvariable=self.report_path_var, wraplength=500
         )
-        report_label.grid(row=13, column=1, columnspan=2, sticky="ew", pady=(0, 10))
+        report_label.grid(row=14, column=1, columnspan=2, sticky="ew", pady=(0, 10))
         self.wrap_labels.append(report_label)
 
-        self._build_review_section(main, row=14)
+        self._build_review_section(main, row=15)
 
         warning_label = ttk.Label(
             main,
@@ -528,7 +558,7 @@ class AnonymizerGui:
             foreground="#9a3412",
             wraplength=580,
         )
-        warning_label.grid(row=15, column=0, columnspan=3, sticky="w", pady=(4, 0))
+        warning_label.grid(row=16, column=0, columnspan=3, sticky="w", pady=(4, 0))
         self.wrap_labels.append(warning_label)
 
         main.bind("<Configure>", self._update_wrap_lengths, add="+")
@@ -734,6 +764,7 @@ class AnonymizerGui:
                 self.selected_paths,
                 self.output_dir,
                 sensitive_terms_path=self.sensitive_terms_path,
+                use_ner=self.use_ner_var.get(),
             )
         except Exception:
             self.status_var.set(

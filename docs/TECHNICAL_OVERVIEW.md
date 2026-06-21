@@ -8,6 +8,7 @@ input file
 -> optional dictionary path loading
 -> optional private sensitive terms replacement
 -> anonymization
+-> optional local NER on remaining text when enabled and available
 -> collision-safe output file in selected output folder
 -> post-anonymization audit
 -> safe risk-level assignment for review prioritization
@@ -26,6 +27,11 @@ image inputs and scanned PDFs without extractable text. OCR output is treated
 as extracted text and then passes through the same deterministic
 anonymization, audit, report, batch, manual review, and approved export
 workflow.
+
+Stage 20 adds an optional local spaCy NER layer after private dictionary and
+regex replacements. It uses only a locally installed spaCy package and local
+Polish model, never downloads models at runtime, and records controlled
+statuses when the dependency or model is unavailable.
 
 ## Module Responsibilities
 
@@ -60,6 +66,13 @@ rendering support when needed. It returns controlled statuses such as
 `available`, `dependency_missing`, `engine_not_found`, and `unsupported_input`
 instead of exposing tracebacks or paths.
 
+`ner.py` contains optional local NER detection and replacement helpers. It
+checks for spaCy and a local Polish model such as `pl_core_news_sm`, maps
+model labels into internal labels such as `NER_PERSON`, `NER_ORG`,
+`NER_LOCATION`, and `NER_MISC`, skips existing anonymization placeholders, and
+returns controlled statuses such as `available`, `dependency_missing`,
+`model_missing`, `disabled`, and `processing_error`.
+
 `sensitive_terms.py` contains private dictionary support. It loads a UTF-8
 local dictionary file, parses `term = [LABEL]` and
 `alias | alias = [LABEL]` lines, ignores blank lines and comments, validates
@@ -70,8 +83,9 @@ dictionary aliases.
 
 `anonymizer.py` contains the plain text anonymization engine. It accepts a
 Python string, optionally applies private sensitive terms, replaces supported
-regex matches with placeholders, and returns category counters only. The file
-workflows, dispatcher, and batch workflow can also accept
+regex matches with placeholders, optionally applies local NER to the remaining
+text when enabled, and returns category counters only. The file workflows,
+dispatcher, and batch workflow can also accept
 `sensitive_terms_path`; they load the dictionary centrally, build safe
 dictionary metadata, and keep invalid dictionaries non-fatal while marking the
 dictionary status as `invalid`. It also exposes the Stage 2
@@ -80,9 +94,10 @@ helper, the Stage 4 `anonymize_pdf_file(...)` helper, the Stage 5
 `anonymize_file(...)` dispatcher, and the Stage 12 `anonymize_batch(...)`
 workflow. Stage 9 adds `_with_audit` variants for TXT, DOCX, PDF, and
 dispatcher workflows. Stage 19 adds an OCR image helper and scanned-PDF
-fallback inside the PDF workflow. The existing helpers still return only the
-output path plus category counters, but they also run the audit and save it
-into the safe report.
+fallback inside the PDF workflow. Stage 20 adds keyword-only `use_ner` and
+`ner_model_name` controls so existing callers keep their return shapes. The
+existing helpers still return only the output path plus category counters, but
+they also run the audit and save it into the safe report.
 
 `audit.py` contains the post-anonymization audit. It checks already anonymized
 output text for conservative suspicious remaining patterns. When a dictionary
@@ -115,13 +130,14 @@ preserve PDF layout, and does not modify the original PDF.
 `report.py` builds and saves safe TXT reports without original sensitive source
 values. It receives only status, input type, output type, anonymization
 category counters, safe dictionary status metadata, dictionary label counters,
-safe OCR metadata, audit status, audit risk level, audit counters, and optional
-category ordering.
+safe OCR metadata, safe NER metadata, audit status, audit risk level, audit
+counters, and optional category ordering.
 Dictionary counters are labels only, such as `IMIE NAZWISKO: 2`; original
 dictionary terms are not passed to the report module. Stage 12 also adds safe
 batch summary text generation with safe filenames, aggregate counters, audit
 status counts, risk level counts, aggregate audit category counters, aggregate
-OCR status counts, and controlled error descriptions only.
+OCR status counts, aggregate NER status/category counts, and controlled error
+descriptions only.
 
 `review.py` contains the manual review workflow metadata. It detects generated
 `_ANON` outputs in an output folder, pairs matching `_RAPORT` report basenames
@@ -149,9 +165,10 @@ outputs and local-only workspaces remain covered by `.gitignore`.
 
 ## Safety Design
 
-The project is local-first and offline. Stage 19's OCR path is optional and
-local only. It must not add cloud services, APIs, network calls, AI services,
-databases, or large dependencies without explicit approval.
+The project is local-first and offline. Stage 19's OCR path and Stage 20's NER
+path are optional and local only. They must not add cloud services, APIs,
+network calls, prompt-based review, local LLMs, databases, or large
+dependencies without explicit approval.
 
 Reports must not include original sensitive source values. The application must not store replacement maps containing original values.
 
@@ -184,13 +201,13 @@ Dictionary metadata is safe metadata only. It contains status names, booleans
 implied by status, label names, and counters. It does not contain dictionary
 source aliases, document fragments, source file paths, or replacement maps.
 
-The project still does not use internet calls, APIs, cloud services, AI
-services, local LLMs, databases, drag and drop, document preview, or an editing
-workflow. OCR, when available, uses only local dependencies.
+The project still does not use internet calls, APIs, cloud services, local
+LLMs, prompt-based review, databases, drag and drop, document preview, or an
+editing workflow. OCR and NER, when available, use only local dependencies.
 
-Stage 19 keeps those exclusions unchanged apart from optional local OCR. The
-approved workspace remains a manual staging area, not automatic approval, not
-a knowledge base, and not a guarantee of complete anonymization.
+Stage 20 keeps those exclusions unchanged apart from optional local spaCy NER.
+The approved workspace remains a manual staging area, not automatic approval,
+not a knowledge base, and not a guarantee of complete anonymization.
 
 ## GUI Limitations
 
@@ -208,9 +225,17 @@ the review workflow and does not parse source files inside the GUI layer.
 Stage 11 private dictionary matching is deterministic, case-insensitive, and
 whitespace-tolerant for user-specified aliases. It helps the user manually
 specify known terms and variants, but it does not add fuzzy matching,
-inflection handling, automatic names, cities, organizations, addresses,
-context-based detection, AI, APIs, local LLMs, cloud services, databases,
-or a replacement map.
+inflection handling, AI, APIs, local LLMs, cloud services, databases, or a
+replacement map. Stage 20 NER is a separate optional detection layer and does
+not change dictionary semantics.
+
+## NER Limitations
+
+Stage 20 NER depends on spaCy and a local Polish model installed outside the
+repository. It can miss or misclassify entities and does not prove complete
+anonymization. Reports and summaries include only safe NER metadata and
+counters, never detected entity text. The app does not download models at
+runtime and does not bundle spaCy model files.
 
 ## DOCX Limitations
 
