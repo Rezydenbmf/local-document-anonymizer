@@ -22,6 +22,8 @@ a safe report, and expects manual review before any result is trusted.
   OCR dependencies are installed.
 - Optional local NER/NLP foundation through spaCy and a locally installed
   Polish model.
+- Optional local Ollama LLM-assisted review for already-anonymized text when
+  the user has installed Ollama and a local model manually.
 - PNG, JPG/JPEG, and TIFF image inputs with anonymized TXT output when OCR is
   available.
 - Collision-safe `_ANON`, `_RAPORT`, and `_BATCH_SUMMARY` naming.
@@ -32,6 +34,8 @@ a safe report, and expects manual review before any result is trusted.
   whitespace-tolerant term matching.
 - Safe post-anonymization audit with category counters and a per-file risk
   level only.
+- Safe local LLM review metadata with controlled status, risk level, and
+  residual category names only.
 - Safe `_RAPORT.txt` reports without source personal data.
 - Safe `_BATCH_SUMMARY.txt` reports with batch counts, aggregate audit risk
   counts, aggregate audit category counters, and safe filenames only.
@@ -52,11 +56,12 @@ a safe report, and expects manual review before any result is trusted.
 ## Privacy And Local-First Assumptions
 
 The application is designed to run locally. It does not use APIs, cloud
-services, network calls, local LLMs, prompt-based review, or databases.
-Optional OCR and optional NER run only through local system dependencies when
-they are installed; no OCR text, NER text, document text, or dictionary data is
-sent to cloud services or APIs. Stage 20 does not use Ollama, Bielik, OpenAI
-API calls, online NLP, or any LLM.
+services, network calls, cloud LLMs, OpenAI API calls, online processing, or
+databases. Optional OCR, optional NER, and optional Ollama-assisted review run
+only through local system dependencies when they are installed. The LLM review
+layer receives already-anonymized output text only, never raw source text, raw
+OCR text before anonymization, dictionary terms, dictionary aliases,
+replacement maps, or source snippets. No model is downloaded automatically.
 
 The repository must not contain real documents, real personal data, private
 dictionaries, generated `_ANON` files, generated `_RAPORT` files, logs, local
@@ -95,11 +100,12 @@ The core engine processes plain text deterministically:
 4. If enabled and available, run local spaCy NER on the remaining text and
    replace supported named entities with internal NER labels.
 5. Save an anonymized output copy in the selected output folder.
-6. Audit the anonymized output for suspicious remaining patterns and assign a
+6. Optionally run local Ollama review on the already-anonymized output text.
+7. Audit the anonymized output for suspicious remaining patterns and assign a
    safe review-prioritization risk level.
-7. Save a safe per-file report.
-8. For batch runs, save a safe batch summary report.
-9. Let the user manually mark generated outputs as `approved`,
+8. Save a safe per-file report.
+9. For batch runs, save a safe batch summary report.
+10. Let the user manually mark generated outputs as `approved`,
    `needs_review`, or `rejected`.
 
 Counters contain labels and counts only. The app does not create or store a
@@ -154,6 +160,46 @@ left-expansion heuristic to reduce partial person masking in simple cases. NER
 can miss entities or misclassify text, especially with short, inflected,
 noisy, OCR-derived, or domain-specific text. Manual review is still required.
 
+## Local LLM Review / Ollama
+
+The optional LLM review layer uses Ollama locally when the user explicitly
+enables it and provides a model name already installed on the same computer.
+It is an extra quality-control layer after anonymization, not the main
+anonymizer and not an editor. The app does not download, pull, or require any
+specific model. A Polish-language local model such as Bielik may be useful if
+the user has installed it manually, but no model name is hardcoded.
+On Windows, the Ollama subprocess path explicitly uses UTF-8 text handling and
+strips any leading UTF-8 BOM from anonymized text before building the review
+prompt so local review does not fail on BOM-marked or Polish Unicode text.
+
+The LLM review asks for strict structured JSON and stores only safe metadata:
+
+- review used yes/no,
+- controlled status,
+- safe model name,
+- `ok`, `warning`, `high_risk`, or `unknown` risk level,
+- allowed residual category names,
+- manual-review requirement.
+
+To improve local JSON reliability, the app sends the review request through
+Ollama's local generate API with `stream=false`, `temperature=0`, and a strict
+JSON schema in the request format. The parser still rejects non-JSON, unsafe
+extra fields, invalid category names, and invalid types as controlled
+`invalid_response`. If a local model returns the whole JSON object inside a
+markdown code fence, the fence is stripped in memory before strict parsing.
+Prose outside the fence remains `invalid_response`.
+
+Reports and batch summaries do not store raw prompts, raw model responses,
+document snippets, source text, detected entity values, raw OCR text,
+dictionary terms, dictionary aliases, or replacement maps. If Ollama is
+missing, the service is unavailable, no model is configured, the configured
+model is missing, the call times out, or the model returns invalid JSON, the
+workflow records a controlled status and continues without crashing. Encoding
+or subprocess text-handling failures also fall back to a controlled safe
+status instead of exposing prompt text or exception details. Manual review
+remains required because local LLM output can be wrong, incomplete, or
+invalid.
+
 ## Post-Anonymization Audit
 
 After output is generated, the audit checks the anonymized text for conservative
@@ -200,6 +246,8 @@ Each successful file workflow writes a safe `_RAPORT.txt` report containing:
 - dictionary label counters,
 - OCR used/status/input-type metadata and page/image counts,
 - NER enabled/used/status/model metadata and NER category counters,
+- LLM review used/status/model/risk metadata and possible residual category
+  names,
 - post-anonymization audit status, risk level, and counters,
 - manual review requirement,
 - confirmation that original sensitive values are not stored,
@@ -213,10 +261,11 @@ Batch runs also write `_BATCH_SUMMARY.txt` in the selected output folder. The
 summary contains batch counts, aggregate category counters, audit status
 counts, risk level counts, aggregate audit category counters, aggregate OCR
 status counts, aggregate NER status counts, aggregate NER category counters,
-safe input/output/report filenames, and controlled safe error descriptions. It
-does not include source text, raw OCR text, detected entity text, private
-dictionary terms, aliases, full paths, exception messages, or a replacement
-map.
+aggregate LLM review status counts, LLM risk counts, LLM residual category
+counters, safe input/output/report filenames, and controlled safe error
+descriptions. It does not include source text, raw OCR text, detected entity
+text, private dictionary terms, aliases, full paths, exception messages, raw
+LLM prompts, raw LLM responses, document snippets, or a replacement map.
 
 Manual review runs can write `_REVIEW_STATUS.json` and
 `_REVIEW_SUMMARY.txt` in the selected output folder. The status file tracks
@@ -274,6 +323,18 @@ python -c "import spacy; spacy.load('pl_core_news_sm'); print('NER model availab
 
 The application does not run those commands automatically.
 
+LLM review is optional and local. Install Ollama and any local model manually,
+outside this repository. Basic local checks:
+
+```bash
+ollama --version
+ollama list
+```
+
+If needed, start or check the local Ollama service using the normal Ollama
+instructions for your operating system. The application never runs
+`ollama pull` and never downloads models automatically.
+
 ## How To Run
 
 Run the GUI:
@@ -301,16 +362,18 @@ python -m unittest discover -s tests
    or `.tiff` files and check the selected-file count.
 3. Select an output folder.
 4. Optionally select a private dictionary file.
-5. If `Anonymize batch` is disabled, read the readiness hint beside the button.
-6. Click `Anonymize batch`.
-7. Check the GUI status, counters, audit summary, generated filenames, and
+5. Optionally leave local NER enabled.
+6. Optionally enable local LLM review and enter an installed Ollama model name.
+7. If `Anonymize batch` is disabled, read the readiness hint beside the button.
+8. Click `Anonymize batch`.
+9. Check the GUI status, counters, audit/LLM summary, generated filenames, and
    batch summary filename.
-8. Manually review every anonymized output before using or sharing it.
-9. In the manual review section, select the output folder, load detected
-   generated outputs, optionally open the selected `_ANON` output or matching
-   `_RAPORT` report in the default system app, assign manual statuses, and
-   save the review metadata.
-10. Optionally click `Export approved` to create an `approved/` staging
+10. Manually review every anonymized output before using or sharing it.
+11. In the manual review section, select the output folder, load detected
+    generated outputs, optionally open the selected `_ANON` output or matching
+    `_RAPORT` report in the default system app, assign manual statuses, and
+    save the review metadata.
+12. Optionally click `Export approved` to create an `approved/` staging
     workspace from files marked `approved` in `_REVIEW_STATUS.json`.
 
 For a practical non-developer validation sequence, use
@@ -397,7 +460,8 @@ matching, safe reports, post-anonymization audit metadata, collision-safe
 output naming, output workspace behavior, batch processing, manual review
 metadata, approved workspace export, safe approved index generation, and
 Stage 18 end-to-end MVP workflow validation. Stage 20 tests use mocked NER
-model output, so they do not require a real spaCy Polish model.
+model output, so they do not require a real spaCy Polish model. Stage 21 tests
+mock Ollama behavior, so they do not require real Ollama or a real local model.
 
 Run:
 
@@ -410,8 +474,12 @@ python -m unittest discover -s tests
 - Manual review is always required.
 - OCR is optional, local, dependency-dependent, and imperfect.
 - NER is optional, local, dependency/model-dependent, and imperfect.
+- LLM review is optional, local, post-anonymization only, and dependent on the
+  user's local Ollama installation and manually installed model.
 - NER can miss or misclassify names, organizations, locations, and other
   entities.
+- LLM review can miss risks, misclassify context, time out, or return invalid
+  structured output.
 - Audit risk levels are review-prioritization hints only, not proof that a
   document is safe.
 - This is not production-ready full anonymization.
@@ -439,6 +507,8 @@ python -m unittest discover -s tests
 - Reports contain safe counters and metadata only, not a detailed audit trail.
 - Reports and batch summaries do not include raw OCR text.
 - Reports and batch summaries do not include detected NER entity text.
+- Reports and batch summaries do not include raw LLM prompts, raw LLM
+  responses, source text, snippets, or detected values.
 - Batch summary reports use safe filenames and controlled error descriptions
   only; they do not include private paths or exception text.
 
@@ -455,12 +525,15 @@ a manual MVP smoke checklist. Stage 19 adds an optional local OCR foundation
 for image inputs and scanned PDF fallback without adding cloud/API processing
 or edited image/PDF output. Stage 20 adds an optional local spaCy NER
 foundation without runtime model downloads, cloud/API processing, Ollama,
-Bielik, OpenAI API calls, online NLP, or LLM-based review.
+Bielik, OpenAI API calls, online NLP, or LLM-based review. Stage 21 adds an
+optional local Ollama-assisted review foundation that analyzes
+already-anonymized output text only and records safe metadata without prompts
+or raw responses.
 
 Potential future work requires explicit approval, especially OCR quality
 improvements, installer packaging, release automation, stronger entity
 detection, dictionary candidate export from NER findings, AI/API integration,
-local LLMs, databases, or broad NLP features.
+broader LLM workflows, databases, or broad NLP features.
 
 ## Portfolio Note
 

@@ -15,6 +15,9 @@ Stage 16 adds audit risk metadata around the engine workflow without changing
 the plain text engine return shape.
 Stage 20 adds keyword-only optional local NER controls. Existing callers remain
 dictionary/regex-only unless `use_ner=True` is passed.
+Stage 21 adds keyword-only optional local LLM review controls for file and
+batch workflows. The plain text engine itself remains deterministic; LLM
+review runs only after output text has already been anonymized.
 
 ## Related files
 
@@ -28,9 +31,9 @@ dictionary/regex-only unless `use_ner=True` is passed.
 
 ```python
 anonymize_text(text: str, sensitive_terms=None, use_ner=False, ner_model_name="pl_core_news_sm") -> tuple[str, dict[str, int]]
-anonymize_file(source_path: str | Path, sensitive_terms=None, sensitive_terms_path=None, output_dir=None, use_ner=False, ner_model_name="pl_core_news_sm") -> tuple[Path, dict[str, int]]
+anonymize_file(source_path: str | Path, sensitive_terms=None, sensitive_terms_path=None, output_dir=None, use_ner=False, ner_model_name="pl_core_news_sm", use_llm_review=False, llm_model_name="") -> tuple[Path, dict[str, int]]
 anonymize_file_with_audit(source_path: str | Path, sensitive_terms=None, sensitive_terms_path=None, output_dir=None)
-anonymize_batch(source_paths, output_dir, sensitive_terms=None, sensitive_terms_path=None, use_ner=False, ner_model_name="pl_core_news_sm")
+anonymize_batch(source_paths, output_dir, sensitive_terms=None, sensitive_terms_path=None, use_ner=False, ner_model_name="pl_core_news_sm", use_llm_review=False, llm_model_name="")
 ```
 
 The function returns:
@@ -92,6 +95,12 @@ text and skips existing placeholders to avoid double replacement.
 
 Counters are based on actual replacements performed by `re.subn`.
 
+If `use_llm_review=True` is passed to a file or batch workflow, the workflow
+runs local Ollama review after the anonymized output text has been produced.
+The LLM layer receives anonymized output text only and returns safe metadata;
+it does not change the anonymized document and does not affect category
+counters.
+
 ## Inputs
 
 The module accepts only a plain Python string. Passing another type raises
@@ -139,16 +148,18 @@ Returns:
 - Private dictionary terms are not stored in counters or reports.
 - Workflow dictionary metadata contains only status names, labels, and
   counters.
+- LLM review receives already-anonymized output text only and reports only safe
+  status/risk/category metadata.
 - Post-anonymization audit results contain only status, risk level, categories,
   counters, safe dictionary metadata, and a manual review flag.
 - Batch summary metadata contains safe filenames, counters, audit status
-  counts, risk level counts, aggregate audit category counters, and controlled
-  error descriptions only.
+  counts, risk level counts, aggregate audit category counters, aggregate LLM
+  review metadata, and controlled error descriptions only.
 - Tests use only synthetic values.
 - No real documents or generated output files are added.
 - No network calls, APIs, AI services, OCR, local LLMs, databases, DOCX, PDF, or
-  GUI code are part of the core engine. File workflows call this engine from
-  separate modules.
+  GUI code are part of the core engine. Optional LLM review is a post-engine
+  file workflow layer.
 
 ## How to test
 
@@ -166,7 +177,8 @@ Stage 11 tests cover aliases, case-insensitive matching, whitespace
 normalization, label-only counters, and audit dictionary matching. Stage 12
 tests cover output workspace dispatch and batch processing. Stage 16 tests
 cover audit risk levels and safe risk metadata propagation. Stage 20 tests
-cover optional local NER with mocked model output.
+cover optional local NER with mocked model output. Stage 21 tests cover local
+LLM review with mocked Ollama behavior and anonymized-output-only input.
 
 ## Known limitations
 
@@ -183,12 +195,14 @@ cover optional local NER with mocked model output.
   automatic entity detection.
 - PDF file input is handled by the Stage 4 file workflow, not by new regex
   logic in the core engine.
-- OCR, API calls, cloud services, local LLMs, databases, and replacement maps
-  are not implemented in the core engine.
+- OCR, API calls, cloud services, databases, and replacement maps are not
+  implemented in the core engine. Local LLM review exists only as an optional
+  post-anonymization file workflow layer.
 - Safe report files are created by the file workflows in Stage 6; the core
   engine itself still returns only anonymized text and counters.
 - Stage 9/16 audit is conservative and does not guarantee complete
   anonymization.
 - Stage 12 batch processing is sequential. Stage 20 NER remains optional and
-  local; it does not add APIs, cloud services, local LLMs, databases, preview,
-  or editing.
+  local. Stage 21 LLM review remains optional, local, and metadata-only; it
+  does not add APIs, cloud services, preview, editing, chat, document
+  rewriting, or automatic approval.

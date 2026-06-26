@@ -23,7 +23,9 @@ validates the complete GUI-backed MVP workflow with synthetic end-to-end tests
 and a manual smoke checklist. Stage 19 adds minimal image-file selection and
 safe aggregate OCR status display without redesigning the GUI.
 Stage 20 adds one optional local NER checkbox and safe aggregate NER status
-display without redesigning the GUI.
+display without redesigning the GUI. Stage 21 adds one optional local LLM
+review checkbox, a model-name field, and safe aggregate LLM status display
+without redesigning the GUI.
 
 ## Related files
 
@@ -33,6 +35,7 @@ display without redesigning the GUI.
 - `src/review.py`
 - `src/ocr.py`
 - `src/ner.py`
+- `src/llm_review.py`
 - `src/sensitive_terms.py`
 - `tests/test_gui_workflow.py`
 - `tests/test_review_workflow.py`
@@ -76,20 +79,22 @@ The GUI supports this flow:
    and the workflow loads the dictionary.
 5. Leave `Use local NER if available` checked to request local NER, or uncheck
    it for dictionary/regex-only processing.
-6. Check the readiness hint if `Anonymize batch` is disabled.
-7. Click `Anonymize batch`.
-8. Review the status, safe dictionary status, category counters, aggregate
-   audit status counts, aggregate risk counts, aggregate OCR/NER status,
+6. Optionally enable `Use local LLM review if available` and enter a local
+   Ollama model name that has already been installed manually.
+7. Check the readiness hint if `Anonymize batch` is disabled.
+8. Click `Anonymize batch`.
+9. Review the status, safe dictionary status, category counters, aggregate
+   audit status counts, aggregate risk counts, aggregate OCR/NER/LLM status,
    generated output filenames, generated report filenames, batch summary
    filename, and manual review warning.
-9. Manually inspect every anonymized output file before using or sharing it.
-10. Load the output folder in the manual review section.
-11. Optionally open the selected `_ANON` output or matching `_RAPORT` report in
+10. Manually inspect every anonymized output file before using or sharing it.
+11. Load the output folder in the manual review section.
+12. Optionally open the selected `_ANON` output or matching `_RAPORT` report in
    the operating system default application.
-12. Assign each generated output one manual status: `approved`,
+13. Assign each generated output one manual status: `approved`,
    `needs_review`, or `rejected`.
-13. Save `_REVIEW_STATUS.json` and a collision-safe `_REVIEW_SUMMARY.txt`.
-14. Optionally click `Export approved` to copy approved `_ANON` files into
+14. Save `_REVIEW_STATUS.json` and a collision-safe `_REVIEW_SUMMARY.txt`.
+15. Optionally click `Export approved` to copy approved `_ANON` files into
     `approved/` and write `_APPROVED_INDEX.txt`.
 
 `Remove selected` and `Clear files` affect only the GUI selected-file list.
@@ -110,6 +115,7 @@ The GUI shows:
 - aggregate audit warning categories,
 - aggregate OCR status counts,
 - aggregate NER status counts,
+- aggregate LLM review status counts,
 - output filenames,
 - report filenames and batch summary filename,
 - generated output filenames detected for manual review,
@@ -208,6 +214,7 @@ and approved indexes.
   only.
 - The GUI displays OCR status counts only.
 - The GUI displays NER status counts only.
+- The GUI displays LLM review status counts only.
 - The GUI displays dictionary status names and safe match metadata only.
 - The GUI does not display original detected source values.
 - The GUI does not display private dictionary contents.
@@ -228,8 +235,11 @@ and approved indexes.
   guarantee of complete anonymization.
 - No source data is logged.
 - OCR and NER are optional and local; no AI, API, cloud service, database,
-  drag and drop, preview, editing, edited image output, or PDF writing is
-  added.
+- OCR, NER, and LLM review are optional and local; no OpenAI API, cloud
+  service, database, chat UI, document rewriting, drag and drop, preview,
+  editing, edited image output, or PDF writing is added.
+- The GUI does not display LLM prompts, raw responses, document snippets,
+  source text, detected values, or dictionary terms.
 
 ## How to test
 
@@ -256,6 +266,7 @@ approved export behavior is covered by `tests/test_review_workflow.py`. Stage
 Stage 19 OCR GUI-adjacent status formatting is covered by
 `tests/test_ocr.py` and `tests/test_gui_workflow.py`. Stage 20 NER status
 formatting is covered by `tests/test_ner.py` and `tests/test_gui_workflow.py`.
+Stage 21 LLM status behavior is covered by `tests/test_llm_review.py`.
 Fragile widget tests are not included.
 
 ## Known limitations
@@ -277,7 +288,10 @@ Fragile widget tests are not included.
   install or configure those dependencies.
 - NER requires optional local spaCy dependencies and a local Polish model; the
   GUI does not install, download, or configure those dependencies.
+- LLM review requires optional local Ollama and a user-installed local model;
+  the GUI does not install, download, pull, or configure those dependencies.
 - The GUI does not support drag and drop, preview, split-screen review,
-  highlighting, edited image output, or anonymized PDF output.
+  highlighting, chat, document rewriting, edited image output, or anonymized
+  PDF output.
 - DOCX and PDF limitations from Stages 3 and 4 still apply.
 - Manual review remains required before trusting any anonymized result.

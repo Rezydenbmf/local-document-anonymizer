@@ -10,6 +10,7 @@ input file
 -> anonymization
 -> optional local NER on remaining text when enabled and available
 -> collision-safe output file in selected output folder
+-> optional local LLM review of already-anonymized output text only
 -> post-anonymization audit
 -> safe risk-level assignment for review prioritization
 -> safe report
@@ -32,6 +33,12 @@ Stage 20 adds an optional local spaCy NER layer after private dictionary and
 regex replacements. It uses only a locally installed spaCy package and local
 Polish model, never downloads models at runtime, and records controlled
 statuses when the dependency or model is unavailable.
+
+Stage 21 adds an optional local Ollama review layer after anonymized output
+text exists. It analyzes only already-anonymized text and records safe
+structured metadata. It never receives raw source text, raw OCR text before
+anonymization, private dictionary terms, dictionary aliases, replacement maps,
+or source snippets.
 
 ## Module Responsibilities
 
@@ -73,6 +80,15 @@ model labels into internal labels such as `NER_PERSON`, `NER_ORG`,
 returns controlled statuses such as `available`, `dependency_missing`,
 `model_missing`, `disabled`, and `processing_error`.
 
+`llm_review.py` contains optional local Ollama review helpers. It checks for
+the local `ollama` command/service, lists installed models where possible,
+validates the configured model name, builds an in-memory prompt for
+already-anonymized text only, runs `ollama run` with a timeout, and parses
+strict structured JSON into safe metadata. Controlled statuses include
+`disabled`, `ollama_not_found`, `service_unavailable`, `no_model_configured`,
+`model_missing`, `timeout`, `invalid_response`, `processing_error`, and
+`completed`.
+
 `sensitive_terms.py` contains private dictionary support. It loads a UTF-8
 local dictionary file, parses `term = [LABEL]` and
 `alias | alias = [LABEL]` lines, ignores blank lines and comments, validates
@@ -96,8 +112,9 @@ workflow. Stage 9 adds `_with_audit` variants for TXT, DOCX, PDF, and
 dispatcher workflows. Stage 19 adds an OCR image helper and scanned-PDF
 fallback inside the PDF workflow. Stage 20 adds keyword-only `use_ner` and
 `ner_model_name` controls so existing callers keep their return shapes. The
-existing helpers still return only the output path plus category counters, but
-they also run the audit and save it into the safe report.
+existing helpers still return only the output path plus category counters.
+Stage 21 adds keyword-only `use_llm_review` and `llm_model_name` controls. The
+file helpers also run optional LLM review, audit, and safe report output.
 
 `audit.py` contains the post-anonymization audit. It checks already anonymized
 output text for conservative suspicious remaining patterns. When a dictionary
@@ -130,14 +147,14 @@ preserve PDF layout, and does not modify the original PDF.
 `report.py` builds and saves safe TXT reports without original sensitive source
 values. It receives only status, input type, output type, anonymization
 category counters, safe dictionary status metadata, dictionary label counters,
-safe OCR metadata, safe NER metadata, audit status, audit risk level, audit
-counters, and optional category ordering.
+safe OCR metadata, safe NER metadata, safe LLM review metadata, audit status,
+audit risk level, audit counters, and optional category ordering.
 Dictionary counters are labels only, such as `IMIE NAZWISKO: 2`; original
 dictionary terms are not passed to the report module. Stage 12 also adds safe
 batch summary text generation with safe filenames, aggregate counters, audit
 status counts, risk level counts, aggregate audit category counters, aggregate
-OCR status counts, aggregate NER status/category counts, and controlled error
-descriptions only.
+OCR status counts, aggregate NER status/category counts, aggregate LLM
+review status/risk/category counts, and controlled error descriptions only.
 
 `review.py` contains the manual review workflow metadata. It detects generated
 `_ANON` outputs in an output folder, pairs matching `_RAPORT` report basenames
@@ -165,10 +182,12 @@ outputs and local-only workspaces remain covered by `.gitignore`.
 
 ## Safety Design
 
-The project is local-first and offline. Stage 19's OCR path and Stage 20's NER
-path are optional and local only. They must not add cloud services, APIs,
-network calls, prompt-based review, local LLMs, databases, or large
-dependencies without explicit approval.
+The project is local-first and offline. Stage 19's OCR path, Stage 20's NER
+path, and Stage 21's Ollama review path are optional and local only. Stage 21
+does not add cloud services, APIs, network calls, cloud LLMs, RAG, vector
+databases, chat UI, document rewriting, or large dependencies. Ollama and any
+model must be installed by the user; the application does not download or pull
+models automatically.
 
 Reports must not include original sensitive source values. The application must not store replacement maps containing original values.
 
@@ -201,13 +220,18 @@ Dictionary metadata is safe metadata only. It contains status names, booleans
 implied by status, label names, and counters. It does not contain dictionary
 source aliases, document fragments, source file paths, or replacement maps.
 
-The project still does not use internet calls, APIs, cloud services, local
-LLMs, prompt-based review, databases, drag and drop, document preview, or an
-editing workflow. OCR and NER, when available, use only local dependencies.
+The project still does not use internet calls, APIs, cloud services, cloud
+LLMs, databases, drag and drop, document preview, chat UI, document rewriting,
+or an editing workflow. OCR, NER, and LLM review, when available, use only
+local dependencies. The approved workspace remains a manual staging area, not
+automatic approval, not a knowledge base, and not a guarantee of complete
+anonymization.
 
-Stage 20 keeps those exclusions unchanged apart from optional local spaCy NER.
-The approved workspace remains a manual staging area, not automatic approval,
-not a knowledge base, and not a guarantee of complete anonymization.
+LLM review results are metadata only. Reports and batch summaries must not
+include raw prompts, raw LLM responses, source text, source snippets, raw OCR
+text, dictionary terms, dictionary aliases, detected entity values, full paths,
+tracebacks, or replacement maps. Invalid or unexpected model output becomes
+`invalid_response` rather than a crash.
 
 ## GUI Limitations
 
@@ -236,6 +260,14 @@ repository. It can miss or misclassify entities and does not prove complete
 anonymization. Reports and summaries include only safe NER metadata and
 counters, never detected entity text. The app does not download models at
 runtime and does not bundle spaCy model files.
+
+## LLM Review Limitations
+
+Stage 21 LLM review depends on Ollama and a local model installed outside the
+repository. It can miss sensitive context, misclassify harmless context, time
+out, or return invalid structured output. It is a post-anonymization review
+signal only and does not replace deterministic anonymization, private
+dictionary matching, NER, audit, or manual review.
 
 ## DOCX Limitations
 

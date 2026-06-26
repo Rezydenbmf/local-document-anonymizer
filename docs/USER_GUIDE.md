@@ -5,10 +5,10 @@
 Local Document Anonymizer is a local desktop tool for replacing supported
 sensitive values in documents with general labels.
 
-The workflow is local-first. It does not use cloud services, API calls, local
-LLMs, prompt-based review, or a database. Optional OCR and optional NER run
-only on the user's computer when local dependencies and local models are
-installed.
+The workflow is local-first. It does not use cloud services, API calls, cloud
+LLMs, online processing, or a database. Optional OCR, optional NER, and
+optional Ollama-assisted review run only on the user's computer when local
+dependencies and local models are installed.
 
 ## 2. What This Application Is Not For
 
@@ -25,16 +25,18 @@ The current MVP workflow is:
 4. Optionally select a private sensitive terms file.
 5. Leave `Use local NER if available` checked when you want the optional local
    spaCy NER layer to run, or uncheck it for dictionary/regex-only processing.
-6. If `Anonymize batch` is disabled, read the readiness hint beside the button.
-7. Click `Anonymize batch`.
-8. Check the status, dictionary status, category counters, aggregate audit
-   status, aggregate risk levels, aggregate OCR/NER status, generated
+6. Optionally enable `Use local LLM review if available` and enter the name of
+   a local Ollama model that you installed manually.
+7. If `Anonymize batch` is disabled, read the readiness hint beside the button.
+8. Click `Anonymize batch`.
+9. Check the status, dictionary status, category counters, aggregate audit
+   status, aggregate risk levels, aggregate OCR/NER/LLM status, generated
    filenames, and batch summary filename.
-9. Manually review each anonymized output file before using or sharing it.
-10. Use the manual review section to load the output folder, optionally open the
+10. Manually review each anonymized output file before using or sharing it.
+11. Use the manual review section to load the output folder, optionally open the
    selected generated output or matching report in the operating system
    default application, assign statuses, and save safe review metadata.
-11. Optionally export approved files to an `approved/` staging workspace.
+12. Optionally export approved files to an `approved/` staging workspace.
 
 The application saves output files before manual review. It does not provide an
 in-app document preview or editing screen.
@@ -112,8 +114,14 @@ miscellaneous entity labels when spaCy and a local Polish model are installed.
 NER can miss or misclassify entities. Manual review is still required for NER
 outputs.
 
+Optional local LLM review can add a second review signal when Ollama and a
+local model are installed manually. It runs after anonymization and analyzes
+already-anonymized output text only. It does not receive raw source text, raw
+OCR text before anonymization, private dictionary terms, private dictionary
+aliases, replacement maps, or source snippets.
+
 APIs, cloud services, databases, drag and drop, advanced document preview, PDF
-writing, edited image output, LLM-based review, online NLP, and detailed audit
+writing, edited image output, cloud LLMs, online NLP, and detailed audit
 reports with source snippets are not supported.
 
 Optional OCR requires local Python OCR libraries and the Tesseract executable
@@ -125,6 +133,16 @@ Optional NER requires `spacy` plus a local Polish model such as
 `pl_core_news_sm` installed in the user's Python environment. The application
 does not download models automatically and the repository does not include
 spaCy model files.
+
+Optional local LLM review requires Ollama plus a local model installed outside
+the repository. The application does not download or pull Ollama models. A
+Polish-language local model such as Bielik may be useful if installed
+manually, but no specific model is required by the app. Useful local checks:
+
+```bash
+ollama --version
+ollama list
+```
 
 ## 5. Report Files
 
@@ -141,14 +159,17 @@ The report contains:
 - dictionary label counters,
 - OCR used/status/input-type metadata and page/image counts,
 - NER enabled/used/status/model metadata and NER category counters,
+- LLM review used/status/model/risk metadata and possible residual category
+  names,
 - post-anonymization audit status, risk level, and category counters,
 - manual review requirement,
 - confirmation that original sensitive values are not stored,
 - confirmation that no replacement map was created.
 
 The report does not contain document text, raw OCR text, detected entity text,
-original sensitive values, full input paths, source filenames, private
-dictionary terms, text snippets, or replacement maps.
+raw LLM prompts, raw LLM responses, original sensitive values, full input
+paths, source filenames, private dictionary terms, text snippets, or
+replacement maps.
 
 For each batch run, the application writes `_BATCH_SUMMARY.txt` in the selected
 output folder. If that name already exists, it writes `_BATCH_SUMMARY_2.txt`,
@@ -163,12 +184,15 @@ output folder. If that name already exists, it writes `_BATCH_SUMMARY_2.txt`,
 - aggregate audit warning category counters,
 - aggregate OCR status counts,
 - aggregate NER status counts and NER category counters,
+- aggregate LLM review status counts, LLM risk counts, and LLM residual
+  category counters,
 - safe input, output, and report filenames,
 - controlled safe error descriptions.
 
-The batch summary does not contain source document text, raw OCR text, detected
-entity text, original sensitive values, private dictionary terms, aliases,
-replacement maps, full paths, or raw exception messages.
+The batch summary does not contain source document text, raw OCR text,
+detected entity text, raw LLM prompts, raw LLM responses, original sensitive
+values, private dictionary terms, aliases, replacement maps, full paths,
+document snippets, or raw exception messages.
 
 ## 6. Manual Review Workflow
 
@@ -349,7 +373,29 @@ controlled NER status such as `dependency_missing` or `model_missing`.
 Safe reports and batch summaries show NER status and category counters only.
 They never include detected entity text.
 
-## 12. Post-Anonymization Audit
+## 12. Local LLM Review / Ollama
+
+The optional LLM review layer is a local post-anonymization quality-control
+signal. It is disabled unless the user enables it and enters a local Ollama
+model name. The model must already be installed by the user; the app never
+runs `ollama pull` and never downloads models automatically.
+
+Controlled LLM statuses include `disabled`, `ollama_not_found`,
+`service_unavailable`, `no_model_configured`, `model_missing`, `timeout`,
+`invalid_response`, `processing_error`, and `completed`.
+
+The model is asked for strict structured JSON only. If the model returns
+invalid JSON or unexpected values, the workflow records `invalid_response` and
+continues. Reports store only status, safe model name, risk level, allowed
+residual category names, and manual-review metadata. They do not store raw
+prompts or raw model responses.
+
+LLM review can miss sensitive context, misclassify harmless context, or fail
+because the local model or Ollama service is unavailable. It does not replace
+regex replacements, private dictionary matching, NER, the deterministic audit,
+or manual review.
+
+## 13. Post-Anonymization Audit
 
 Stage 9 adds a safe audit after the `_ANON` output is generated. The workflow
 passes successfully loaded dictionary aliases into that audit. The audit checks
@@ -383,12 +429,12 @@ High-risk categories are `EMAIL`, `PESEL`, `TELEFON`,
 `LONG_NUMBER_SEQUENCE`. The risk level is not a guarantee that anonymization is
 complete and it does not approve a file automatically.
 
-## 13. Why Manual Review Is Required
+## 14. Why Manual Review Is Required
 
 Automatic detection and the audit may miss data or replace text incorrectly.
 Manual review is required before using the result.
 
-## 14. Where Output Files Are Saved
+## 15. Where Output Files Are Saved
 
 The application saves anonymized TXT and DOCX copies in the output folder
 selected by the user with the `_ANON` suffix. PDF input is saved in the output
@@ -417,17 +463,19 @@ _REVIEW_SUMMARY_3.txt
 Approved workspace exports use the same collision-safe numbering style inside
 `approved/` for copied files and `_APPROVED_INDEX.txt`.
 
-## 15. What Is Not Implemented Yet
+## 16. What Is Not Implemented Yet
 
 The current MVP includes plain string anonymization, TXT file input/output,
 basic DOCX file input/output, text-based PDF input with TXT output, optional
 local OCR foundation for image inputs and scanned-PDF fallback, optional local
-spaCy NER, a simple Tkinter GUI, batch processing, an output folder workflow,
+spaCy NER, optional local Ollama review, a simple Tkinter GUI, batch
+processing, an output folder workflow,
 collision-safe output names, safe reports, optional private dictionary input,
 dictionary status reporting, a safe post-anonymization audit with risk
 prioritization, and manual review status tracking with approved workspace
 staging. Production-grade entity detection, NER candidate export, AI, APIs,
-cloud services, local LLMs, databases, drag and drop, advanced preview,
-editing workflow, automatic approval, real knowledge-base creation,
+cloud services, cloud LLMs, databases, drag and drop, advanced preview,
+editing workflow, chat UI, document rewriting, automatic approval, real
+knowledge-base creation,
 rejected/needs-review folder routing, edited image output, and anonymized PDF
 output are not implemented.

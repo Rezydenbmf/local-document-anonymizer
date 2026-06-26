@@ -76,4 +76,38 @@ After every task, report:
 5. known risks / limitations
 6. git status
 
-Present the result for user review before any commit.
+## Present the result for user review before any commit.
+
+When preparing any prompt for Codex, always include a recommended Codex model tier before the prompt.
+
+The recommendation must include:
+
+- the model tier to use,
+- a short reason,
+- whether the task should be kept narrow to save usage limits.
+
+Use a lower/faster/cheaper Codex model for:
+
+- small bug fixes,
+- narrow corrections,
+- documentation updates,
+- test updates,
+- simple one-file or few-file changes,
+- follow-up fixes after manual smoke tests.
+
+Use a stronger Codex model for:
+
+- architecture changes,
+- security-sensitive changes,
+- complex debugging,
+- multi-module features,
+- changes affecting core workflow, GUI, reports, tests, and documentation at the same time.
+
+Every Codex prompt should start with:
+
+Recommended Codex model:
+<lower/faster model OR stronger model>
+
+Reason: <short explanation based on task complexity and usage limits>
+
+If the user has low remaining Codex usage, prefer the lower/faster model and keep the task as narrow as possible.

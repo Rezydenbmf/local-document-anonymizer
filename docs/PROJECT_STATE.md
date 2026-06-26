@@ -2,8 +2,8 @@
 
 ## Current Status
 
-The project is in Stage 20: optional local NER/NLP detection foundation,
-pending user review.
+The project is in Stage 21: optional local Ollama LLM-assisted review
+foundation, pending user review.
 
 The Stage 0-13 MVP implementation contains a narrow regex-based engine that
 accepts a Python string and returns anonymized text plus category counters. It
@@ -118,6 +118,31 @@ Ollama, Bielik, OpenAI API calls, cloud/API processing, online NLP, local LLMs,
 candidate export files, document preview, highlighting, drag and drop,
 databases, or model downloads at runtime.
 
+Stage 21 adds an optional local Ollama LLM-assisted review foundation. It
+introduces controlled Ollama availability detection, safe installed-model
+listing where possible, configured model validation, strict JSON response
+parsing, timeout/error handling, safe LLM metadata in reports and batch
+summaries, and a minimal GUI checkbox plus model-name field. LLM review runs
+after anonymization and receives already-anonymized output text only. It is an
+extra quality-control layer, not the primary anonymizer, not an editor, not a
+replacement for dictionary/regex/NER/audit/manual review, and not automatic
+approval. Stage 21 does not add OpenAI API calls, cloud LLMs, external APIs,
+online processing, RAG, vector databases, a chat UI, document rewriting,
+runtime model downloads, or a required Ollama model.
+Stage 21.1 hardens the local Ollama subprocess path for Windows UTF-8/BOM
+handling by stripping BOM characters from already-anonymized review input,
+forcing UTF-8 subprocess text handling, and converting encoding/subprocess
+failures into controlled safe LLM statuses without exposing prompt text, raw
+responses, snippets, or traceback details.
+Stage 21.2 improves local Ollama JSON reliability by sending the review call
+through the local Ollama generate API with a strict JSON schema request,
+keeping strict parser rejection for invalid/unsafe output, and correcting
+batch LLM counters so `timeout`, `invalid_response`, and `processing_error`
+count as attempted safe failures instead of skipped/unavailable runs. The
+parser also tolerates the narrow local-model behavior where the entire JSON
+object is wrapped in a markdown code fence, while still rejecting prose outside
+the fence and never storing the raw response.
+
 ## What Exists
 
 - Repository structure.
@@ -139,6 +164,17 @@ databases, or model downloads at runtime.
 - Optional local NER support in `src/ner.py` with controlled statuses:
   `available`, `unavailable`, `dependency_missing`, `model_missing`,
   `disabled`, and `processing_error`.
+- Optional local Ollama LLM review support in `src/llm_review.py` with
+  controlled statuses: `disabled`, `available`, `unavailable`,
+  `ollama_not_found`, `service_unavailable`, `no_model_configured`,
+  `model_missing`, `timeout`, `invalid_response`, `processing_error`, and
+  `completed`.
+- Windows-safe UTF-8 local Ollama subprocess handling with BOM stripping for
+  already-anonymized review text before prompt construction.
+- Local Ollama review requests sent through the local generate API with
+  `stream=false`, `temperature=0`, and a strict JSON schema request format.
+- Strict local LLM response parsing that accepts a whole-response markdown
+  JSON fence but rejects prose-wrapped or unsafe output as `invalid_response`.
 - Optional spaCy NER model loading with no automatic model download and no
   committed model files.
 - Internal NER labels: `NER_PERSON`, `NER_ORG`, `NER_LOCATION`, and
@@ -151,6 +187,10 @@ databases, or model downloads at runtime.
   `_BATCH_SUMMARY.txt` reports.
 - Safe NER metadata in per-file `_RAPORT.txt` reports and aggregate
   `_BATCH_SUMMARY.txt` reports.
+- Safe LLM review metadata in per-file `_RAPORT.txt` reports and aggregate
+  `_BATCH_SUMMARY.txt` reports. Metadata is limited to review used/status,
+  safe model name, LLM risk level, possible residual category names, and
+  manual-review requirement.
 - Single-file application dispatcher `anonymize_file(...)`, with optional
   output directory support.
 - Batch workflow `anonymize_batch(...)`.
@@ -164,6 +204,8 @@ databases, or model downloads at runtime.
   still needed before anonymization can start.
 - GUI file selection for implemented OCR-capable image inputs and safe
   aggregate OCR status display in the existing audit/status area.
+- GUI checkbox for optional local LLM review and a simple model-name field.
+  The GUI shows aggregate LLM review status metadata only.
 - Manual review GUI actions to open a selected `_ANON` output or matching
   `_RAPORT` report with the operating system default application.
 - Default GUI entry point in `src/main.py`.
@@ -191,12 +233,17 @@ accepts preloaded `sensitive_terms`.
 - Safe report dictionary section with used/status/matches-found metadata.
 - Safe report section for post-anonymization audit status, risk level, and
   counters only.
+- Safe report section for local LLM review metadata only. Reports do not store
+  raw prompts, raw LLM responses, source text, document snippets, detected
+  values, raw OCR text, dictionary terms, dictionary aliases, or replacement
+  maps.
 - Shared dictionary matching semantics for anonymization and audit dictionary
   checks.
 - TXT, DOCX, PDF, and dispatcher flows that create safe reports after
   successful anonymization.
 - Batch summary report generation with safe filenames, aggregate risk counts,
-  aggregate audit category counters, and no private paths.
+  aggregate audit category counters, aggregate LLM review status/risk/category
+  counters, and no private paths.
 - Manual review workflow in `src/review.py` for detecting generated `_ANON`
   outputs, pairing safe report basenames, reading safe report risk levels,
   applying manual statuses, and saving safe review metadata.
@@ -258,6 +305,12 @@ accepts preloaded `sensitive_terms`.
   anonymization, NER counters, safe report metadata, safe batch summary
   metadata, DOCX workflow integration, and no-crash fallback using synthetic
   inputs only.
+- Unit tests for Stage 21 Ollama availability detection, missing command,
+  service unavailable, no model configured, missing model, mocked successful
+  LLM review, timeout handling, invalid response handling, structured response
+  parsing including fenced JSON, risk-level mapping, residual category
+  aggregation, safe report and batch summary metadata, no-crash unavailable
+  fallback, and review input policy using synthetic/mocked data only.
 - Manual MVP smoke-test checklist in `docs/MVP_MANUAL_TEST_CHECKLIST.md`.
 - Synthetic sample text files in `tests/sample_data/`.
 - Synthetic example dictionary in `examples/sensitive_terms.example.txt`.
@@ -274,7 +327,9 @@ accepts preloaded `sensitive_terms`.
 
 - Advanced GUI preview or editing workflow.
 - Drag and drop.
-- AI, API calls, cloud services, local LLMs, or databases.
+- AI/API calls, cloud services, cloud LLMs, online processing, databases, RAG,
+  vector databases, or local LLM use beyond the optional post-anonymization
+  Ollama review metadata layer.
 - Edited image output or anonymized PDF output.
 - Bundled Tesseract binaries, OCR language models, or OCR installers.
 - Detailed report generation beyond safe counters, safe audit metadata, and
@@ -285,6 +340,8 @@ accepts preloaded `sensitive_terms`.
 - Production-grade names, surnames, cities, organizations, or context-based
   detection.
 - Production-grade OCR quality handling.
+- LLM-based primary anonymization, document rewriting, chat UI, prompt logging,
+  raw response logging, or automatic approval.
 
 ## How to Run
 
@@ -360,6 +417,10 @@ python -m unittest discover -s tests
   include raw OCR text.
 - Reports and batch summaries include safe NER metadata only; they do not
   include detected entity text.
+- Reports and batch summaries include safe LLM review metadata only; they do
+  not include raw prompts, raw LLM responses, source text, document snippets,
+  detected entity values, dictionary terms, dictionary aliases, raw OCR text,
+  or replacement maps.
 - Private dictionary matching is deterministic, case-insensitive, and tolerant
   of extra internal spaces, but it is not fuzzy matching, inflection handling,
   automatic entity recognition, AI, or NER.
@@ -377,22 +438,24 @@ python -m unittest discover -s tests
 
 ## Last Completed Committed Stage
 
-Stage 19: optional local OCR foundation.
+Stage 20: optional local NER/NLP detection foundation.
 
 ```text
-eef1d03 Implement Stage 19 local OCR foundation
+2efdec2 Implement Stage 20 local NER detection
 ```
 
 ## Next Logical Step
 
-Manually smoke test Stage 20 through the Tkinter GUI with synthetic files:
-anonymize normal TXT/DOCX/text-based PDF files with the local NER checkbox on,
-inspect safe NER metadata in `_RAPORT.txt` and `_BATCH_SUMMARY.txt`, and repeat
-with spaCy/model unavailable to confirm the controlled fallback status.
-Potential future work requires an explicit project decision, especially OCR
-quality improvements, NER candidate export, installer work, AI/API integration,
-local LLMs, databases, broad NLP/entity detection, packaging, release
-automation, or knowledge-base creation.
+Manually smoke test Stage 21 through the Tkinter GUI with synthetic files:
+anonymize normal TXT/DOCX/text-based PDF files with local LLM review disabled,
+enabled without a model name, and enabled with a manually installed local
+Ollama model if one is available. Inspect safe LLM metadata in `_RAPORT.txt`
+and `_BATCH_SUMMARY.txt`, and confirm raw prompts, raw responses, source text,
+and snippets are not written. Potential future work requires an explicit
+project decision, especially OCR quality improvements, NER candidate export,
+installer work, AI/API integration, broader LLM features, databases, broad
+NLP/entity detection, packaging, release automation, or knowledge-base
+creation.
 
 ## Warning
 

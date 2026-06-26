@@ -106,3 +106,12 @@ processing errors should become safe statuses, not crashes or tracebacks.
 Reports and summaries may record NER metadata and internal category counters,
 but they must not store detected entity text. Manual review remains required
 because NER can miss or misclassify sensitive data.
+
+## 20. LLM review must be post-anonymization only.
+
+Local LLM review can be useful as an extra quality-control signal, but it must
+not become primary anonymization, document rewriting, automatic approval, or a
+place where raw source text leaks. The LLM should receive already-anonymized
+output text only, and reports should store only structured status/risk/category
+metadata. Missing Ollama, missing models, timeouts, and invalid model output
+should become controlled statuses, not crashes or logged prompts/responses.

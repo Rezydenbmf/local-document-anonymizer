@@ -76,6 +76,57 @@ NER_WARNING_TEXTS = (
     "local NER model could not be loaded",
     "local NER processing failed safely",
 )
+LLM_REVIEW_STATUSES = (
+    "disabled",
+    "available",
+    "unavailable",
+    "ollama_not_found",
+    "service_unavailable",
+    "no_model_configured",
+    "model_missing",
+    "timeout",
+    "invalid_response",
+    "processing_error",
+    "completed",
+)
+LLM_RISK_LEVELS = (
+    "ok",
+    "warning",
+    "high_risk",
+    "unknown",
+)
+LLM_RESIDUAL_CATEGORIES = (
+    "PERSON_LIKE",
+    "ORGANIZATION_LIKE",
+    "LOCATION_LIKE",
+    "ADDRESS_CONTEXT",
+    "CASE_REFERENCE_LIKE",
+    "CONTACT_DATA_LIKE",
+    "OTHER_SENSITIVE_CONTEXT",
+)
+LLM_WARNING_TEXTS = (
+    "",
+    "local Ollama command not found",
+    "local Ollama check timed out",
+    "local Ollama service unavailable",
+    "local Ollama model list unavailable",
+    "configured local Ollama model is missing",
+    "local LLM review timed out",
+    "local LLM review failed safely",
+)
+LLM_ATTEMPTED_FAILURE_STATUSES = (
+    "timeout",
+    "invalid_response",
+    "processing_error",
+)
+LLM_SKIPPED_OR_UNAVAILABLE_STATUSES = (
+    "disabled",
+    "unavailable",
+    "ollama_not_found",
+    "service_unavailable",
+    "no_model_configured",
+    "model_missing",
+)
 
 
 def _safe_file_type(value: str) -> str:
@@ -184,6 +235,43 @@ def _safe_ner_warning(value: object) -> str:
     return "local NER processing failed safely" if warning else ""
 
 
+def _safe_llm_review_status(value: object) -> str:
+    status = str(value).strip()
+    if status in LLM_REVIEW_STATUSES:
+        return status
+    return "unavailable"
+
+
+def _safe_llm_model_name(value: object) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return "not configured"
+    normalized = (
+        text.replace("_", "")
+        .replace(".", "")
+        .replace("-", "")
+        .replace(":", "")
+        .replace("/", "")
+    )
+    if normalized.isalnum():
+        return text
+    return "local_model"
+
+
+def _safe_llm_risk_level(value: object) -> str:
+    risk_level = str(value).strip()
+    if risk_level in LLM_RISK_LEVELS:
+        return risk_level
+    return "unknown"
+
+
+def _safe_llm_warning(value: object) -> str:
+    warning = str(value or "").strip()
+    if warning in LLM_WARNING_TEXTS:
+        return warning
+    return "local LLM review failed safely" if warning else ""
+
+
 def _ocr_section_lines(ocr_result: Mapping[str, object] | None) -> list[str]:
     if ocr_result is None:
         return []
@@ -244,6 +332,51 @@ def _ner_section_lines(ner_result: Mapping[str, object] | None) -> list[str]:
         lines.append("* none: 0")
     if warning:
         lines.append(f"NER warning: {warning}")
+
+    return lines
+
+
+def _llm_review_section_lines(
+    llm_review_result: Mapping[str, object] | None,
+) -> list[str]:
+    if llm_review_result is None:
+        return []
+
+    used = bool(llm_review_result.get("used", False))
+    status = _safe_llm_review_status(llm_review_result.get("status"))
+    model_name = _safe_llm_model_name(llm_review_result.get("model_name"))
+    risk_level = _safe_llm_risk_level(llm_review_result.get("risk_level"))
+    manual_review_required = bool(
+        llm_review_result.get("manual_review_required", True)
+    )
+    warning = _safe_llm_warning(llm_review_result.get("warning", ""))
+    raw_categories = llm_review_result.get("possible_residual_categories", [])
+    if not isinstance(raw_categories, list):
+        raise TypeError("LLM residual categories must be a list")
+
+    categories = [
+        category for category in raw_categories if category in LLM_RESIDUAL_CATEGORIES
+    ]
+    lines = [
+        "",
+        "Local LLM review:",
+        f"LLM review used: {'yes' if used else 'no'}",
+        f"LLM review status: {status}",
+        f"LLM model: {model_name}",
+        f"LLM risk level: {risk_level}",
+        "Possible residual categories:",
+    ]
+    if categories:
+        for category in LLM_RESIDUAL_CATEGORIES:
+            if category in categories:
+                lines.append(f"* {category}")
+    else:
+        lines.append("* none")
+    lines.append(
+        f"LLM manual review required: {'yes' if manual_review_required else 'no'}"
+    )
+    if warning:
+        lines.append(f"LLM warning: {warning}")
 
     return lines
 
@@ -349,6 +482,7 @@ def build_report_text(
     dictionary_result: Mapping[str, object] | None = None,
     ocr_result: Mapping[str, object] | None = None,
     ner_result: Mapping[str, object] | None = None,
+    llm_review_result: Mapping[str, object] | None = None,
 ) -> str:
     """Build a safe text report without source values or replacement maps."""
     if not isinstance(status, str):
@@ -376,6 +510,7 @@ def build_report_text(
     lines.extend(_dictionary_section_lines(dictionary_result))
     lines.extend(_ocr_section_lines(ocr_result))
     lines.extend(_ner_section_lines(ner_result))
+    lines.extend(_llm_review_section_lines(llm_review_result))
     lines.extend(_audit_section_lines(audit_result, audit_category_order))
 
     lines.extend(
@@ -402,6 +537,7 @@ def save_report_file(
     dictionary_result: Mapping[str, object] | None = None,
     ocr_result: Mapping[str, object] | None = None,
     ner_result: Mapping[str, object] | None = None,
+    llm_review_result: Mapping[str, object] | None = None,
 ) -> Path:
     """Save a safe anonymization report and return the report path."""
     path = Path(report_path)
@@ -416,6 +552,7 @@ def save_report_file(
         dictionary_result=dictionary_result,
         ocr_result=ocr_result,
         ner_result=ner_result,
+        llm_review_result=llm_review_result,
     )
     path.write_text(report_text, encoding="utf-8")
     return path
@@ -433,6 +570,9 @@ def build_batch_summary_text(
     audit_category_counters: Mapping[str, int] | None = None,
     ner_status_counts: Mapping[str, int] | None = None,
     ner_category_counters: Mapping[str, int] | None = None,
+    llm_review_status_counts: Mapping[str, int] | None = None,
+    llm_review_risk_level_counts: Mapping[str, int] | None = None,
+    llm_review_category_counters: Mapping[str, int] | None = None,
     category_order: Iterable[str] | None = None,
     audit_category_order: Iterable[str] | None = None,
     status: str = "completed",
@@ -552,6 +692,55 @@ def build_batch_summary_text(
         _validate_count(count)
         lines.append(f"* {label}: {count}")
 
+    llm_attempted_count = 0
+    llm_attempt_failed_count = 0
+    llm_unavailable_or_disabled_count = 0
+    for result in materialized_results:
+        llm_status = _safe_llm_review_status(
+            result.get("llm_review_status", "disabled")
+        )
+        if llm_status == "completed" or llm_status in LLM_ATTEMPTED_FAILURE_STATUSES:
+            llm_attempted_count += 1
+        if llm_status in LLM_ATTEMPTED_FAILURE_STATUSES:
+            llm_attempt_failed_count += 1
+        if llm_status in LLM_SKIPPED_OR_UNAVAILABLE_STATUSES:
+            llm_unavailable_or_disabled_count += 1
+
+    lines.extend(
+        [
+            "",
+            "Local LLM review:",
+            f"* LLM review attempts: {llm_attempted_count}",
+            f"* LLM attempted but failed safely: {llm_attempt_failed_count}",
+            f"* LLM unavailable, disabled, or skipped: {llm_unavailable_or_disabled_count}",
+            "LLM review statuses:",
+        ]
+    )
+    llm_status_counts = llm_review_status_counts or {}
+    for status_name in LLM_REVIEW_STATUSES:
+        count = llm_status_counts.get(status_name, 0)
+        _validate_count(count)
+        lines.append(f"* {status_name}: {count}")
+
+    lines.append("LLM risk levels:")
+    llm_risk_counts = llm_review_risk_level_counts or {}
+    for risk_level in LLM_RISK_LEVELS:
+        count = llm_risk_counts.get(risk_level, 0)
+        _validate_count(count)
+        lines.append(f"* {risk_level}: {count}")
+
+    lines.append("LLM residual categories:")
+    llm_category_counts = llm_review_category_counters or {}
+    has_llm_category = False
+    for category in LLM_RESIDUAL_CATEGORIES:
+        count = llm_category_counts.get(category, 0)
+        _validate_count(count)
+        if count:
+            has_llm_category = True
+        lines.append(f"* {category}: {count}")
+    if not has_llm_category and not LLM_RESIDUAL_CATEGORIES:
+        lines.append("* none: 0")
+
     lines.extend(["", "Files:"])
     for result in materialized_results:
         file_status = str(result.get("status", "error"))
@@ -576,6 +765,19 @@ def build_batch_summary_text(
         if "ner_status" in result:
             lines.append(f"  NER used: {'yes' if result.get('ner_used') is True else 'no'}")
             lines.append(f"  NER status: {_safe_ner_status(result.get('ner_status'))}")
+        if "llm_review_status" in result:
+            lines.append(
+                f"  LLM review used: "
+                f"{'yes' if result.get('llm_review_used') is True else 'no'}"
+            )
+            lines.append(
+                f"  LLM review status: "
+                f"{_safe_llm_review_status(result.get('llm_review_status'))}"
+            )
+            lines.append(
+                f"  LLM risk level: "
+                f"{_safe_llm_risk_level(result.get('llm_risk_level'))}"
+            )
 
     lines.extend(
         [
@@ -585,6 +787,9 @@ def build_batch_summary_text(
             "Source paths stored: no",
             "Dictionary aliases stored: no",
             "Dictionary private terms stored: no",
+            "LLM prompts stored: no",
+            "Raw LLM responses stored: no",
+            "Document snippets stored: no",
         ]
     )
     return "\n".join(lines) + "\n"
@@ -603,6 +808,9 @@ def save_batch_summary_file(
     audit_category_counters: Mapping[str, int] | None = None,
     ner_status_counts: Mapping[str, int] | None = None,
     ner_category_counters: Mapping[str, int] | None = None,
+    llm_review_status_counts: Mapping[str, int] | None = None,
+    llm_review_risk_level_counts: Mapping[str, int] | None = None,
+    llm_review_category_counters: Mapping[str, int] | None = None,
     category_order: Iterable[str] | None = None,
     audit_category_order: Iterable[str] | None = None,
     status: str = "completed",
@@ -620,6 +828,9 @@ def save_batch_summary_file(
         audit_category_counters=audit_category_counters,
         ner_status_counts=ner_status_counts,
         ner_category_counters=ner_category_counters,
+        llm_review_status_counts=llm_review_status_counts,
+        llm_review_risk_level_counts=llm_review_risk_level_counts,
+        llm_review_category_counters=llm_review_category_counters,
         results=results,
         category_order=category_order,
         audit_category_order=audit_category_order,

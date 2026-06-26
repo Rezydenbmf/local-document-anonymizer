@@ -36,6 +36,12 @@ try:
     )
     from .ner import DEFAULT_NER_MODEL, NER_LABELS, NER_STATUSES, anonymize_text_with_ner
     from .ner import build_ner_metadata, prepare_ner_context
+    from .llm_review import (
+        LLM_REVIEW_STATUSES,
+        LLM_RESIDUAL_CATEGORIES,
+        LLM_RISK_LEVELS,
+        run_llm_review,
+    )
     from .report import (
         BATCH_ERROR_EMPTY_TEXT_PDF,
         BATCH_ERROR_FILE_IO,
@@ -83,6 +89,12 @@ except ImportError:
     )
     from ner import DEFAULT_NER_MODEL, NER_LABELS, NER_STATUSES, anonymize_text_with_ner
     from ner import build_ner_metadata, prepare_ner_context
+    from llm_review import (
+        LLM_REVIEW_STATUSES,
+        LLM_RESIDUAL_CATEGORIES,
+        LLM_RISK_LEVELS,
+        run_llm_review,
+    )
     from report import (
         BATCH_ERROR_EMPTY_TEXT_PDF,
         BATCH_ERROR_FILE_IO,
@@ -115,6 +127,7 @@ class FileWorkflowResult:
     audit_result: dict[str, object]
     ocr_result: dict[str, object]
     ner_result: dict[str, object]
+    llm_review_result: dict[str, object]
 
 
 @dataclass(frozen=True)
@@ -132,6 +145,9 @@ class BatchResult:
     results: list[dict[str, object]]
     ner_status_counts: dict[str, int] = field(default_factory=dict)
     ner_category_counters: dict[str, int] = field(default_factory=dict)
+    llm_review_status_counts: dict[str, int] = field(default_factory=dict)
+    llm_review_risk_level_counts: dict[str, int] = field(default_factory=dict)
+    llm_review_category_counters: dict[str, int] = field(default_factory=dict)
 
 _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
@@ -295,6 +311,19 @@ def _attach_ner_result(
     return audit_with_ner
 
 
+def _run_optional_llm_review(
+    anonymized_text: str,
+    *,
+    use_llm_review: bool,
+    llm_model_name: str,
+) -> dict[str, object]:
+    return run_llm_review(
+        anonymized_text,
+        enabled=use_llm_review,
+        model_name=llm_model_name,
+    )
+
+
 def _merge_counters(target: dict[str, int], source: dict[str, int]) -> None:
     for label, count in source.items():
         target[label] = target.get(label, 0) + count
@@ -308,6 +337,8 @@ def anonymize_txt_file(
     *,
     use_ner: bool = False,
     ner_model_name: str = DEFAULT_NER_MODEL,
+    use_llm_review: bool = False,
+    llm_model_name: str = "",
 ) -> tuple[Path, dict[str, int]]:
     """Anonymize a TXT file and save output plus a safe report."""
     output_path, counters, _ = anonymize_txt_file_with_audit(
@@ -317,6 +348,8 @@ def anonymize_txt_file(
         output_dir=output_dir,
         use_ner=use_ner,
         ner_model_name=ner_model_name,
+        use_llm_review=use_llm_review,
+        llm_model_name=llm_model_name,
     )
     return output_path, counters
 
@@ -329,6 +362,8 @@ def anonymize_txt_file_with_audit(
     *,
     use_ner: bool = False,
     ner_model_name: str = DEFAULT_NER_MODEL,
+    use_llm_review: bool = False,
+    llm_model_name: str = "",
 ) -> tuple[Path, dict[str, int], dict[str, object]]:
     """Anonymize a TXT file and return safe audit metadata."""
     result = _anonymize_txt_file_result(
@@ -338,6 +373,8 @@ def anonymize_txt_file_with_audit(
         output_dir=output_dir,
         use_ner=use_ner,
         ner_model_name=ner_model_name,
+        use_llm_review=use_llm_review,
+        llm_model_name=llm_model_name,
     )
     return result.output_path, result.counters, result.audit_result
 
@@ -350,6 +387,8 @@ def _anonymize_txt_file_result(
     *,
     use_ner: bool = False,
     ner_model_name: str = DEFAULT_NER_MODEL,
+    use_llm_review: bool = False,
+    llm_model_name: str = "",
 ) -> FileWorkflowResult:
     """Anonymize a TXT file and return paths needed by batch processing."""
     terms, dictionary_status = _prepare_workflow_dictionary(
@@ -366,6 +405,11 @@ def _anonymize_txt_file_result(
     )
     output_path = save_anonymized_txt_copy(
         source_path, anonymized, output_dir=output_dir
+    )
+    llm_review_result = _run_optional_llm_review(
+        anonymized,
+        use_llm_review=use_llm_review,
+        llm_model_name=llm_model_name,
     )
     dictionary_result = _dictionary_result(
         status=dictionary_status,
@@ -386,6 +430,7 @@ def _anonymize_txt_file_result(
         dictionary_result,
         ocr_result,
         ner_result,
+        llm_review_result,
         output_dir=output_dir,
     )
     return FileWorkflowResult(
@@ -395,6 +440,7 @@ def _anonymize_txt_file_result(
         audit_result,
         ocr_result,
         ner_result,
+        llm_review_result,
     )
 
 
@@ -406,6 +452,8 @@ def anonymize_docx_file(
     *,
     use_ner: bool = False,
     ner_model_name: str = DEFAULT_NER_MODEL,
+    use_llm_review: bool = False,
+    llm_model_name: str = "",
 ) -> tuple[Path, dict[str, int]]:
     """Anonymize a DOCX file and save output plus a safe report."""
     output_path, counters, _ = anonymize_docx_file_with_audit(
@@ -415,6 +463,8 @@ def anonymize_docx_file(
         output_dir=output_dir,
         use_ner=use_ner,
         ner_model_name=ner_model_name,
+        use_llm_review=use_llm_review,
+        llm_model_name=llm_model_name,
     )
     return output_path, counters
 
@@ -427,6 +477,8 @@ def anonymize_docx_file_with_audit(
     *,
     use_ner: bool = False,
     ner_model_name: str = DEFAULT_NER_MODEL,
+    use_llm_review: bool = False,
+    llm_model_name: str = "",
 ) -> tuple[Path, dict[str, int], dict[str, object]]:
     """Anonymize a DOCX file and return safe audit metadata."""
     result = _anonymize_docx_file_result(
@@ -436,6 +488,8 @@ def anonymize_docx_file_with_audit(
         output_dir=output_dir,
         use_ner=use_ner,
         ner_model_name=ner_model_name,
+        use_llm_review=use_llm_review,
+        llm_model_name=llm_model_name,
     )
     return result.output_path, result.counters, result.audit_result
 
@@ -448,6 +502,8 @@ def _anonymize_docx_file_result(
     *,
     use_ner: bool = False,
     ner_model_name: str = DEFAULT_NER_MODEL,
+    use_llm_review: bool = False,
+    llm_model_name: str = "",
 ) -> FileWorkflowResult:
     """Anonymize a DOCX file and return paths needed by batch processing."""
     terms, dictionary_status = _prepare_workflow_dictionary(
@@ -501,6 +557,11 @@ def _anonymize_docx_file_result(
         output_dir=output_dir,
     )
     anonymized_text = read_docx_file(output_path)
+    llm_review_result = _run_optional_llm_review(
+        anonymized_text,
+        use_llm_review=use_llm_review,
+        llm_model_name=llm_model_name,
+    )
     dictionary_result = _dictionary_result(
         status=dictionary_status,
         sensitive_terms=terms,
@@ -527,6 +588,7 @@ def _anonymize_docx_file_result(
         dictionary_result,
         ocr_result,
         ner_result,
+        llm_review_result,
         output_dir=output_dir,
     )
     return FileWorkflowResult(
@@ -536,6 +598,7 @@ def _anonymize_docx_file_result(
         audit_result,
         ocr_result,
         ner_result,
+        llm_review_result,
     )
 
 
@@ -547,6 +610,8 @@ def anonymize_pdf_file(
     *,
     use_ner: bool = False,
     ner_model_name: str = DEFAULT_NER_MODEL,
+    use_llm_review: bool = False,
+    llm_model_name: str = "",
 ) -> tuple[Path, dict[str, int]]:
     """Anonymize text from a PDF and save TXT output plus a safe report."""
     output_path, counters, _ = anonymize_pdf_file_with_audit(
@@ -556,6 +621,8 @@ def anonymize_pdf_file(
         output_dir=output_dir,
         use_ner=use_ner,
         ner_model_name=ner_model_name,
+        use_llm_review=use_llm_review,
+        llm_model_name=llm_model_name,
     )
     return output_path, counters
 
@@ -568,6 +635,8 @@ def anonymize_pdf_file_with_audit(
     *,
     use_ner: bool = False,
     ner_model_name: str = DEFAULT_NER_MODEL,
+    use_llm_review: bool = False,
+    llm_model_name: str = "",
 ) -> tuple[Path, dict[str, int], dict[str, object]]:
     """Anonymize text from a PDF and return safe audit metadata."""
     result = _anonymize_pdf_file_result(
@@ -577,6 +646,8 @@ def anonymize_pdf_file_with_audit(
         output_dir=output_dir,
         use_ner=use_ner,
         ner_model_name=ner_model_name,
+        use_llm_review=use_llm_review,
+        llm_model_name=llm_model_name,
     )
     return result.output_path, result.counters, result.audit_result
 
@@ -589,6 +660,8 @@ def _anonymize_pdf_file_result(
     *,
     use_ner: bool = False,
     ner_model_name: str = DEFAULT_NER_MODEL,
+    use_llm_review: bool = False,
+    llm_model_name: str = "",
 ) -> FileWorkflowResult:
     """Anonymize a PDF file and return paths needed by batch processing."""
     terms, dictionary_status = _prepare_workflow_dictionary(
@@ -614,6 +687,11 @@ def _anonymize_pdf_file_result(
     output_path = save_anonymized_pdf_txt_copy(
         source_path, anonymized, output_dir=output_dir
     )
+    llm_review_result = _run_optional_llm_review(
+        anonymized,
+        use_llm_review=use_llm_review,
+        llm_model_name=llm_model_name,
+    )
     dictionary_result = _dictionary_result(
         status=dictionary_status,
         sensitive_terms=terms,
@@ -632,6 +710,7 @@ def _anonymize_pdf_file_result(
         dictionary_result,
         ocr_result,
         ner_result,
+        llm_review_result,
         output_dir=output_dir,
     )
     return FileWorkflowResult(
@@ -641,6 +720,7 @@ def _anonymize_pdf_file_result(
         audit_result,
         ocr_result,
         ner_result,
+        llm_review_result,
     )
 
 
@@ -652,6 +732,8 @@ def anonymize_image_file(
     *,
     use_ner: bool = False,
     ner_model_name: str = DEFAULT_NER_MODEL,
+    use_llm_review: bool = False,
+    llm_model_name: str = "",
 ) -> tuple[Path, dict[str, int]]:
     """Anonymize OCR text from an image and save TXT output plus a safe report."""
     output_path, counters, _ = anonymize_image_file_with_audit(
@@ -661,6 +743,8 @@ def anonymize_image_file(
         output_dir=output_dir,
         use_ner=use_ner,
         ner_model_name=ner_model_name,
+        use_llm_review=use_llm_review,
+        llm_model_name=llm_model_name,
     )
     return output_path, counters
 
@@ -673,6 +757,8 @@ def anonymize_image_file_with_audit(
     *,
     use_ner: bool = False,
     ner_model_name: str = DEFAULT_NER_MODEL,
+    use_llm_review: bool = False,
+    llm_model_name: str = "",
 ) -> tuple[Path, dict[str, int], dict[str, object]]:
     """Anonymize OCR text from an image and return safe audit metadata."""
     result = _anonymize_image_file_result(
@@ -682,6 +768,8 @@ def anonymize_image_file_with_audit(
         output_dir=output_dir,
         use_ner=use_ner,
         ner_model_name=ner_model_name,
+        use_llm_review=use_llm_review,
+        llm_model_name=llm_model_name,
     )
     return result.output_path, result.counters, result.audit_result
 
@@ -694,6 +782,8 @@ def _anonymize_image_file_result(
     *,
     use_ner: bool = False,
     ner_model_name: str = DEFAULT_NER_MODEL,
+    use_llm_review: bool = False,
+    llm_model_name: str = "",
 ) -> FileWorkflowResult:
     """Anonymize OCR text from an image and return paths for batch processing."""
     terms, dictionary_status = _prepare_workflow_dictionary(
@@ -711,6 +801,11 @@ def _anonymize_image_file_result(
     output_path = save_anonymized_image_txt_copy(
         source_path, anonymized, output_dir=output_dir
     )
+    llm_review_result = _run_optional_llm_review(
+        anonymized,
+        use_llm_review=use_llm_review,
+        llm_model_name=llm_model_name,
+    )
     dictionary_result = _dictionary_result(
         status=dictionary_status,
         sensitive_terms=terms,
@@ -729,6 +824,7 @@ def _anonymize_image_file_result(
         dictionary_result,
         extraction.metadata,
         ner_result,
+        llm_review_result,
         output_dir=output_dir,
     )
     return FileWorkflowResult(
@@ -738,6 +834,7 @@ def _anonymize_image_file_result(
         audit_result,
         extraction.metadata,
         ner_result,
+        llm_review_result,
     )
 
 
@@ -749,6 +846,7 @@ def _save_anonymization_report(
     dictionary_result: dict[str, object],
     ocr_result: dict[str, object],
     ner_result: dict[str, object],
+    llm_review_result: dict[str, object],
     output_dir: str | Path | None = None,
 ) -> Path:
     source = Path(source_path)
@@ -767,6 +865,7 @@ def _save_anonymization_report(
         dictionary_result=dictionary_result,
         ocr_result=ocr_result,
         ner_result=ner_result,
+        llm_review_result=llm_review_result,
     )
 
 
@@ -778,6 +877,8 @@ def anonymize_file(
     *,
     use_ner: bool = False,
     ner_model_name: str = DEFAULT_NER_MODEL,
+    use_llm_review: bool = False,
+    llm_model_name: str = "",
 ) -> tuple[Path, dict[str, int]]:
     """Anonymize one supported application file using existing workflows."""
     output_path, counters, _ = anonymize_file_with_audit(
@@ -787,6 +888,8 @@ def anonymize_file(
         output_dir=output_dir,
         use_ner=use_ner,
         ner_model_name=ner_model_name,
+        use_llm_review=use_llm_review,
+        llm_model_name=llm_model_name,
     )
     return output_path, counters
 
@@ -799,6 +902,8 @@ def anonymize_file_with_audit(
     *,
     use_ner: bool = False,
     ner_model_name: str = DEFAULT_NER_MODEL,
+    use_llm_review: bool = False,
+    llm_model_name: str = "",
 ) -> tuple[Path, dict[str, int], dict[str, object]]:
     """Anonymize one supported file and return safe audit metadata."""
     result = _anonymize_file_result(
@@ -808,6 +913,8 @@ def anonymize_file_with_audit(
         output_dir=output_dir,
         use_ner=use_ner,
         ner_model_name=ner_model_name,
+        use_llm_review=use_llm_review,
+        llm_model_name=llm_model_name,
     )
     return result.output_path, result.counters, result.audit_result
 
@@ -820,6 +927,8 @@ def _anonymize_file_result(
     *,
     use_ner: bool = False,
     ner_model_name: str = DEFAULT_NER_MODEL,
+    use_llm_review: bool = False,
+    llm_model_name: str = "",
 ) -> FileWorkflowResult:
     """Anonymize one supported file and return paths needed by batch processing."""
     path = Path(source_path)
@@ -832,6 +941,8 @@ def _anonymize_file_result(
             output_dir=output_dir,
             use_ner=use_ner,
             ner_model_name=ner_model_name,
+            use_llm_review=use_llm_review,
+            llm_model_name=llm_model_name,
         )
     if path.suffix.lower() == DOCX_EXTENSION:
         return _anonymize_docx_file_result(
@@ -841,6 +952,8 @@ def _anonymize_file_result(
             output_dir=output_dir,
             use_ner=use_ner,
             ner_model_name=ner_model_name,
+            use_llm_review=use_llm_review,
+            llm_model_name=llm_model_name,
         )
     if path.suffix.lower() == PDF_EXTENSION:
         return _anonymize_pdf_file_result(
@@ -850,6 +963,8 @@ def _anonymize_file_result(
             output_dir=output_dir,
             use_ner=use_ner,
             ner_model_name=ner_model_name,
+            use_llm_review=use_llm_review,
+            llm_model_name=llm_model_name,
         )
     if path.suffix.lower() in IMAGE_EXTENSIONS:
         return _anonymize_image_file_result(
@@ -859,6 +974,8 @@ def _anonymize_file_result(
             output_dir=output_dir,
             use_ner=use_ner,
             ner_model_name=ner_model_name,
+            use_llm_review=use_llm_review,
+            llm_model_name=llm_model_name,
         )
 
     suffix = path.suffix.lower() or "<none>"
@@ -928,6 +1045,8 @@ def anonymize_batch(
     *,
     use_ner: bool = False,
     ner_model_name: str = DEFAULT_NER_MODEL,
+    use_llm_review: bool = False,
+    llm_model_name: str = "",
 ) -> BatchResult:
     """Anonymize supported files sequentially into one output workspace."""
     if sensitive_terms is not None and sensitive_terms_path is not None:
@@ -943,6 +1062,9 @@ def anonymize_batch(
     audit_category_counters = {category: 0 for category in AUDIT_CATEGORY_ORDER}
     ner_status_counts = {status: 0 for status in NER_STATUSES}
     ner_category_counters = {label: 0 for label in NER_LABELS}
+    llm_review_status_counts = {status: 0 for status in LLM_REVIEW_STATUSES}
+    llm_review_risk_level_counts = {risk: 0 for risk in LLM_RISK_LEVELS}
+    llm_review_category_counters = {category: 0 for category in LLM_RESIDUAL_CATEGORIES}
     results: list[dict[str, object]] = []
     success_count = 0
     error_count = 0
@@ -968,6 +1090,8 @@ def anonymize_batch(
                 output_dir=output_dir,
                 use_ner=use_ner,
                 ner_model_name=ner_model_name,
+                use_llm_review=use_llm_review,
+                llm_model_name=llm_model_name,
             )
         except Exception as error:
             error_count += 1
@@ -1002,6 +1126,25 @@ def anonymize_batch(
                     ner_category_counters[label] = (
                         ner_category_counters.get(label, 0) + count
                     )
+        llm_status = str(result.llm_review_result.get("status", "disabled"))
+        if llm_status not in llm_review_status_counts:
+            llm_status = "unavailable"
+        llm_review_status_counts[llm_status] = (
+            llm_review_status_counts.get(llm_status, 0) + 1
+        )
+        llm_risk_level = str(result.llm_review_result.get("risk_level", "unknown"))
+        if llm_risk_level not in llm_review_risk_level_counts:
+            llm_risk_level = "unknown"
+        llm_review_risk_level_counts[llm_risk_level] = (
+            llm_review_risk_level_counts.get(llm_risk_level, 0) + 1
+        )
+        llm_categories = result.llm_review_result.get("possible_residual_categories", [])
+        if isinstance(llm_categories, list):
+            for category in llm_categories:
+                if category in llm_review_category_counters:
+                    llm_review_category_counters[category] = (
+                        llm_review_category_counters.get(category, 0) + 1
+                    )
         dictionary_result = result.audit_result.get("dictionary", {})
         dictionary_status = (
             dictionary_result.get("status")
@@ -1021,6 +1164,13 @@ def anonymize_batch(
                 "ocr_status": result.ocr_result.get("status", "not_used"),
                 "ner_used": result.ner_result.get("used", False),
                 "ner_status": result.ner_result.get("status", "unavailable"),
+                "llm_review_used": result.llm_review_result.get("used", False),
+                "llm_review_status": result.llm_review_result.get(
+                    "status", "disabled"
+                ),
+                "llm_risk_level": result.llm_review_result.get(
+                    "risk_level", "unknown"
+                ),
             }
         )
 
@@ -1036,6 +1186,9 @@ def anonymize_batch(
         audit_category_counters=audit_category_counters,
         ner_status_counts=ner_status_counts,
         ner_category_counters=ner_category_counters,
+        llm_review_status_counts=llm_review_status_counts,
+        llm_review_risk_level_counts=llm_review_risk_level_counts,
+        llm_review_category_counters=llm_review_category_counters,
         results=results,
         category_order=REPORT_CATEGORY_ORDER,
         audit_category_order=AUDIT_CATEGORY_ORDER,
@@ -1054,4 +1207,7 @@ def anonymize_batch(
         results=results,
         ner_status_counts=ner_status_counts,
         ner_category_counters=ner_category_counters,
+        llm_review_status_counts=llm_review_status_counts,
+        llm_review_risk_level_counts=llm_review_risk_level_counts,
+        llm_review_category_counters=llm_review_category_counters,
     )

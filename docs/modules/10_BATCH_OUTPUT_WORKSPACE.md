@@ -11,7 +11,8 @@ collision-safe, so existing files are not silently overwritten.
 
 Stage 19 keeps batch processing sequential and adds safe OCR status metadata
 for image inputs and scanned-PDF fallback. Stage 20 adds safe NER status and
-category metadata when local NER is enabled.
+category metadata when local NER is enabled. Stage 21 adds safe LLM review
+status, risk, and residual category metadata when local LLM review is enabled.
 
 ## Related files
 
@@ -22,6 +23,7 @@ category metadata when local NER is enabled.
 - `tests/test_batch_processing.py`
 - `tests/test_ocr.py`
 - `tests/test_ner.py`
+- `tests/test_llm_review.py`
 
 ## Public API
 
@@ -42,7 +44,8 @@ chosen output workspace.
 `anonymize_batch(...)` returns safe batch metadata including the summary path,
 input count, success count, error count, aggregate counters, audit status
 counts, risk level counts, aggregate audit category counters, aggregate OCR
-counts, aggregate NER counts, and per-file result entries using filenames only.
+counts, aggregate NER counts, aggregate LLM review counts, and per-file result
+entries using filenames only.
 
 ## Output Workspace
 
@@ -77,7 +80,9 @@ summary reports.
 
 Batch processing is sequential. Each input path is processed through the same
 TXT, DOCX, text-based PDF, scanned-PDF OCR fallback, or image OCR workflow used
-by the single-file dispatcher.
+by the single-file dispatcher. If local LLM review is enabled, it runs after
+the anonymized output text is produced and before safe report metadata is
+written.
 
 If one file fails, the batch continues with later files. Unsupported files are
 recorded as safe errors. OCR-unavailable files are recorded as controlled OCR
@@ -97,6 +102,8 @@ The `_BATCH_SUMMARY.txt` report may contain:
 - aggregate audit warning category counters,
 - aggregate OCR status counts,
 - aggregate NER status counts and NER category counters,
+- aggregate LLM review status counts, LLM risk counts, and LLM residual
+  category counters,
 - safe input filenames,
 - safe generated output filenames,
 - safe generated report filenames,
@@ -115,6 +122,9 @@ The batch summary must not contain:
 - raw exception messages,
 - raw OCR text,
 - detected entity text,
+- raw LLM prompts,
+- raw LLM responses,
+- document snippets,
 - logs or snippets.
 
 ## GUI Behavior
@@ -126,8 +136,8 @@ The GUI now supports this Stage 12 flow:
 3. Optionally select a private dictionary file.
 4. Run `Anonymize batch`.
 5. Review the completion status, aggregate counters, aggregate audit status,
-   aggregate risk levels, aggregate OCR/NER status, output filenames, report
-   filenames, and batch summary filename.
+   aggregate risk levels, aggregate OCR/NER/LLM status, output filenames,
+   report filenames, and batch summary filename.
 6. Manually review every generated anonymized output.
 
 The GUI shows safe filenames and counts. It does not show source values,
@@ -136,8 +146,9 @@ dictionary contents, audit snippets, or raw exception text.
 ## Safety Assumptions
 
 - Processing remains local and offline.
-- Optional OCR and NER remain local and dependency-detected; no AI, API, cloud
-  service, local LLM, or database is added.
+- Optional OCR, NER, and LLM review remain local and dependency-detected; no
+  OpenAI API, cloud service, cloud LLM, RAG, vector database, chat UI, document
+  rewriting, or database is added.
 - No drag and drop, document preview, or editor is added.
 - Original files are not modified.
 - Reports do not store replacement maps.
@@ -161,6 +172,8 @@ risk metadata in the batch summary. Stage 18 tests cover batch output as part
 of the complete MVP chain through manual review and approved export. Stage 19
 tests cover safe OCR batch continuation and OCR status summary metadata. Stage
 20 tests cover safe NER status summary metadata with mocked model output.
+Stage 21 tests cover safe LLM status/risk/category summary metadata with
+mocked Ollama behavior.
 
 ## Known Limitations
 
@@ -172,6 +185,8 @@ tests cover safe OCR batch continuation and OCR status summary metadata. Stage
   extraction.
 - NER counts are status metadata only and do not guarantee complete entity
   detection.
+- LLM review counts are status metadata only and do not guarantee complete
+  anonymization or correct risk classification.
 - The batch summary uses safe filenames, but filenames themselves should still
   be chosen carefully by the user.
 - Manual review is still required.

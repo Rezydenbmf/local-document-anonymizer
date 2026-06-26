@@ -296,6 +296,47 @@ def format_batch_audit_result(batch_result: BatchResult | None) -> str:
             f"unavailable or disabled: {ner_unavailable_or_disabled_count}",
         ]
     )
+    llm_attempted_count = sum(
+        1
+        for result in batch_result.results
+        if result.get("llm_review_status")
+        in ("completed", "timeout", "invalid_response", "processing_error")
+    )
+    llm_attempt_failed_count = sum(
+        1
+        for result in batch_result.results
+        if result.get("llm_review_status")
+        in ("timeout", "invalid_response", "processing_error")
+    )
+    llm_unavailable_or_disabled_count = sum(
+        1
+        for result in batch_result.results
+        if result.get("llm_review_status")
+        in (
+            "disabled",
+            "unavailable",
+            "ollama_not_found",
+            "service_unavailable",
+            "no_model_configured",
+            "model_missing",
+        )
+    )
+    llm_status_counts = batch_result.llm_review_status_counts
+    ollama_unavailable_count = (
+        llm_status_counts.get("ollama_not_found", 0)
+        + llm_status_counts.get("service_unavailable", 0)
+    )
+    lines.extend(
+        [
+            "Local LLM review:",
+            f"attempted: {llm_attempted_count}",
+            f"attempted but failed safely: {llm_attempt_failed_count}",
+            f"unavailable, disabled, or skipped: {llm_unavailable_or_disabled_count}",
+            f"completed: {llm_status_counts.get('completed', 0)}",
+            f"no model configured: {llm_status_counts.get('no_model_configured', 0)}",
+            f"ollama unavailable: {ollama_unavailable_count}",
+        ]
+    )
     return "\n".join(lines)
 
 
@@ -334,6 +375,8 @@ class AnonymizerGui:
         self.output_dir_var = tk.StringVar(value="No output folder selected.")
         self.sensitive_terms_var = tk.StringVar(value=format_dictionary_result(None))
         self.use_ner_var = tk.BooleanVar(value=True)
+        self.use_llm_review_var = tk.BooleanVar(value=False)
+        self.llm_model_var = tk.StringVar(value="")
         self.readiness_var = tk.StringVar(
             value=format_anonymize_readiness(0, False)
         )
@@ -483,34 +526,48 @@ class AnonymizerGui:
             command=self._reset_batch_display,
         ).grid(row=8, column=0, columnspan=3, sticky="w", pady=(0, 10))
 
+        ttk.Checkbutton(
+            main,
+            text="Use local LLM review if available",
+            variable=self.use_llm_review_var,
+            command=self._reset_batch_display,
+        ).grid(row=9, column=0, columnspan=3, sticky="w", pady=(0, 10))
+
+        ttk.Label(main, text="LLM model:").grid(
+            row=10, column=0, sticky="w", pady=(0, 10)
+        )
+        ttk.Entry(main, textvariable=self.llm_model_var).grid(
+            row=10, column=1, columnspan=2, sticky="ew", pady=(0, 10)
+        )
+
         self.anonymize_button = ttk.Button(
             main,
             text="Anonymize batch",
             command=self.anonymize_selected_files,
             state="disabled",
         )
-        self.anonymize_button.grid(row=9, column=0, sticky="w", pady=(0, 14))
+        self.anonymize_button.grid(row=11, column=0, sticky="w", pady=(0, 14))
 
         readiness_label = ttk.Label(
             main,
             textvariable=self.readiness_var,
             wraplength=500,
         )
-        readiness_label.grid(row=9, column=1, columnspan=2, sticky="ew", pady=(0, 14))
+        readiness_label.grid(row=11, column=1, columnspan=2, sticky="ew", pady=(0, 14))
         self.wrap_labels.append(readiness_label)
 
         ttk.Label(main, text="Status:").grid(
-            row=10, column=0, sticky="nw", pady=(0, 10)
+            row=12, column=0, sticky="nw", pady=(0, 10)
         )
         status_label = ttk.Label(
             main, textvariable=self.status_var, wraplength=500
         )
-        status_label.grid(row=10, column=1, columnspan=2, sticky="ew", pady=(0, 10))
+        status_label.grid(row=12, column=1, columnspan=2, sticky="ew", pady=(0, 10))
         self.wrap_labels.append(status_label)
 
         counters_frame = ttk.LabelFrame(main, text="Category counters", padding=10)
         counters_frame.grid(
-            row=11, column=0, columnspan=3, sticky="ew", pady=(0, 14)
+            row=13, column=0, columnspan=3, sticky="ew", pady=(0, 14)
         )
         counters_frame.columnconfigure(0, weight=1)
         ttk.Label(
@@ -523,7 +580,7 @@ class AnonymizerGui:
             main, text="Post-anonymization audit", padding=10
         )
         audit_frame.grid(
-            row=12, column=0, columnspan=3, sticky="ew", pady=(0, 14)
+            row=14, column=0, columnspan=3, sticky="ew", pady=(0, 14)
         )
         audit_frame.columnconfigure(0, weight=1)
         ttk.Label(
@@ -533,24 +590,24 @@ class AnonymizerGui:
         ).grid(row=0, column=0, sticky="w")
 
         ttk.Label(main, text="Output files:").grid(
-            row=13, column=0, sticky="nw", pady=(0, 10)
+            row=15, column=0, sticky="nw", pady=(0, 10)
         )
         output_label = ttk.Label(
             main, textvariable=self.output_path_var, wraplength=500
         )
-        output_label.grid(row=13, column=1, columnspan=2, sticky="ew", pady=(0, 10))
+        output_label.grid(row=15, column=1, columnspan=2, sticky="ew", pady=(0, 10))
         self.wrap_labels.append(output_label)
 
         ttk.Label(main, text="Reports:").grid(
-            row=14, column=0, sticky="nw", pady=(0, 10)
+            row=16, column=0, sticky="nw", pady=(0, 10)
         )
         report_label = ttk.Label(
             main, textvariable=self.report_path_var, wraplength=500
         )
-        report_label.grid(row=14, column=1, columnspan=2, sticky="ew", pady=(0, 10))
+        report_label.grid(row=16, column=1, columnspan=2, sticky="ew", pady=(0, 10))
         self.wrap_labels.append(report_label)
 
-        self._build_review_section(main, row=15)
+        self._build_review_section(main, row=17)
 
         warning_label = ttk.Label(
             main,
@@ -558,7 +615,7 @@ class AnonymizerGui:
             foreground="#9a3412",
             wraplength=580,
         )
-        warning_label.grid(row=16, column=0, columnspan=3, sticky="w", pady=(4, 0))
+        warning_label.grid(row=18, column=0, columnspan=3, sticky="w", pady=(4, 0))
         self.wrap_labels.append(warning_label)
 
         main.bind("<Configure>", self._update_wrap_lengths, add="+")
@@ -765,6 +822,8 @@ class AnonymizerGui:
                 self.output_dir,
                 sensitive_terms_path=self.sensitive_terms_path,
                 use_ner=self.use_ner_var.get(),
+                use_llm_review=self.use_llm_review_var.get(),
+                llm_model_name=self.llm_model_var.get(),
             )
         except Exception:
             self.status_var.set(
