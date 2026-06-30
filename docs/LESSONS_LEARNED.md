@@ -115,3 +115,18 @@ place where raw source text leaks. The LLM should receive already-anonymized
 output text only, and reports should store only structured status/risk/category
 metadata. Missing Ollama, missing models, timeouts, and invalid model output
 should become controlled statuses, not crashes or logged prompts/responses.
+
+## 21. Local knowledge assistance must start from approved anonymized sources.
+
+A knowledge assistant should not re-open original documents or treat generated
+answers as authority. Build indexes only from approved anonymized outputs, keep
+source metadata to safe basenames and chunk IDs, ignore generated indexes in
+git, provide a no-crash fallback when local models are unavailable, and require
+users to verify every answer against cited source chunks.
+
+## 22. Local model cold starts need explicit operator UX.
+
+Local Ollama models can time out on the first call while loading into memory.
+Treat that as a controlled fallback, keep retrieved sources visible, and give
+the user simple local tools to check status, warm up the model, and retry with a
+longer timeout instead of hiding the problem or implying generation succeeded.

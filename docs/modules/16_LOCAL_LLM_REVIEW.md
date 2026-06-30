@@ -83,9 +83,11 @@ The LLM review function must not receive:
 - source snippets,
 - full source paths.
 
-If chunking is added later, chunks must stay in memory only. Chunks, prompts,
-raw responses, source text, and snippets must not be written to reports,
-summaries, review metadata, approved indexes, logs, or tracked docs.
+For the LLM review layer, review prompts, raw responses, source text, and
+snippets must not be written to reports, summaries, review metadata, approved
+indexes, logs, or tracked docs. Stage 22 knowledge indexes are a separate
+generated local artifact built only from approved anonymized TXT files and must
+remain ignored by git.
 On Windows, the local Ollama subprocess path must force UTF-8 text handling
 instead of relying on the default console code page. Already-anonymized review
 text is normalized before prompt construction so a leading UTF-8 BOM does not

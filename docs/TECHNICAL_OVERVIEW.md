@@ -17,6 +17,8 @@ input file
 -> optional batch summary
 -> manual review status tracking without content preview
 -> optional approved workspace staging from saved manual decisions
+-> optional local knowledge index over approved *_ANON.txt files
+-> optional source-cited question answering from retrieved approved chunks
 ```
 
 Stage 18 validates this full chain with synthetic end-to-end tests and a
@@ -39,6 +41,15 @@ text exists. It analyzes only already-anonymized text and records safe
 structured metadata. It never receives raw source text, raw OCR text before
 anonymization, private dictionary terms, dictionary aliases, replacement maps,
 or source snippets.
+
+Stage 22 adds a separate local Knowledge Assistant path after manual approval.
+It loads approved anonymized TXT files only, chunks them, writes a local
+generated `_KNOWLEDGE_INDEX.json`, retrieves relevant chunks with a keyword
+fallback, and optionally asks a local Ollama model to answer from retrieved
+approved context only. The answer path always returns source chunk IDs.
+Stage 22.1 adds CLI-only Ollama status and warm-up helpers so the user can see
+whether local Ollama is reachable, whether a model is installed or loaded, and
+warm up a cold local model before asking.
 
 ## Module Responsibilities
 
@@ -83,11 +94,31 @@ returns controlled statuses such as `available`, `dependency_missing`,
 `llm_review.py` contains optional local Ollama review helpers. It checks for
 the local `ollama` command/service, lists installed models where possible,
 validates the configured model name, builds an in-memory prompt for
-already-anonymized text only, runs `ollama run` with a timeout, and parses
-strict structured JSON into safe metadata. Controlled statuses include
+already-anonymized text only, calls the local Ollama generate API with a
+timeout, and parses strict structured JSON into safe metadata. Controlled
+statuses include
 `disabled`, `ollama_not_found`, `service_unavailable`, `no_model_configured`,
 `model_missing`, `timeout`, `invalid_response`, `processing_error`, and
 `completed`.
+
+`knowledge_assistant.py` contains the Stage 22 local knowledge assistant
+helpers. It loads only approved `*_ANON.txt` files, keeps safe source basenames
+only, chunks approved anonymized text, writes and loads `_KNOWLEDGE_INDEX.json`,
+scores chunks with keyword retrieval, and returns answers with source chunk IDs.
+When local Ollama generation is enabled, it sends only retrieved approved
+chunks to the local generate API. Missing Ollama, missing models, timeouts, no
+relevant chunks, and generation failures become controlled answer statuses.
+Stage 22.1 also provides safe local status and warm-up helpers. Status checks
+reuse local Ollama availability/model-list checks and optionally query
+Ollama's local `/api/ps` endpoint for currently loaded models. Warm-up sends a
+tiny local prompt through the same local generate API. These helpers do not
+download models or call external services.
+
+`knowledge_cli.py` is the Stage 22 CLI. It exposes `build-index` for approved
+workspace indexing, `ask` for source-cited question answering against a local
+index, `ollama-status` for local Ollama/model status, and `warmup` for a small
+local model warm-up prompt. `ask --timeout` lets the user extend local
+generation time when a first model load is slow.
 
 `sensitive_terms.py` contains private dictionary support. It loads a UTF-8
 local dictionary file, parses `term = [LABEL]` and
@@ -222,16 +253,25 @@ source aliases, document fragments, source file paths, or replacement maps.
 
 The project still does not use internet calls, APIs, cloud services, cloud
 LLMs, databases, drag and drop, document preview, chat UI, document rewriting,
-or an editing workflow. OCR, NER, and LLM review, when available, use only
-local dependencies. The approved workspace remains a manual staging area, not
-automatic approval, not a knowledge base, and not a guarantee of complete
-anonymization.
+or an editing workflow. OCR, NER, LLM review, and Knowledge Assistant answer
+generation, when available, use only local dependencies. The approved workspace
+remains a manual staging area, not automatic approval and not a guarantee of
+complete anonymization. The generated knowledge index is a local artifact that
+may contain approved anonymized text and must not be committed.
 
 LLM review results are metadata only. Reports and batch summaries must not
 include raw prompts, raw LLM responses, source text, source snippets, raw OCR
 text, dictionary terms, dictionary aliases, detected entity values, full paths,
 tracebacks, or replacement maps. Invalid or unexpected model output becomes
 `invalid_response` rather than a crash.
+
+Knowledge Assistant answers are source-cited retrieval results over approved
+anonymized text. The assistant must not receive original source documents,
+private dictionaries, raw OCR text before anonymization, replacement maps, or
+full local paths. It can be wrong or incomplete, so the user must verify every
+answer against the cited source files. If a local model times out while
+loading, the CLI keeps source citations visible and returns a controlled
+timeout message instead of pretending generation succeeded.
 
 ## GUI Limitations
 

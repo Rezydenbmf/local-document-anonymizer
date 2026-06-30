@@ -24,6 +24,9 @@ a safe report, and expects manual review before any result is trusted.
   Polish model.
 - Optional local Ollama LLM-assisted review for already-anonymized text when
   the user has installed Ollama and a local model manually.
+- Local Knowledge Assistant MVP for manually approved anonymized `_ANON.txt`
+  files, with a generated local index, keyword retrieval fallback, optional
+  local Ollama answer generation, and source citations.
 - PNG, JPG/JPEG, and TIFF image inputs with anonymized TXT output when OCR is
   available.
 - Collision-safe `_ANON`, `_RAPORT`, and `_BATCH_SUMMARY` naming.
@@ -49,6 +52,8 @@ a safe report, and expects manual review before any result is trusted.
 - Approved workspace export that copies only manually approved `_ANON` files,
   optionally copies matching `_RAPORT` files, and writes a safe
   `_APPROVED_INDEX.txt` manifest.
+- Local `_KNOWLEDGE_INDEX.json` generation from approved anonymized TXT files
+  for source-cited question answering.
 - End-to-end synthetic MVP workflow validation for batch output, reports,
   audit risk, manual review metadata, and approved workspace export.
 - Synthetic examples and tests only.
@@ -56,12 +61,14 @@ a safe report, and expects manual review before any result is trusted.
 ## Privacy And Local-First Assumptions
 
 The application is designed to run locally. It does not use APIs, cloud
-services, network calls, cloud LLMs, OpenAI API calls, online processing, or
-databases. Optional OCR, optional NER, and optional Ollama-assisted review run
-only through local system dependencies when they are installed. The LLM review
-layer receives already-anonymized output text only, never raw source text, raw
-OCR text before anonymization, dictionary terms, dictionary aliases,
-replacement maps, or source snippets. No model is downloaded automatically.
+services, cloud LLMs, OpenAI API calls, online processing, or databases.
+Optional OCR, optional NER, optional Ollama-assisted review, and optional
+Knowledge Assistant answer generation run only through local system
+dependencies when they are installed. The LLM review layer receives
+already-anonymized output text only, never raw source text, raw OCR text before
+anonymization, dictionary terms, dictionary aliases, replacement maps, or
+source snippets. The Knowledge Assistant receives only retrieved chunks from
+approved anonymized TXT files. No model is downloaded automatically.
 
 The repository must not contain real documents, real personal data, private
 dictionaries, generated `_ANON` files, generated `_RAPORT` files, logs, local
@@ -294,8 +301,57 @@ the app uses numbered names such as `document_ANON_2.txt` or
 `_APPROVED_INDEX_2.txt` instead of overwriting.
 
 The approved workspace is a staging area for manually approved anonymized
-files. It is not a knowledge base and it does not guarantee complete
-anonymization.
+files. It does not guarantee complete anonymization.
+
+## Local Knowledge Assistant
+
+Stage 22 adds a small local CLI assistant over approved anonymized TXT files.
+It reads only approved `*_ANON.txt` files, chunks them deterministically, writes
+a local `_KNOWLEDGE_INDEX.json`, retrieves relevant chunks with a keyword
+fallback, and always prints source chunk IDs such as:
+
+```text
+procedure_ANON.txt#2
+```
+
+Build a local index:
+
+```bash
+python -m src.knowledge_cli build-index approved/
+```
+
+Ask a question against the index:
+
+```bash
+python -m src.knowledge_cli ask approved/_KNOWLEDGE_INDEX.json "What does the procedure require?"
+```
+
+Optionally use a local Ollama model for answer generation:
+
+```bash
+python -m src.knowledge_cli ask approved/_KNOWLEDGE_INDEX.json "What does the procedure require?" --use-ollama --model gemma3:4b
+```
+
+Check local Ollama/model status or warm up a local model before asking:
+
+```bash
+python -m src.knowledge_cli ollama-status --model gemma3:4b
+python -m src.knowledge_cli warmup --model gemma3:4b
+```
+
+The first local model call can be slow because Ollama may need to load the
+model into memory. If the first generated answer times out, run `warmup` first
+or retry `ask` with a larger `--timeout` value.
+
+If Ollama or the model is unavailable, the command returns retrieved sources
+and a controlled message instead of crashing. Timeout fallback is expected and
+safe: sources are still shown, and the answer does not pretend generation
+succeeded. The assistant answers only from retrieved approved context. It can
+be wrong or incomplete, and the user must verify answers against the cited
+source documents.
+
+Generated knowledge indexes contain approved anonymized text and are local
+artifacts. They are ignored by git and must not be committed.
 
 ## Installation
 
@@ -347,6 +403,15 @@ The GUI can also be launched as a module:
 
 ```bash
 python -m src.gui
+```
+
+Build and query a local knowledge index from an approved workspace:
+
+```bash
+python -m src.knowledge_cli build-index approved/
+python -m src.knowledge_cli ask approved/_KNOWLEDGE_INDEX.json "What does the procedure require?"
+python -m src.knowledge_cli ollama-status --model gemma3:4b
+python -m src.knowledge_cli warmup --model gemma3:4b
 ```
 
 Run the tests:
@@ -427,6 +492,9 @@ src/
   file_readers.py      TXT, DOCX, and text-based PDF reading
   file_writers.py      _ANON output and _RAPORT path helpers
   gui.py               Tkinter GUI
+  knowledge_assistant.py
+                       Local index, retrieval, and answer helpers for approved TXT
+  knowledge_cli.py     CLI for building and querying the local knowledge index
   main.py              GUI entry point
   ner.py               Optional local spaCy NER helpers
   ocr.py               Optional local OCR detection and extraction helpers
@@ -459,9 +527,11 @@ TXT/DOCX/PDF workflows, GUI dispatcher layer, private dictionary parsing and
 matching, safe reports, post-anonymization audit metadata, collision-safe
 output naming, output workspace behavior, batch processing, manual review
 metadata, approved workspace export, safe approved index generation, and
-Stage 18 end-to-end MVP workflow validation. Stage 20 tests use mocked NER
-model output, so they do not require a real spaCy Polish model. Stage 21 tests
-mock Ollama behavior, so they do not require real Ollama or a real local model.
+Stage 18 end-to-end MVP workflow validation, and Stage 22 local knowledge
+assistant behavior. Stage 20 tests use mocked NER model output, so they do not
+require a real spaCy Polish model. Stage 21 tests mock Ollama behavior, so
+they do not require real Ollama or a real local model. Stage 22/22.1 tests use
+synthetic approved TXT files and mocked local generation/status/warm-up.
 
 Run:
 
@@ -480,6 +550,11 @@ python -m unittest discover -s tests
   entities.
 - LLM review can miss risks, misclassify context, time out, or return invalid
   structured output.
+- Knowledge Assistant answers depend on approved anonymized TXT inputs,
+  retrieval quality, and optional local model behavior. Answers can be wrong
+  or incomplete and must be checked against cited source chunks.
+- The first local Ollama answer can time out while a model cold-starts; use
+  `ollama-status`, `warmup`, or a larger `--timeout` before retrying.
 - Audit risk levels are review-prioritization hints only, not proof that a
   document is safe.
 - This is not production-ready full anonymization.
@@ -495,8 +570,10 @@ python -m unittest discover -s tests
   opening only; it does not inspect, preview, edit, or validate document
   contents inside the app.
 - No automatic approval.
-- Approved workspace export is a staging convenience only, not a knowledge base
-  and not a guarantee of complete anonymization.
+- Approved workspace export is a staging convenience and not a guarantee of
+  complete anonymization.
+- Knowledge index files are generated local artifacts and must not be
+  committed.
 - DOCX support is limited to basic paragraphs and simple tables.
 - DOCX headers, footers, comments, footnotes, form fields, text in images, and
   advanced elements are not handled.
@@ -528,7 +605,11 @@ foundation without runtime model downloads, cloud/API processing, Ollama,
 Bielik, OpenAI API calls, online NLP, or LLM-based review. Stage 21 adds an
 optional local Ollama-assisted review foundation that analyzes
 already-anonymized output text only and records safe metadata without prompts
-or raw responses.
+or raw responses. Stage 22 adds a local Knowledge Assistant MVP that builds an
+ignored `_KNOWLEDGE_INDEX.json` from approved anonymized TXT files, retrieves
+chunks with a keyword fallback, optionally uses local Ollama answer generation,
+and always shows source chunk IDs. Stage 22.1 adds CLI status and warm-up
+commands plus clearer timeout guidance for local Ollama cold starts.
 
 Potential future work requires explicit approval, especially OCR quality
 improvements, installer packaging, release automation, stronger entity

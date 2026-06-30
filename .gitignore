@@ -28,6 +28,8 @@ local_config.*
 _REVIEW_STATUS*.json
 _REVIEW_SUMMARY*.txt
 _APPROVED_INDEX*.txt
+_KNOWLEDGE_INDEX*.json
+_KNOWLEDGE_INDEX*.jsonl
 .DS_Store
 Thumbs.db
 

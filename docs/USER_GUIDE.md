@@ -37,6 +37,8 @@ The current MVP workflow is:
    selected generated output or matching report in the operating system
    default application, assign statuses, and save safe review metadata.
 12. Optionally export approved files to an `approved/` staging workspace.
+13. Optionally build a local knowledge index from approved anonymized TXT files
+    and ask source-cited questions with the CLI.
 
 The application saves output files before manual review. It does not provide an
 in-app document preview or editing screen.
@@ -281,21 +283,94 @@ does not guarantee complete anonymization.
 It also does not replace manual review. A file in `approved/` is only a copy of
 an output that the user marked `approved` after review.
 
-## 8. Safety Rules for Users
+## 8. Local Knowledge Assistant
+
+After manual review and approved export, you can build a local knowledge index
+from approved anonymized TXT files:
+
+```bash
+python -m src.knowledge_cli build-index approved/
+```
+
+This reads only:
+
+```text
+*_ANON.txt
+```
+
+It ignores reports, original documents, review files, and non-ANON files. The
+generated index is:
+
+```text
+approved/_KNOWLEDGE_INDEX.json
+```
+
+The index contains approved anonymized text chunks, safe source basenames, and
+chunk IDs. It is a generated local artifact and must not be committed.
+
+Ask a question:
+
+```bash
+python -m src.knowledge_cli ask approved/_KNOWLEDGE_INDEX.json "What does the procedure require?"
+```
+
+Use local Ollama answer generation only if you have installed Ollama and a
+local model manually:
+
+```bash
+python -m src.knowledge_cli ask approved/_KNOWLEDGE_INDEX.json "What does the procedure require?" --use-ollama --model gemma3:4b
+```
+
+Check local Ollama/model status:
+
+```bash
+python -m src.knowledge_cli ollama-status --model gemma3:4b
+```
+
+Warm up the model before asking:
+
+```bash
+python -m src.knowledge_cli warmup --model gemma3:4b
+```
+
+The first local model call can be slow because Ollama may need to load the
+model. If answer generation times out, this is a safe fallback state. Sources
+are still shown. Run `warmup` first or retry `ask` with a larger timeout:
+
+```bash
+python -m src.knowledge_cli ask approved/_KNOWLEDGE_INDEX.json "What does the procedure require?" --use-ollama --model gemma3:4b --timeout 60
+```
+
+If Ollama or the model is unavailable, the command still returns retrieved
+sources with a controlled message. If no relevant chunks are found, it says
+that no relevant approved context was found.
+
+Every answer shows sources such as:
+
+```text
+procedure_ANON.txt#2
+```
+
+The Knowledge Assistant is a local MVP. It can be wrong or incomplete. It is
+not legal, medical, or official advice. Always verify answers against the cited
+approved source documents.
+
+## 9. Safety Rules for Users
 
 - Do not place real documents in the repository.
 - Do not commit a real private sensitive terms dictionary.
+- Do not commit generated knowledge index files.
 - Keep original files outside the project folder.
 - Keep real dictionary files outside the repository or inside an ignored
   `private/` folder.
 - Review anonymized output manually.
 - Do not share output until you have checked it.
 
-## 9. How Anonymized Labels Work
+## 10. How Anonymized Labels Work
 
 The Stage 1 engine replaces supported values with labels such as `PESEL`, `EMAIL`, `TELEFON`, or `DATA`.
 
-## 10. Private Sensitive Terms Dictionary
+## 11. Private Sensitive Terms Dictionary
 
 The app supports an optional private local dictionary for terms that the user
 knows should be replaced. The file is a UTF-8 text file with one entry per line:
@@ -351,7 +426,7 @@ extra spaces inside matched terms. It is not fuzzy matching, inflection
 handling, AI, automatic names or address detection, NER, a database, or
 automatic deletion of originals.
 
-## 11. Local NER / NLP
+## 12. Local NER / NLP
 
 The optional NER layer uses spaCy locally. It is meant as a review-support
 foundation, not a guarantee that every name, organization, or location is
@@ -373,7 +448,7 @@ controlled NER status such as `dependency_missing` or `model_missing`.
 Safe reports and batch summaries show NER status and category counters only.
 They never include detected entity text.
 
-## 12. Local LLM Review / Ollama
+## 13. Local LLM Review / Ollama
 
 The optional LLM review layer is a local post-anonymization quality-control
 signal. It is disabled unless the user enables it and enters a local Ollama
@@ -395,7 +470,7 @@ because the local model or Ollama service is unavailable. It does not replace
 regex replacements, private dictionary matching, NER, the deterministic audit,
 or manual review.
 
-## 13. Post-Anonymization Audit
+## 14. Post-Anonymization Audit
 
 Stage 9 adds a safe audit after the `_ANON` output is generated. The workflow
 passes successfully loaded dictionary aliases into that audit. The audit checks
@@ -429,12 +504,12 @@ High-risk categories are `EMAIL`, `PESEL`, `TELEFON`,
 `LONG_NUMBER_SEQUENCE`. The risk level is not a guarantee that anonymization is
 complete and it does not approve a file automatically.
 
-## 14. Why Manual Review Is Required
+## 15. Why Manual Review Is Required
 
 Automatic detection and the audit may miss data or replace text incorrectly.
 Manual review is required before using the result.
 
-## 15. Where Output Files Are Saved
+## 16. Where Output Files Are Saved
 
 The application saves anonymized TXT and DOCX copies in the output folder
 selected by the user with the `_ANON` suffix. PDF input is saved in the output
@@ -462,20 +537,22 @@ _REVIEW_SUMMARY_3.txt
 
 Approved workspace exports use the same collision-safe numbering style inside
 `approved/` for copied files and `_APPROVED_INDEX.txt`.
+Knowledge indexes are written as `_KNOWLEDGE_INDEX.json` in the selected
+approved workspace unless a custom CLI path is provided.
 
-## 16. What Is Not Implemented Yet
+## 17. What Is Not Implemented Yet
 
 The current MVP includes plain string anonymization, TXT file input/output,
 basic DOCX file input/output, text-based PDF input with TXT output, optional
 local OCR foundation for image inputs and scanned-PDF fallback, optional local
 spaCy NER, optional local Ollama review, a simple Tkinter GUI, batch
-processing, an output folder workflow,
-collision-safe output names, safe reports, optional private dictionary input,
-dictionary status reporting, a safe post-anonymization audit with risk
-prioritization, and manual review status tracking with approved workspace
-staging. Production-grade entity detection, NER candidate export, AI, APIs,
-cloud services, cloud LLMs, databases, drag and drop, advanced preview,
-editing workflow, chat UI, document rewriting, automatic approval, real
-knowledge-base creation,
+processing, an output folder workflow, collision-safe output names, safe
+reports, optional private dictionary input, dictionary status reporting, a
+safe post-anonymization audit with risk prioritization, manual review status
+tracking with approved workspace staging, and a local Knowledge Assistant CLI
+over approved anonymized TXT files. Production-grade entity detection, NER
+candidate export, AI, APIs, cloud services, cloud LLMs, databases, drag and
+drop, advanced preview, editing workflow, Knowledge Assistant GUI, chat
+history, embeddings, vector database, document rewriting, automatic approval,
 rejected/needs-review folder routing, edited image output, and anonymized PDF
 output are not implemented.

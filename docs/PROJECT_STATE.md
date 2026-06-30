@@ -2,8 +2,8 @@
 
 ## Current Status
 
-The project is in Stage 21: optional local Ollama LLM-assisted review
-foundation, pending user review.
+The project is in Stage 22: Local Knowledge Assistant MVP, pending user
+review.
 
 The Stage 0-13 MVP implementation contains a narrow regex-based engine that
 accepts a Python string and returns anonymized text plus category counters. It
@@ -143,6 +143,25 @@ parser also tolerates the narrow local-model behavior where the entire JSON
 object is wrapped in a markdown code fence, while still rejecting prose outside
 the fence and never storing the raw response.
 
+Stage 22 adds a local Knowledge Assistant MVP for approved anonymized TXT
+documents. It loads only approved `*_ANON.txt` files, preserves safe source
+basenames only, chunks documents deterministically, writes a local generated
+`_KNOWLEDGE_INDEX.json`, retrieves relevant chunks with a keyword fallback,
+optionally uses local Ollama answer generation with a user-installed model such
+as `gemma3:4b`, and always returns source chunk IDs. If Ollama is unavailable,
+the model is missing, generation fails, or no relevant context is found, the
+assistant returns controlled messages instead of crashing. Stage 22 does not
+add embeddings, `bge-m3`, a vector database, a GUI, a web app, cloud APIs,
+OpenAI API calls, online processing, document editing, authentication,
+installer work, or automatic business-procedure generation.
+
+Stage 22.1 improves the Local Knowledge Assistant CLI UX for local Ollama cold
+starts. It adds `ollama-status` and `warmup` commands, lets `ask` accept a
+local generation `--timeout`, and returns clearer timeout messages that tell
+the user to warm up the model or retry with a longer timeout. Timeout fallback
+still shows retrieved sources and does not pretend generation succeeded. Stage
+22.1 remains CLI-only and does not add a GUI redesign.
+
 ## What Exists
 
 - Repository structure.
@@ -175,6 +194,14 @@ the fence and never storing the raw response.
   `stream=false`, `temperature=0`, and a strict JSON schema request format.
 - Strict local LLM response parsing that accepts a whole-response markdown
   JSON fence but rejects prose-wrapped or unsafe output as `invalid_response`.
+- Local Knowledge Assistant support in `src/knowledge_assistant.py` for
+  loading approved anonymized TXT files, chunking them, writing/loading
+  `_KNOWLEDGE_INDEX.json`, keyword retrieval fallback, source-cited answers,
+  controlled optional local Ollama answer generation, local Ollama/model
+  status checks, and local model warm-up.
+- CLI support in `src/knowledge_cli.py` for building a local knowledge index
+  asking questions against it, checking Ollama/model status, warming up a
+  local model, and setting an answer generation timeout.
 - Optional spaCy NER model loading with no automatic model download and no
   committed model files.
 - Internal NER labels: `NER_PERSON`, `NER_ORG`, `NER_LOCATION`, and
@@ -311,6 +338,14 @@ accepts preloaded `sensitive_terms`.
   parsing including fenced JSON, risk-level mapping, residual category
   aggregation, safe report and batch summary metadata, no-crash unavailable
   fallback, and review input policy using synthetic/mocked data only.
+- Unit tests for Stage 22 approved document loading, ignoring non-ANON files,
+  deterministic chunk metadata, index creation, keyword retrieval fallback,
+  source references, controlled no-context behavior, controlled
+  Ollama-unavailable behavior, mocked local generation, CLI behavior, and
+  generated knowledge index ignore coverage using synthetic data only.
+- Unit tests for Stage 22.1 local Ollama status checks, installed-but-not-loaded
+  model status, warm-up unavailable/timeout handling, ask-timeout behavior, and
+  CLI status/warm-up commands using mocked local behavior only.
 - Manual MVP smoke-test checklist in `docs/MVP_MANUAL_TEST_CHECKLIST.md`.
 - Synthetic sample text files in `tests/sample_data/`.
 - Synthetic example dictionary in `examples/sensitive_terms.example.txt`.
@@ -336,7 +371,8 @@ accepts preloaded `sensitive_terms`.
   manual review notes.
 - Automatic approval based on audit results or report contents.
 - Moving rejected or needs-review files into separate folders.
-- A real knowledge base built from approved outputs.
+- Embedding-based retrieval, `bge-m3` embeddings, or a vector database.
+- Knowledge Assistant GUI or chat history.
 - Production-grade names, surnames, cities, organizations, or context-based
   detection.
 - Production-grade OCR quality handling.
@@ -438,24 +474,26 @@ python -m unittest discover -s tests
 
 ## Last Completed Committed Stage
 
-Stage 20: optional local NER/NLP detection foundation.
+Stage 21: optional local Ollama review foundation plus Stage 21.1/21.2
+hardening.
 
 ```text
-2efdec2 Implement Stage 20 local NER detection
+fc0561c Implement Stage 21 local LLM review
 ```
 
 ## Next Logical Step
 
-Manually smoke test Stage 21 through the Tkinter GUI with synthetic files:
-anonymize normal TXT/DOCX/text-based PDF files with local LLM review disabled,
-enabled without a model name, and enabled with a manually installed local
-Ollama model if one is available. Inspect safe LLM metadata in `_RAPORT.txt`
-and `_BATCH_SUMMARY.txt`, and confirm raw prompts, raw responses, source text,
-and snippets are not written. Potential future work requires an explicit
-project decision, especially OCR quality improvements, NER candidate export,
-installer work, AI/API integration, broader LLM features, databases, broad
-NLP/entity detection, packaging, release automation, or knowledge-base
-creation.
+Manually smoke test Stage 22 with synthetic approved `_ANON.txt` files: build
+`_KNOWLEDGE_INDEX.json`, ask a question without Ollama, optionally ask with a
+manually installed local Ollama model such as `gemma3:4b`, confirm sources are
+shown, run `ollama-status`, run `warmup` before the first generated answer,
+confirm timeout fallback still shows sources, confirm no full private paths
+appear in metadata, and confirm generated knowledge indexes remain ignored.
+Potential future work requires an explicit project decision, especially
+embedding retrieval with `bge-m3`, OCR quality improvements, NER candidate
+export, installer work, AI/API integration, broader LLM features, databases,
+broad NLP/entity detection, packaging, release automation, or GUI/chat
+knowledge-base work.
 
 ## Warning
 

@@ -5,8 +5,8 @@
 This module documents Stage 17: approved workspace and knowledge-base staging.
 
 The approved workspace is a local staging area for anonymized files that the
-user has manually marked as `approved`. It is not a knowledge base and it does
-not guarantee complete anonymization.
+user has manually marked as `approved`. By itself, it is not a knowledge index
+and it does not guarantee complete anonymization.
 
 ## Related files
 
@@ -102,7 +102,7 @@ The index must not contain:
 - tracebacks,
 - replacement maps,
 - automatic approval claims,
-- knowledge-base claims.
+- automatic knowledge-base claims.
 
 Only basenames are allowed in the index.
 
@@ -129,7 +129,8 @@ contents.
 
 - `approved` means a manual user decision.
 - Approved workspace export is not automatic approval.
-- Approved workspace export is not a knowledge base.
+- Approved workspace export is staging only; Stage 22 knowledge indexes are
+  generated separately from approved anonymized TXT files.
 - Approved workspace export does not prove complete anonymization.
 - Original files are never copied into the approved workspace.
 - `needs_review` and `rejected` files are never copied into the approved
@@ -158,7 +159,7 @@ workflow and confirm only approved generated outputs are copied.
 
 - This is a staging workflow only.
 - It does not validate anonymized document contents.
-- It does not create or manage a knowledge base.
+- It does not create or manage a knowledge index by itself.
 - It does not route `needs_review` or `rejected` files to separate folders.
 - It does not guarantee complete anonymization.
 - Manual review remains required before using or sharing any generated output.
