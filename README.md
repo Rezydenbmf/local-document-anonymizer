@@ -17,7 +17,9 @@ a safe report, and expects manual review before any result is trusted.
 - User-selected output folder for all generated files.
 - TXT input and UTF-8 TXT output.
 - Basic DOCX input and output for paragraphs and simple tables.
-- Text-based PDF input with anonymized TXT output.
+- Text-based PDF input with a true-redacted visual PDF output and anonymized
+  TXT output. Reports distinguish what was detected, what TXT anonymized, what
+  PDF redacted, and any detected categories that were not PDF-redacted.
 - Optional local OCR foundation for image inputs and scanned PDFs when local
   OCR dependencies are installed.
 - Optional local NER/NLP foundation through spaCy and a locally installed
@@ -30,7 +32,8 @@ a safe report, and expects manual review before any result is trusted.
 - PNG, JPG/JPEG, and TIFF image inputs with anonymized TXT output when OCR is
   available.
 - Collision-safe `_ANON`, `_RAPORT`, and `_BATCH_SUMMARY` naming.
-- Regex anonymization for `PESEL`, `EMAIL`, `TELEFON`, and `DATA`.
+- Regex anonymization for `PESEL`, `EMAIL`, `TELEFON`, `DATA`, and a
+  conservative `PERSON_NAME_TYPO` pattern.
 - Optional local NER anonymization for people, organizations, locations, and
   safe miscellaneous entity labels when spaCy and a local model are available.
 - Optional private dictionary with aliases, case-insensitive matching, and
@@ -85,17 +88,18 @@ review-support tool. Manual review is required for every anonymized output.
 | --- | --- | --- |
 | `document.txt` | `document_ANON.txt` | `document_RAPORT.txt` |
 | `document.docx` | `document_ANON.docx` | `document_RAPORT.txt` |
-| `document.pdf` | `document_ANON.txt` | `document_RAPORT.txt` |
+| `document.pdf` | `document_ANON.pdf` + `document_ANON.txt` | `document_RAPORT.txt` |
 | `image.png` / `image.jpg` / `image.tiff` | `image_ANON.txt` | `image_RAPORT.txt` |
 
 All generated files are saved in the output folder selected by the user.
 Original files are not modified. Text-based PDF support uses the existing
-extractable text layer first and does not create anonymized PDF files. If a
-PDF has no extractable text, the app can attempt local OCR when optional OCR
-dependencies and the local Tesseract engine are available. Image inputs also
-produce anonymized TXT output, not edited image output. If an output name
-already exists, the app writes the next safe numbered name, such as
-`document_ANON_2.txt` or `document_RAPORT_2.txt`.
+extractable text layer first and creates both a true-redacted visual PDF copy
+and an anonymized TXT copy. If a PDF has no extractable text, the app can
+attempt local OCR when optional OCR dependencies and the local Tesseract engine
+are available, but scanned-PDF visual redaction is not implemented. Image
+inputs produce anonymized TXT output, not edited image output. If an output
+name already exists, the app writes the next safe numbered name, such as
+`document_ANON_2.txt`, `document_ANON_2.pdf`, or `document_RAPORT_2.txt`.
 
 ## How Anonymization Works
 
@@ -103,16 +107,19 @@ The core engine processes plain text deterministically:
 
 1. Load an optional private dictionary from a UTF-8 text file.
 2. Replace dictionary aliases with their configured labels.
-3. Replace supported regex categories: `EMAIL`, `PESEL`, `TELEFON`, `DATA`.
+3. Replace supported regex categories: `EMAIL`, `PESEL`, `TELEFON`, `DATA`,
+   and conservative `PERSON_NAME_TYPO`.
 4. If enabled and available, run local spaCy NER on the remaining text and
    replace supported named entities with internal NER labels.
 5. Save an anonymized output copy in the selected output folder.
 6. Optionally run local Ollama review on the already-anonymized output text.
 7. Audit the anonymized output for suspicious remaining patterns and assign a
    safe review-prioritization risk level.
-8. Save a safe per-file report.
-9. For batch runs, save a safe batch summary report.
-10. Let the user manually mark generated outputs as `approved`,
+8. For text-based PDFs, save a true-redacted visual `_ANON.pdf` companion
+   using deterministic matches and exact local NER spans where available.
+9. Save a safe per-file report.
+10. For batch runs, save a safe batch summary report.
+11. Let the user manually mark generated outputs as `approved`,
    `needs_review`, or `rejected`.
 
 Counters contain labels and counts only. The app does not create or store a
@@ -255,6 +262,9 @@ Each successful file workflow writes a safe `_RAPORT.txt` report containing:
 - NER enabled/used/status/model metadata and NER category counters,
 - LLM review used/status/model/risk metadata and possible residual category
   names,
+- PDF redaction used/status/output metadata, detected/TXT/PDF category
+  coverage, detected-but-not-PDF-redacted categories, warnings when visual
+  redaction is partial, and color legend for text-based PDFs,
 - post-anonymization audit status, risk level, and counters,
 - manual review requirement,
 - confirmation that original sensitive values are not stored,
@@ -269,10 +279,12 @@ summary contains batch counts, aggregate category counters, audit status
 counts, risk level counts, aggregate audit category counters, aggregate OCR
 status counts, aggregate NER status counts, aggregate NER category counters,
 aggregate LLM review status counts, LLM risk counts, LLM residual category
-counters, safe input/output/report filenames, and controlled safe error
-descriptions. It does not include source text, raw OCR text, detected entity
-text, private dictionary terms, aliases, full paths, exception messages, raw
-LLM prompts, raw LLM responses, document snippets, or a replacement map.
+counters, PDF redaction status counts, safe input/output/report filenames, and
+controlled safe error descriptions. If a generated PDF was only partially
+covered, the summary records a safe warning by category/status only. It does
+not include source text, raw OCR text, detected entity text, private dictionary
+terms, aliases, full paths, exception messages, raw LLM prompts, raw LLM
+responses, document snippets, or a replacement map.
 
 Manual review runs can write `_REVIEW_STATUS.json` and
 `_REVIEW_SUMMARY.txt` in the selected output folder. The status file tracks
@@ -463,6 +475,7 @@ output folder / document_RAPORT.txt
 For a text-based PDF file:
 
 ```text
+output folder / document_ANON.pdf
 output folder / document_ANON.txt
 output folder / document_RAPORT.txt
 ```
@@ -498,6 +511,7 @@ src/
   main.py              GUI entry point
   ner.py               Optional local spaCy NER helpers
   ocr.py               Optional local OCR detection and extraction helpers
+  pdf_redaction.py     True-redacted visual PDF output for text-based PDFs
   report.py            Safe report generation
   review.py            Safe manual review and approved workspace metadata
   sensitive_terms.py   Private dictionary parsing and matching
@@ -527,11 +541,13 @@ TXT/DOCX/PDF workflows, GUI dispatcher layer, private dictionary parsing and
 matching, safe reports, post-anonymization audit metadata, collision-safe
 output naming, output workspace behavior, batch processing, manual review
 metadata, approved workspace export, safe approved index generation, and
-Stage 18 end-to-end MVP workflow validation, and Stage 22 local knowledge
-assistant behavior. Stage 20 tests use mocked NER model output, so they do not
+Stage 18 end-to-end MVP workflow validation, Stage 22 local knowledge
+assistant behavior, and Stage 23 text-based PDF redaction behavior. Stage 20
+tests use mocked NER model output, so they do not
 require a real spaCy Polish model. Stage 21 tests mock Ollama behavior, so
 they do not require real Ollama or a real local model. Stage 22/22.1 tests use
 synthetic approved TXT files and mocked local generation/status/warm-up.
+Stage 23 tests use generated synthetic PDFs only.
 
 Run:
 
@@ -561,7 +577,10 @@ python -m unittest discover -s tests
 - Regex detection is narrow and conservative.
 - Private dictionary matching is not fuzzy matching, inflection handling, ML,
   or LLM-based detection.
-- No anonymized PDF output.
+- Text-based PDF redaction depends on PyMuPDF text search and can miss unusual
+  encodings, fragmented glyphs, rotated text, form fields, annotations, or text
+  in images.
+- No scanned-PDF/OCR bounding-box redaction.
 - Batch processing is sequential; one file's error is recorded safely and does
   not stop later files.
 - No drag and drop.
@@ -580,7 +599,8 @@ python -m unittest discover -s tests
 - Scanned PDF and image OCR require optional local OCR dependencies and the
   local Tesseract engine; if OCR is unavailable, the file fails with a
   controlled safe status instead of being silently treated as processed.
-- PDF support does not preserve layout.
+- Text-based `_ANON.pdf` output preserves the original page layout as a visual
+  review aid, but fonts and unusual PDF structures are not guaranteed.
 - Reports contain safe counters and metadata only, not a detailed audit trail.
 - Reports and batch summaries do not include raw OCR text.
 - Reports and batch summaries do not include detected NER entity text.
@@ -609,7 +629,9 @@ or raw responses. Stage 22 adds a local Knowledge Assistant MVP that builds an
 ignored `_KNOWLEDGE_INDEX.json` from approved anonymized TXT files, retrieves
 chunks with a keyword fallback, optionally uses local Ollama answer generation,
 and always shows source chunk IDs. Stage 22.1 adds CLI status and warm-up
-commands plus clearer timeout guidance for local Ollama cold starts.
+commands plus clearer timeout guidance for local Ollama cold starts. Stage 23
+adds a layout-preserving true-redacted `_ANON.pdf` companion for text-based PDF
+inputs while keeping `_ANON.txt` for the Local Knowledge Assistant.
 
 Potential future work requires explicit approval, especially OCR quality
 improvements, installer packaging, release automation, stronger entity

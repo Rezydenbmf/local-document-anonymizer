@@ -113,6 +113,14 @@ def build_anonymized_pdf_txt_path(
     return _output_directory(path, output_dir) / f"{path.stem}{ANON_SUFFIX}{TXT_EXTENSION}"
 
 
+def build_anonymized_pdf_path(
+    source_path: str | Path, output_dir: str | Path | None = None
+) -> Path:
+    """Return the anonymized visual PDF output path for a PDF source file."""
+    path = _ensure_pdf_path(source_path)
+    return _output_directory(path, output_dir) / f"{path.stem}{ANON_SUFFIX}{PDF_EXTENSION}"
+
+
 def build_anonymized_image_txt_path(
     source_path: str | Path, output_dir: str | Path | None = None
 ) -> Path:

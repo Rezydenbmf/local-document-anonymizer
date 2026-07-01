@@ -13,6 +13,8 @@ Stage 19 keeps batch processing sequential and adds safe OCR status metadata
 for image inputs and scanned-PDF fallback. Stage 20 adds safe NER status and
 category metadata when local NER is enabled. Stage 21 adds safe LLM review
 status, risk, and residual category metadata when local LLM review is enabled.
+Stage 23 adds safe PDF redaction status metadata and companion `_ANON.pdf`
+outputs for text-based PDF inputs.
 
 ## Related files
 
@@ -44,8 +46,8 @@ chosen output workspace.
 `anonymize_batch(...)` returns safe batch metadata including the summary path,
 input count, success count, error count, aggregate counters, audit status
 counts, risk level counts, aggregate audit category counters, aggregate OCR
-counts, aggregate NER counts, aggregate LLM review counts, and per-file result
-entries using filenames only.
+counts, aggregate NER counts, aggregate LLM review counts, aggregate PDF
+redaction status counts, and per-file result entries using filenames only.
 
 ## Output Workspace
 
@@ -54,7 +56,7 @@ The output folder is selected by the user in the GUI. The workflow writes:
 ```text
 document.txt  -> document_ANON.txt  + document_RAPORT.txt
 document.docx -> document_ANON.docx + document_RAPORT.txt
-document.pdf  -> document_ANON.txt  + document_RAPORT.txt
+document.pdf  -> document_ANON.pdf + document_ANON.txt + document_RAPORT.txt
 scan.png      -> scan_ANON.txt      + scan_RAPORT.txt
 batch run     -> _BATCH_SUMMARY.txt
 ```
@@ -104,6 +106,7 @@ The `_BATCH_SUMMARY.txt` report may contain:
 - aggregate NER status counts and NER category counters,
 - aggregate LLM review status counts, LLM risk counts, and LLM residual
   category counters,
+- aggregate PDF redaction status counts,
 - safe input filenames,
 - safe generated output filenames,
 - safe generated report filenames,
@@ -124,6 +127,7 @@ The batch summary must not contain:
 - detected entity text,
 - raw LLM prompts,
 - raw LLM responses,
+- matched PDF redaction source values,
 - document snippets,
 - logs or snippets.
 
@@ -136,8 +140,8 @@ The GUI now supports this Stage 12 flow:
 3. Optionally select a private dictionary file.
 4. Run `Anonymize batch`.
 5. Review the completion status, aggregate counters, aggregate audit status,
-   aggregate risk levels, aggregate OCR/NER/LLM status, output filenames,
-   report filenames, and batch summary filename.
+   aggregate risk levels, aggregate OCR/NER/LLM/PDF redaction status, output
+   filenames, report filenames, and batch summary filename.
 6. Manually review every generated anonymized output.
 
 The GUI shows safe filenames and counts. It does not show source values,
@@ -154,6 +158,8 @@ dictionary contents, audit snippets, or raw exception text.
 - Reports do not store replacement maps.
 - Batch errors are sanitized before being written to `_BATCH_SUMMARY.txt`.
 - Risk levels are prioritization metadata only and do not approve files.
+- PDF redaction metadata is safe status/count metadata only and does not prove
+  complete anonymization.
 - Manual review remains required for every generated output.
 
 ## How to Test
@@ -174,6 +180,8 @@ tests cover safe OCR batch continuation and OCR status summary metadata. Stage
 20 tests cover safe NER status summary metadata with mocked model output.
 Stage 21 tests cover safe LLM status/risk/category summary metadata with
 mocked Ollama behavior.
+Stage 23 tests cover PDF redaction status summary metadata with generated
+synthetic PDFs.
 
 ## Known Limitations
 
@@ -187,6 +195,8 @@ mocked Ollama behavior.
   detection.
 - LLM review counts are status metadata only and do not guarantee complete
   anonymization or correct risk classification.
+- PDF redaction counts are status metadata only and text-based redaction can
+  miss unusual PDF text structures.
 - The batch summary uses safe filenames, but filenames themselves should still
   be chosen carefully by the user.
 - Manual review is still required.

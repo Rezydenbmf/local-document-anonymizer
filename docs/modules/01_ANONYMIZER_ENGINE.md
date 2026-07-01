@@ -18,6 +18,9 @@ dictionary/regex-only unless `use_ner=True` is passed.
 Stage 21 adds keyword-only optional local LLM review controls for file and
 batch workflows. The plain text engine itself remains deterministic; LLM
 review runs only after output text has already been anonymized.
+Stage 23 adds a conservative `PERSON_NAME_TYPO` regex category and creates a
+true-redacted visual PDF companion in the PDF file workflow without changing
+the plain text engine return shape.
 
 ## Related files
 
@@ -66,6 +69,7 @@ Stage 1 supports:
 - `EMAIL` replaced with `[EMAIL]`
 - `TELEFON` replaced with `[TELEFON]`
 - `DATA` replaced with `[DATA]`
+- `PERSON_NAME_TYPO` replaced with `[PERSON_NAME_TYPO]`
 
 The engine can also replace user-provided private dictionary aliases with
 labels from a private dictionary, for example `[IMIE NAZWISKO]`. These labels
@@ -74,8 +78,9 @@ are dynamic and are not automatic entity detection.
 When local NER is explicitly enabled and available, Stage 20 can also emit
 internal labels `NER_PERSON`, `NER_ORG`, `NER_LOCATION`, and `NER_MISC`.
 
-Address and postal-code detection are not implemented as automatic regex
-categories.
+`PERSON_NAME_TYPO` is a conservative pilot hardening pattern for typo-shaped
+person names such as `Firstname-Lastname Lastname`. Address and postal-code
+detection are not implemented as automatic regex categories.
 
 ## How it works
 
@@ -89,6 +94,7 @@ The engine then applies deterministic regular expressions in a fixed order:
 2. `PESEL`
 3. `TELEFON`
 4. `DATA`
+5. `PERSON_NAME_TYPO`
 
 If `use_ner=True`, the engine then applies local spaCy NER to the remaining
 text and skips existing placeholders to avoid double replacement.
@@ -179,6 +185,8 @@ tests cover output workspace dispatch and batch processing. Stage 16 tests
 cover audit risk levels and safe risk metadata propagation. Stage 20 tests
 cover optional local NER with mocked model output. Stage 21 tests cover local
 LLM review with mocked Ollama behavior and anonymized-output-only input.
+Stage 23 tests cover the conservative person-name typo category and
+text-based PDF redaction workflow metadata.
 
 ## Known limitations
 
@@ -189,7 +197,8 @@ LLM review with mocked Ollama behavior and anonymized-output-only input.
 - Date detection is limited to `YYYY-MM-DD` and `DD.MM.YYYY`.
 - Production-grade names, surnames, cities, organizations, context-based
   detection, uppercase word detection, addresses, and postal codes are not
-  implemented.
+  implemented. The `PERSON_NAME_TYPO` category is intentionally narrow and is
+  not general name detection.
 - Private dictionary matching is deterministic, case-insensitive, and
   whitespace-tolerant, but not fuzzy matching, inflection handling, NER, or
   automatic entity detection.

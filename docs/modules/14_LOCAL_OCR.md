@@ -107,7 +107,7 @@ replacement maps.
 - Manual review is still required for every generated output.
 - OCR metadata is safe metadata only.
 - Original images and PDFs are not modified.
-- No edited image output or anonymized PDF output is created.
+- No edited image output or scanned-PDF visual redaction is created.
 
 ## How to test
 
@@ -131,5 +131,5 @@ batch summary safety.
 - No preview, highlighting, split-screen review, or OCR correction interface
   exists.
 - No handwritten-text support is claimed.
-- No edited image or anonymized PDF output is produced.
+- No edited image or scanned-PDF visual redaction is produced.
 - Manual review remains required.

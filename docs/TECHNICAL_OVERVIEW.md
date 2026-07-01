@@ -162,24 +162,27 @@ or replacement maps.
 `file_writers.py` saves anonymized TXT, DOCX, PDF-to-TXT, and image-to-TXT
 copies without modifying original files. The output filename receives the
 `_ANON` suffix. For example, `document.txt` becomes `document_ANON.txt`,
-`document.docx` becomes `document_ANON.docx`, `document.pdf` becomes
-`document_ANON.txt`, and `scan.png` becomes `scan_ANON.txt`. Stage 12 allows
-these paths to target a selected output folder and uses numbered collision-safe
-names when a generated file already exists. It also builds safe report paths
-with the `_RAPORT.txt` suffix and the default `_BATCH_SUMMARY.txt` path.
+`document.docx` becomes `document_ANON.docx`, text-based `document.pdf`
+becomes `document_ANON.pdf` plus `document_ANON.txt`, and `scan.png` becomes
+`scan_ANON.txt`. Stage 12 allows these paths to target a selected output folder
+and uses numbered collision-safe names when a generated file already exists. It
+also builds safe report paths with the `_RAPORT.txt` suffix and the default
+`_BATCH_SUMMARY.txt` path.
 
 DOCX writing uses `python-docx` locally. It updates supported paragraph and simple table text in a copy of the original document. Basic paragraph and run formatting is preserved when possible, but full DOCX fidelity is not guaranteed.
 
 PDF reading uses `pypdf` locally. Stage 4 extracts text and writes anonymized
-TXT output only. Stage 19 keeps that path first and attempts OCR only when a
-PDF has no extractable text. It does not create anonymized PDF files, does not
-preserve PDF layout, and does not modify the original PDF.
+TXT output. Stage 19 keeps that path first and attempts OCR only when a PDF has
+no extractable text. Stage 23 uses PyMuPDF to create a true-redacted visual PDF
+companion for text-based PDFs. It does not add scanned-PDF/OCR bounding-box
+redaction and does not modify the original PDF.
 
 `report.py` builds and saves safe TXT reports without original sensitive source
 values. It receives only status, input type, output type, anonymization
 category counters, safe dictionary status metadata, dictionary label counters,
-safe OCR metadata, safe NER metadata, safe LLM review metadata, audit status,
-audit risk level, audit counters, and optional category ordering.
+safe OCR metadata, safe NER metadata, safe LLM review metadata, safe PDF
+redaction metadata, audit status, audit risk level, audit counters, and
+optional category ordering.
 Dictionary counters are labels only, such as `IMIE NAZWISKO: 2`; original
 dictionary terms are not passed to the report module. Stage 12 also adds safe
 batch summary text generation with safe filenames, aggregate counters, audit
@@ -319,5 +322,5 @@ using any anonymized DOCX output.
 
 Stage 4 supports PDFs that already contain extractable text. Stage 19 can
 attempt OCR for scanned PDFs when local OCR dependencies are available. OCR can
-be inaccurate, PDF layout preservation is not guaranteed, and PDF input still
-produces TXT output only.
+be inaccurate. Stage 23 creates a layout-preserving redacted PDF companion only
+for text-based PDFs; scanned/OCR-only PDFs still produce TXT output only.

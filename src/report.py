@@ -127,6 +127,19 @@ LLM_SKIPPED_OR_UNAVAILABLE_STATUSES = (
     "no_model_configured",
     "model_missing",
 )
+PDF_REDACTION_STATUSES = (
+    "completed",
+    "completed_with_warnings",
+    "no_matches",
+    "skipped_ocr",
+    "unavailable",
+)
+PDF_REDACTION_COLOR_LEGEND = (
+    ("red", "PESEL and strong numeric identifiers"),
+    ("orange", "phone numbers and conservative person-name typo matches"),
+    ("blue", "email and electronic identifiers"),
+    ("gray/purple", "dates, organizations, locations, and other markers"),
+)
 
 
 def _safe_file_type(value: str) -> str:
@@ -270,6 +283,112 @@ def _safe_llm_warning(value: object) -> str:
     if warning in LLM_WARNING_TEXTS:
         return warning
     return "local LLM review failed safely" if warning else ""
+
+
+def _safe_pdf_redaction_status(value: object) -> str:
+    status = str(value).strip()
+    if status in PDF_REDACTION_STATUSES:
+        return status
+    return "unavailable"
+
+
+def _safe_pdf_redaction_output_name(value: object) -> str:
+    if value in (None, ""):
+        return "not created"
+    return _safe_filename(value)
+
+
+def _append_counter_lines(
+    lines: list[str],
+    title: str,
+    counters: Mapping[str, int],
+) -> None:
+    lines.append(title)
+    if counters:
+        for label in sorted(counters):
+            count = counters.get(label, 0)
+            _validate_count(count)
+            lines.append(f"* {label}: {count}")
+    else:
+        lines.append("* none: 0")
+
+
+def _pdf_redaction_section_lines(
+    pdf_redaction_result: Mapping[str, object] | None,
+) -> list[str]:
+    if pdf_redaction_result is None:
+        return []
+
+    used = bool(pdf_redaction_result.get("used", False))
+    status = _safe_pdf_redaction_status(pdf_redaction_result.get("status"))
+    output_name = _safe_pdf_redaction_output_name(
+        pdf_redaction_result.get("output_name", "")
+    )
+    redaction_count = pdf_redaction_result.get("redaction_count", 0)
+    _validate_count(redaction_count)
+    true_redaction = bool(pdf_redaction_result.get("true_redaction", False))
+    raw_counters = pdf_redaction_result.get("counters", {})
+    if not isinstance(raw_counters, Mapping):
+        raise TypeError("PDF redaction counters must be a mapping")
+    warning = str(pdf_redaction_result.get("warning", "")).strip()
+    detected_categories = pdf_redaction_result.get("detected_categories", {})
+    txt_anonymized_categories = pdf_redaction_result.get(
+        "txt_anonymized_categories", {}
+    )
+    pdf_redacted_categories = pdf_redaction_result.get(
+        "pdf_redacted_categories",
+        raw_counters,
+    )
+    not_redacted_categories = pdf_redaction_result.get(
+        "detected_not_pdf_redacted_categories",
+        {},
+    )
+    for label, value in (
+        ("PDF detected categories", detected_categories),
+        ("TXT anonymized categories", txt_anonymized_categories),
+        ("PDF redacted categories", pdf_redacted_categories),
+        ("Detected but not PDF-redacted categories", not_redacted_categories),
+    ):
+        if not isinstance(value, Mapping):
+            raise TypeError(f"{label} must be a mapping")
+
+    lines = [
+        "",
+        "PDF redaction:",
+        f"PDF redaction output created: {'yes' if used else 'no'}",
+        f"PDF redaction status: {status}",
+        f"PDF redaction output: {output_name}",
+        f"PDF true redaction used: {'yes' if true_redaction else 'no'}",
+        f"PDF redaction blocks: {redaction_count}",
+        "PDF redaction color legend:",
+    ]
+    for color, meaning in PDF_REDACTION_COLOR_LEGEND:
+        lines.append(f"* {color}: {meaning}")
+
+    _append_counter_lines(lines, "PDF detected categories:", detected_categories)
+    _append_counter_lines(
+        lines,
+        "TXT anonymized categories:",
+        txt_anonymized_categories,
+    )
+    _append_counter_lines(lines, "PDF redacted categories:", pdf_redacted_categories)
+    _append_counter_lines(
+        lines,
+        "Detected but not PDF-redacted categories:",
+        not_redacted_categories,
+    )
+    lines.append("PDF redaction categories:")
+    if raw_counters:
+        for label in sorted(raw_counters):
+            count = raw_counters.get(label, 0)
+            _validate_count(count)
+            lines.append(f"* {label}: {count}")
+    else:
+        lines.append("* none: 0")
+    if warning:
+        lines.append(f"PDF redaction warning: {warning}")
+
+    return lines
 
 
 def _ocr_section_lines(ocr_result: Mapping[str, object] | None) -> list[str]:
@@ -483,6 +602,7 @@ def build_report_text(
     ocr_result: Mapping[str, object] | None = None,
     ner_result: Mapping[str, object] | None = None,
     llm_review_result: Mapping[str, object] | None = None,
+    pdf_redaction_result: Mapping[str, object] | None = None,
 ) -> str:
     """Build a safe text report without source values or replacement maps."""
     if not isinstance(status, str):
@@ -511,6 +631,7 @@ def build_report_text(
     lines.extend(_ocr_section_lines(ocr_result))
     lines.extend(_ner_section_lines(ner_result))
     lines.extend(_llm_review_section_lines(llm_review_result))
+    lines.extend(_pdf_redaction_section_lines(pdf_redaction_result))
     lines.extend(_audit_section_lines(audit_result, audit_category_order))
 
     lines.extend(
@@ -538,6 +659,7 @@ def save_report_file(
     ocr_result: Mapping[str, object] | None = None,
     ner_result: Mapping[str, object] | None = None,
     llm_review_result: Mapping[str, object] | None = None,
+    pdf_redaction_result: Mapping[str, object] | None = None,
 ) -> Path:
     """Save a safe anonymization report and return the report path."""
     path = Path(report_path)
@@ -553,6 +675,7 @@ def save_report_file(
         ocr_result=ocr_result,
         ner_result=ner_result,
         llm_review_result=llm_review_result,
+        pdf_redaction_result=pdf_redaction_result,
     )
     path.write_text(report_text, encoding="utf-8")
     return path
@@ -573,6 +696,7 @@ def build_batch_summary_text(
     llm_review_status_counts: Mapping[str, int] | None = None,
     llm_review_risk_level_counts: Mapping[str, int] | None = None,
     llm_review_category_counters: Mapping[str, int] | None = None,
+    pdf_redaction_status_counts: Mapping[str, int] | None = None,
     category_order: Iterable[str] | None = None,
     audit_category_order: Iterable[str] | None = None,
     status: str = "completed",
@@ -741,6 +865,32 @@ def build_batch_summary_text(
     if not has_llm_category and not LLM_RESIDUAL_CATEGORIES:
         lines.append("* none: 0")
 
+    pdf_redaction_created_count = 0
+    pdf_redaction_skipped_count = 0
+    for result in materialized_results:
+        pdf_redaction_status = _safe_pdf_redaction_status(
+            result.get("pdf_redaction_status", "unavailable")
+        )
+        if result.get("pdf_redaction_output_created") is True:
+            pdf_redaction_created_count += 1
+        if pdf_redaction_status in ("skipped_ocr", "unavailable"):
+            pdf_redaction_skipped_count += 1
+
+    lines.extend(
+        [
+            "",
+            "PDF redaction:",
+            f"* PDF redaction outputs created: {pdf_redaction_created_count}",
+            f"* PDF redaction skipped or unavailable: {pdf_redaction_skipped_count}",
+            "PDF redaction statuses:",
+        ]
+    )
+    pdf_redaction_counts = pdf_redaction_status_counts or {}
+    for status_name in PDF_REDACTION_STATUSES:
+        count = pdf_redaction_counts.get(status_name, 0)
+        _validate_count(count)
+        lines.append(f"* {status_name}: {count}")
+
     lines.extend(["", "Files:"])
     for result in materialized_results:
         file_status = str(result.get("status", "error"))
@@ -778,6 +928,20 @@ def build_batch_summary_text(
                 f"  LLM risk level: "
                 f"{_safe_llm_risk_level(result.get('llm_risk_level'))}"
             )
+        if "pdf_redaction_status" in result:
+            lines.append(
+                f"  PDF redaction output: "
+                f"{_safe_pdf_redaction_output_name(result.get('pdf_redaction_output_name'))}"
+            )
+            lines.append(
+                f"  PDF redaction status: "
+                f"{_safe_pdf_redaction_status(result.get('pdf_redaction_status'))}"
+            )
+            pdf_redaction_warning = str(
+                result.get("pdf_redaction_warning", "")
+            ).strip()
+            if pdf_redaction_warning:
+                lines.append(f"  PDF redaction warning: {pdf_redaction_warning}")
 
     lines.extend(
         [
@@ -811,6 +975,7 @@ def save_batch_summary_file(
     llm_review_status_counts: Mapping[str, int] | None = None,
     llm_review_risk_level_counts: Mapping[str, int] | None = None,
     llm_review_category_counters: Mapping[str, int] | None = None,
+    pdf_redaction_status_counts: Mapping[str, int] | None = None,
     category_order: Iterable[str] | None = None,
     audit_category_order: Iterable[str] | None = None,
     status: str = "completed",
@@ -831,6 +996,7 @@ def save_batch_summary_file(
         llm_review_status_counts=llm_review_status_counts,
         llm_review_risk_level_counts=llm_review_risk_level_counts,
         llm_review_category_counters=llm_review_category_counters,
+        pdf_redaction_status_counts=pdf_redaction_status_counts,
         results=results,
         category_order=category_order,
         audit_category_order=audit_category_order,

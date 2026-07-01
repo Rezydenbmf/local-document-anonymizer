@@ -79,15 +79,17 @@ document.docx -> document_RAPORT.txt
 Original TXT and DOCX files are not modified.
 
 Text-based PDF files are read locally and the extracted text is anonymized into
-a TXT file:
+a TXT file. The app also creates a true-redacted visual PDF companion for
+manual review:
 
 ```text
+document.pdf -> document_ANON.pdf
 document.pdf -> document_ANON.txt
 document.pdf -> document_RAPORT.txt
 ```
 
-Original PDF files are not modified. The application does not create
-`document_ANON.pdf` or any other anonymized PDF output.
+Original PDF files are not modified. Scanned-PDF visual redaction is not
+implemented; scanned PDFs still depend on OCR text fallback.
 
 If a PDF has no extractable text layer, the application can attempt local OCR
 when optional OCR dependencies and the local Tesseract engine are installed.
@@ -107,9 +109,9 @@ not cover headers, footers, comments, footnotes, form fields, text in images, or
 advanced DOCX elements. Basic formatting is preserved only in a limited MVP
 range.
 
-PDF layout preservation is not guaranteed. OCR is optional, dependency
-dependent, and can be imperfect. Manual review is still required for OCR
-outputs.
+Text-based PDF visual output preserves page layout as a review aid, but unusual
+PDF text structures can be missed. OCR is optional, dependency dependent, and
+can be imperfect. Manual review is still required for all PDF and OCR outputs.
 
 Optional NER can detect and replace people, organizations, locations, and safe
 miscellaneous entity labels when spaCy and a local Polish model are installed.

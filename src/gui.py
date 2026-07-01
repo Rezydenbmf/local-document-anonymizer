@@ -23,6 +23,7 @@ try:
         apply_review_statuses,
         export_approved_workspace,
         load_review_workspace,
+        preferred_review_output_path,
         save_review_files,
     )
 except ImportError:
@@ -40,6 +41,7 @@ except ImportError:
         apply_review_statuses,
         export_approved_workspace,
         load_review_workspace,
+        preferred_review_output_path,
         save_review_files,
     )
 
@@ -1108,7 +1110,12 @@ class AnonymizerGui:
         if item is None:
             return
 
-        self._open_review_file(item.output_name, "anonymized output")
+        if self.review_dir is None:
+            self.review_status_var.set("Select an output folder for review first.")
+            return
+
+        preferred_path = preferred_review_output_path(self.review_dir, item.output_name)
+        self._open_review_file(preferred_path.name, "anonymized output")
 
     def open_selected_review_report(self) -> None:
         item = self._get_single_selected_review_item()

@@ -25,7 +25,9 @@ safe aggregate OCR status display without redesigning the GUI.
 Stage 20 adds one optional local NER checkbox and safe aggregate NER status
 display without redesigning the GUI. Stage 21 adds one optional local LLM
 review checkbox, a model-name field, and safe aggregate LLM status display
-without redesigning the GUI.
+without redesigning the GUI. Stage 23 adds safe PDF redaction status display
+through the existing batch summary and makes the manual-review open action
+prefer a companion `_ANON.pdf` when one exists for a PDF-derived `_ANON.txt`.
 
 ## Related files
 
@@ -84,13 +86,14 @@ The GUI supports this flow:
 7. Check the readiness hint if `Anonymize batch` is disabled.
 8. Click `Anonymize batch`.
 9. Review the status, safe dictionary status, category counters, aggregate
-   audit status counts, aggregate risk counts, aggregate OCR/NER/LLM status,
-   generated output filenames, generated report filenames, batch summary
+   audit status counts, aggregate risk counts, aggregate OCR/NER/LLM/PDF
+   redaction status, generated output filenames, generated report filenames, batch summary
    filename, and manual review warning.
 10. Manually inspect every anonymized output file before using or sharing it.
 11. Load the output folder in the manual review section.
 12. Optionally open the selected `_ANON` output or matching `_RAPORT` report in
-   the operating system default application.
+   the operating system default application. For PDF-derived TXT outputs, the
+   open action prefers the companion `_ANON.pdf` when it exists.
 13. Assign each generated output one manual status: `approved`,
    `needs_review`, or `rejected`.
 14. Save `_REVIEW_STATUS.json` and a collision-safe `_REVIEW_SUMMARY.txt`.
@@ -166,6 +169,7 @@ output folder / document_RAPORT.txt
 Text-based PDF input:
 
 ```text
+output folder / document_ANON.pdf
 output folder / document_ANON.txt
 output folder / document_RAPORT.txt
 ```
@@ -215,6 +219,8 @@ and approved indexes.
 - The GUI displays OCR status counts only.
 - The GUI displays NER status counts only.
 - The GUI displays LLM review status counts only.
+- The GUI displays PDF redaction status metadata only through safe report and
+  batch summary text.
 - The GUI displays dictionary status names and safe match metadata only.
 - The GUI does not display original detected source values.
 - The GUI does not display private dictionary contents.
@@ -223,7 +229,9 @@ and approved indexes.
 - The GUI displays manual review item filenames, safe risk levels, and statuses
   only.
 - The GUI can ask the operating system to open a selected generated output or
-  matching report, but it does not preview or inspect those files itself.
+  matching report, but it does not preview or inspect those files itself. When
+  a PDF-derived TXT output has a companion `_ANON.pdf`, the visual PDF is
+  opened for convenience.
 - `approved` is a manual user decision, not an automatic application decision.
 - No replacement map is created.
 - Safe report files are created by the existing file workflow helpers.
@@ -237,7 +245,8 @@ and approved indexes.
 - OCR and NER are optional and local; no AI, API, cloud service, database,
 - OCR, NER, and LLM review are optional and local; no OpenAI API, cloud
   service, database, chat UI, document rewriting, drag and drop, preview,
-  editing, edited image output, or PDF writing is added.
+  editing, edited image output, PDF editor, or scanned-PDF visual redaction is
+  added.
 - The GUI does not display LLM prompts, raw responses, document snippets,
   source text, detected values, or dictionary terms.
 
@@ -267,6 +276,7 @@ Stage 19 OCR GUI-adjacent status formatting is covered by
 `tests/test_ocr.py` and `tests/test_gui_workflow.py`. Stage 20 NER status
 formatting is covered by `tests/test_ner.py` and `tests/test_gui_workflow.py`.
 Stage 21 LLM status behavior is covered by `tests/test_llm_review.py`.
+Stage 23 PDF open preference is covered by `tests/test_review_workflow.py`.
 Fragile widget tests are not included.
 
 ## Known limitations
@@ -291,7 +301,7 @@ Fragile widget tests are not included.
 - LLM review requires optional local Ollama and a user-installed local model;
   the GUI does not install, download, pull, or configure those dependencies.
 - The GUI does not support drag and drop, preview, split-screen review,
-  highlighting, chat, document rewriting, edited image output, or anonymized
-  PDF output.
+  highlighting, chat, document rewriting, edited image output, or scanned-PDF
+  visual redaction.
 - DOCX and PDF limitations from Stages 3 and 4 still apply.
 - Manual review remains required before trusting any anonymized result.

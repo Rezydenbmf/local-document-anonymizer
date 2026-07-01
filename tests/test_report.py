@@ -16,7 +16,7 @@ from anonymizer import SUPPORTED_LABELS, anonymize_docx_file, anonymize_file
 from anonymizer import anonymize_pdf_file, anonymize_txt_file
 from file_readers import read_docx_file
 from file_writers import build_report_path
-from report import build_report_text
+from report import build_batch_summary_text, build_report_text
 
 
 def workspace_temp_dir():
@@ -253,15 +253,88 @@ class ReportTests(unittest.TestCase):
 
             output_path, counters = anonymize_pdf_file(source_path)
             report_path = Path(temp_dir) / "document_RAPORT.txt"
+            redacted_pdf_path = Path(temp_dir) / "document_ANON.pdf"
 
             self.assertEqual(output_path, Path(temp_dir) / "document_ANON.txt")
             self.assertEqual(
                 output_path.read_text(encoding="utf-8").strip(),
                 "Contact [EMAIL] on [DATA].",
             )
+            self.assertTrue(redacted_pdf_path.exists())
             self.assertTrue(report_path.exists())
             self.assertEqual(counters, {"EMAIL": 1, "DATA": 1})
             self.assert_report_is_safe(report_path)
+            report_text = report_path.read_text(encoding="utf-8")
+            self.assertIn("PDF redaction:", report_text)
+            self.assertIn("PDF redaction output created: yes", report_text)
+            self.assertIn("PDF redaction status: completed", report_text)
+            self.assertIn("PDF true redaction used: yes", report_text)
+            self.assertIn("PDF redaction color legend:", report_text)
+            self.assertIn("* EMAIL: 1", report_text)
+
+    def test_pdf_report_marks_partial_redaction_with_safe_warning(self) -> None:
+        report_text = build_report_text(
+            counters={"EMAIL": 1, "NER_ORG": 1},
+            input_extension=".pdf",
+            output_extension=".txt",
+            category_order=SUPPORTED_LABELS,
+            pdf_redaction_result={
+                "used": True,
+                "status": "completed_with_warnings",
+                "output_name": "document_ANON.pdf",
+                "redaction_count": 1,
+                "counters": {"EMAIL": 1},
+                "true_redaction": True,
+                "detected_categories": {"EMAIL": 1, "NER_ORG": 1},
+                "txt_anonymized_categories": {"EMAIL": 1, "NER_ORG": 1},
+                "pdf_redacted_categories": {"EMAIL": 1},
+                "detected_not_pdf_redacted_categories": {"NER_ORG": 1},
+                "warning": (
+                    "PDF redaction may be partial; some detected categories "
+                    "were not PDF-redacted"
+                ),
+            },
+        )
+
+        self.assertIn("PDF redaction status: completed_with_warnings", report_text)
+        self.assertIn("Detected but not PDF-redacted categories:", report_text)
+        self.assertIn("* NER_ORG: 1", report_text)
+        self.assertIn("PDF redaction warning: PDF redaction may be partial", report_text)
+        self.assertNotIn("Example Test Clinic", report_text)
+
+    def test_batch_summary_marks_partial_pdf_redaction_with_safe_warning(self) -> None:
+        summary_text = build_batch_summary_text(
+            input_count=1,
+            success_count=1,
+            error_count=0,
+            counters={"EMAIL": 1, "NER_ORG": 1},
+            audit_status_counts={"ok": 1, "warning": 0, "not run": 0},
+            results=[
+                {
+                    "input_name": "document.pdf",
+                    "status": "success",
+                    "output_name": "document_ANON.txt",
+                    "report_name": "document_RAPORT.txt",
+                    "audit_status": "ok",
+                    "risk_level": "ok",
+                    "pdf_redaction_output_created": True,
+                    "pdf_redaction_output_name": "document_ANON.pdf",
+                    "pdf_redaction_status": "completed_with_warnings",
+                    "pdf_redaction_warning": (
+                        "PDF redaction may be partial; some detected categories "
+                        "were not PDF-redacted"
+                    ),
+                }
+            ],
+            pdf_redaction_status_counts={"completed_with_warnings": 1},
+            category_order=SUPPORTED_LABELS,
+            audit_category_order=AUDIT_CATEGORY_ORDER,
+        )
+
+        self.assertIn("* completed_with_warnings: 1", summary_text)
+        self.assertIn("PDF redaction status: completed_with_warnings", summary_text)
+        self.assertIn("PDF redaction warning: PDF redaction may be partial", summary_text)
+        self.assertNotIn("Example Test Clinic", summary_text)
 
     def test_dispatcher_report_does_not_write_source_values(self) -> None:
         with workspace_temp_dir() as temp_dir:

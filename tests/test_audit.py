@@ -107,6 +107,16 @@ class PostAnonymizationAuditTests(unittest.TestCase):
         for source_value in source_values:
             self.assertNotIn(source_value, repr(result))
 
+    def test_detects_person_name_typo_pattern_without_returning_value(self) -> None:
+        source_value = "Jan-Kowalski Kowalski"
+
+        result = audit_text(f"Reviewer {source_value} remains.")
+
+        self.assertEqual(result["status"], "warning")
+        self.assertEqual(result["risk_level"], RISK_LEVEL_HIGH)
+        self.assertEqual(result["findings"]["PERSON_NAME_TYPO"], 1)
+        self.assertNotIn(source_value, repr(result))
+
     def test_risk_level_warning_for_low_risk_single_warning(self) -> None:
         result = audit_text("Reference ABC/123/2026 remains.")
 

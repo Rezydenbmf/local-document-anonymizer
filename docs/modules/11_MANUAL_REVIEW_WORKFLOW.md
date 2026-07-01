@@ -20,6 +20,11 @@ Stage 17 adds approved workspace export from saved review decisions. It reads
 writes a safe `_APPROVED_INDEX.txt` manifest. This is not automatic approval
 and not a guarantee of complete anonymization.
 
+Stage 23 keeps PDF-derived review items anchored on the `_ANON.txt` output so
+the TXT can still be approved/exported for the Local Knowledge Assistant. When
+a companion `_ANON.pdf` exists, the GUI open action prefers that visual PDF for
+manual review.
+
 ## Related files
 
 - `src/review.py`
@@ -40,6 +45,7 @@ save_review_status_file(...) -> Path
 save_review_summary_file(...) -> Path
 save_review_files(...) -> ReviewSaveResult
 export_approved_workspace(output_dir) -> ApprovedExportResult
+preferred_review_output_path(output_dir, output_name) -> Path
 ```
 
 ## Review Items
@@ -87,6 +93,10 @@ _BATCH_SUMMARY_2.txt
 ```
 
 The workflow uses basenames only. It does not store full paths.
+
+For PDF inputs, the workflow still detects the generated `_ANON.txt` review
+item. A companion `_ANON.pdf` with the same stem can be opened preferentially
+by the GUI, but the review status payload remains based on safe TXT basenames.
 
 When a paired report is present, the workflow reads only the safe `Risk level:`
 line and accepts only `ok`, `warning`, or `high_risk`. Missing, unreadable, or
@@ -178,7 +188,8 @@ The GUI provides a manual review section that can:
    status.
 4. Sort `high_risk` items first when safe risk metadata is available.
 5. Open the selected generated output with the operating system default
-   application.
+   application, preferring a companion `_ANON.pdf` for PDF-derived TXT outputs
+   when it exists.
 6. Open the matching report with the operating system default application when
    one is detected.
 7. Assign `approved`, `needs_review`, or `rejected` to one or more selected
@@ -218,6 +229,8 @@ copying, missing reports, missing status files, no approved files,
 collision-safe export names, and safe approved index contents. Stage 18 tests
 cover the full workflow chain from synthetic batch outputs to manual decisions
 and approved export.
+Stage 23 tests cover companion PDF open preference while keeping TXT review
+items detectable.
 
 ## Known Limitations
 
@@ -228,9 +241,12 @@ and approved export.
 - No document-content inspection or validation.
 - External file opening is delegated to the operating system default
   application and is not an in-app preview.
+- Companion PDF opening is a convenience only; review metadata still tracks
+  safe generated basenames and does not validate document contents.
 - No automatic approval based on audit results.
 - No file moving into needs-review or rejected folders.
 - Approved workspace export is copying into a staging area only; it is not a
   knowledge base and does not validate document contents.
-- No OCR, AI, API calls, cloud services, local LLMs, NER, or database.
+- No OCR, AI, API calls, cloud services, local LLMs, NER, database, or PDF
+  editor is added by the manual review workflow.
 - Manual review remains required before using or sharing any generated output.

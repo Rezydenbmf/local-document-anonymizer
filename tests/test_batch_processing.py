@@ -144,6 +144,7 @@ class BatchProcessingTests(unittest.TestCase):
             self.assertTrue((output_dir / "document_ANON.txt").exists())
             self.assertTrue((output_dir / "letter_ANON.docx").exists())
             self.assertTrue((output_dir / "scan_ANON.txt").exists())
+            self.assertTrue((output_dir / "scan_ANON.pdf").exists())
             self.assertFalse((source_dir / "document_ANON.txt").exists())
             self.assertEqual(result.summary_path, output_dir / "_BATCH_SUMMARY.txt")
 
@@ -188,6 +189,8 @@ class BatchProcessingTests(unittest.TestCase):
             self.assertIn("* high_risk: 0", summary_text)
             self.assertIn("Audit warning categories:", summary_text)
             self.assertIn("* CASE_REFERENCE: 1", summary_text)
+            self.assertIn("PDF redaction:", summary_text)
+            self.assertIn("* completed: 0", summary_text)
             self.assertIn("risk level: warning", summary_text)
             self.assertIn("input: document.txt", summary_text)
             self.assertIn("output: document_ANON.txt", summary_text)

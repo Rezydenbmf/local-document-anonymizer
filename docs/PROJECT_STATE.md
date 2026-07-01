@@ -2,8 +2,9 @@
 
 ## Current Status
 
-The project is in Stage 22: Local Knowledge Assistant MVP, pending user
-review.
+The project is in Stage 23: Layout-preserving PDF redaction MVP, with final
+synthetic text-based PDF smoke verification completed and ready for final
+commit review.
 
 The Stage 0-13 MVP implementation contains a narrow regex-based engine that
 accepts a Python string and returns anonymized text plus category counters. It
@@ -102,7 +103,7 @@ workflow as anonymized TXT output. Reports and batch summaries include safe OCR
 metadata only. Stage 19 does not add cloud OCR, API OCR, OpenAI API calls,
 online processing, NER, local LLMs, split-screen review, preview,
 highlighting, drag and drop, installer work, packaging, edited image output,
-or anonymized PDF output.
+or scanned-PDF visual redaction.
 
 Stage 20 adds an optional local NER/NLP foundation. It introduces controlled
 spaCy availability detection, local Polish model loading without runtime
@@ -162,6 +163,27 @@ the user to warm up the model or retry with a longer timeout. Timeout fallback
 still shows retrieved sources and does not pretend generation succeeded. Stage
 22.1 remains CLI-only and does not add a GUI redesign.
 
+Stage 23 adds a layout-preserving true-redacted visual PDF companion for
+text-based PDF inputs. A text-based PDF now produces `_ANON.pdf`,
+`_ANON.txt`, and `_RAPORT.txt`. The PDF redaction helper uses PyMuPDF
+redaction annotations plus `apply_redactions()` so matched source text is
+removed from the generated PDF content rather than hidden under overlays.
+Stage 23.1 expands the text-based PDF redaction MVP with deterministic
+`POSTAL_CODE` and simple labeled-address candidates plus exact local NER spans
+when the NER model is available and the text span can be matched back to the
+PDF. The TXT output remains the source for approved-workspace indexing and the
+Local Knowledge Assistant. Reports and batch summaries include safe PDF
+redaction status/count metadata, a color legend, detected category counts, TXT
+anonymized category counts, PDF-redacted category counts, and
+detected-but-not-PDF-redacted category counts. When detected categories are not
+PDF-redacted, the PDF redaction status is `completed_with_warnings` instead of
+plain `completed`. The manual review open action prefers the companion
+`_ANON.pdf` when it exists, while review metadata still tracks the `_ANON.txt`
+output. Stage 23 also adds a conservative `PERSON_NAME_TYPO` pattern for cases
+such as `Firstname-Lastname Lastname`. Stage 23 does not add scanned-PDF/OCR
+bounding-box redaction, a PDF editor, split-screen review, drag and drop,
+vector databases, or broader LLM features.
+
 ## What Exists
 
 - Repository structure.
@@ -204,6 +226,14 @@ still shows retrieved sources and does not pretend generation succeeded. Stage
   local model, and setting an answer generation timeout.
 - Optional spaCy NER model loading with no automatic model download and no
   committed model files.
+- True-redacted visual PDF companion output in `src/pdf_redaction.py` for
+  text-based PDFs using PyMuPDF redaction annotations and
+  `apply_redactions()`.
+- PDF redaction coverage metadata that separates detected categories, TXT
+  anonymized categories, PDF-redacted categories, and detected-but-not-PDF-
+  redacted categories.
+- Conservative `PERSON_NAME_TYPO` replacement/audit category for typo-shaped
+  person names such as `Firstname-Lastname Lastname`.
 - Internal NER labels: `NER_PERSON`, `NER_ORG`, `NER_LOCATION`, and
   `NER_MISC`.
 - Optional image OCR workflow for `.png`, `.jpg`, `.jpeg`, `.tif`, and `.tiff`
@@ -270,7 +300,7 @@ accepts preloaded `sensitive_terms`.
   successful anonymization.
 - Batch summary report generation with safe filenames, aggregate risk counts,
   aggregate audit category counters, aggregate LLM review status/risk/category
-  counters, and no private paths.
+  counters, aggregate PDF redaction status counts, and no private paths.
 - Manual review workflow in `src/review.py` for detecting generated `_ANON`
   outputs, pairing safe report basenames, reading safe report risk levels,
   applying manual statuses, and saving safe review metadata.
@@ -278,6 +308,8 @@ accepts preloaded `sensitive_terms`.
   without previewing or editing document contents.
 - GUI support for showing safe manual-review risk levels and sorting
   `high_risk` outputs first.
+- GUI manual-review open action preference for companion `_ANON.pdf` files
+  when a PDF-derived `_ANON.txt` item has a visual redacted PDF next to it.
 - Safe `_REVIEW_STATUS.json` review manifest output.
 - Collision-safe `_REVIEW_SUMMARY.txt` review summary output.
 - Approved workspace export in `src/review.py` that reads
@@ -346,6 +378,9 @@ accepts preloaded `sensitive_terms`.
 - Unit tests for Stage 22.1 local Ollama status checks, installed-but-not-loaded
   model status, warm-up unavailable/timeout handling, ask-timeout behavior, and
   CLI status/warm-up commands using mocked local behavior only.
+- Unit tests for Stage 23 text-based PDF redaction output, hidden-text removal
+  checks on generated synthetic PDFs, safe report/batch redaction metadata,
+  manual-review PDF open preference, and the `PERSON_NAME_TYPO` pattern.
 - Manual MVP smoke-test checklist in `docs/MVP_MANUAL_TEST_CHECKLIST.md`.
 - Synthetic sample text files in `tests/sample_data/`.
 - Synthetic example dictionary in `examples/sensitive_terms.example.txt`.
@@ -365,7 +400,7 @@ accepts preloaded `sensitive_terms`.
 - AI/API calls, cloud services, cloud LLMs, online processing, databases, RAG,
   vector databases, or local LLM use beyond the optional post-anonymization
   Ollama review metadata layer.
-- Edited image output or anonymized PDF output.
+- Edited image output or scanned-PDF/OCR visual redaction.
 - Bundled Tesseract binaries, OCR language models, or OCR installers.
 - Detailed report generation beyond safe counters, safe audit metadata, and
   manual review notes.
@@ -373,6 +408,8 @@ accepts preloaded `sensitive_terms`.
 - Moving rejected or needs-review files into separate folders.
 - Embedding-based retrieval, `bge-m3` embeddings, or a vector database.
 - Knowledge Assistant GUI or chat history.
+- Scanned-PDF/OCR bounding-box visual redaction.
+- NER span coordinate mapping back into PDF pages.
 - Production-grade names, surnames, cities, organizations, or context-based
   detection.
 - Production-grade OCR quality handling.
@@ -407,7 +444,9 @@ python -m unittest discover -s tests
 - TXT outputs are written to the selected output folder with an `_ANON` suffix.
 - DOCX outputs are written to the selected output folder with an `_ANON` suffix.
 - PDF input is extracted as text and saved as `_ANON.txt`; no anonymized PDF is
-  created.
+  created for scanned/OCR-only PDFs.
+- Text-based PDF input also creates `_ANON.pdf` as a true-redacted visual
+  companion when PyMuPDF can locate supported matches.
 - Image input is OCR-extracted and saved as `_ANON.txt`; no edited image is
   created.
 - Existing output files are not overwritten silently; numbered suffixes such as
@@ -433,7 +472,9 @@ python -m unittest discover -s tests
   entities.
 - OCR can be inaccurate. OCR output still goes through deterministic
   anonymization and must be manually reviewed.
-- PDF layout preservation is not guaranteed.
+- Text-based PDF redaction preserves the source pages as a visual review aid,
+  but unusual encodings, fragmented glyphs, rotated text, form fields,
+  annotations, or text in images can be missed.
 - The GUI processes selected files sequentially and does not include document
   preview, editing, or drag and drop.
 - The manual review workflow tracks statuses only. It does not inspect,
@@ -474,21 +515,21 @@ python -m unittest discover -s tests
 
 ## Last Completed Committed Stage
 
-Stage 21: optional local Ollama review foundation plus Stage 21.1/21.2
-hardening.
+Stage 22: Local Knowledge Assistant MVP plus Stage 22.1 CLI warm-up/status UX.
 
 ```text
-fc0561c Implement Stage 21 local LLM review
+ddd1612 Implement Stage 22 local knowledge assistant
 ```
 
 ## Next Logical Step
 
-Manually smoke test Stage 22 with synthetic approved `_ANON.txt` files: build
-`_KNOWLEDGE_INDEX.json`, ask a question without Ollama, optionally ask with a
-manually installed local Ollama model such as `gemma3:4b`, confirm sources are
-shown, run `ollama-status`, run `warmup` before the first generated answer,
-confirm timeout fallback still shows sources, confirm no full private paths
-appear in metadata, and confirm generated knowledge indexes remain ignored.
+Review the Stage 23 diff and prepare a small final commit if the scope,
+synthetic smoke verification, tests, and public repository safety checks are
+accepted. The final synthetic text-based PDF smoke verified that `_ANON.pdf`,
+`_ANON.txt`, and `_RAPORT.txt` are created, that copied/searchable text from
+the generated PDF no longer includes the synthetic source values, and that the
+report separates detected, TXT-anonymized, PDF-redacted, and
+detected-but-not-PDF-redacted categories.
 Potential future work requires an explicit project decision, especially
 embedding retrieval with `bge-m3`, OCR quality improvements, NER candidate
 export, installer work, AI/API integration, broader LLM features, databases,

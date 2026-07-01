@@ -18,6 +18,7 @@ from review import (
     apply_review_statuses,
     detect_review_workspace,
     export_approved_workspace,
+    preferred_review_output_path,
     save_review_files,
 )
 
@@ -237,6 +238,23 @@ class ReviewWorkflowTests(unittest.TestCase):
             self.assertIn("Risk level: warning", report_text)
             self.assertNotIn("safe@example.test", report_text)
             self.assertNotIn(str(source_dir), report_text)
+
+    def test_prefers_companion_pdf_when_opening_pdf_derived_txt_output(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            output_dir = Path(temp_dir)
+            txt_path = output_dir / "scan_ANON.txt"
+            pdf_path = output_dir / "scan_ANON.pdf"
+            txt_path.write_text("Synthetic anonymized text.", encoding="utf-8")
+            pdf_path.write_bytes(b"%PDF-1.4\n% synthetic companion\n")
+
+            workspace = detect_review_workspace(output_dir)
+
+            self.assertEqual(len(workspace.items), 1)
+            self.assertEqual(workspace.items[0].output_name, "scan_ANON.txt")
+            self.assertEqual(
+                preferred_review_output_path(output_dir, "scan_ANON.txt"),
+                pdf_path,
+            )
 
     def test_exports_only_approved_anonymized_outputs_and_matching_reports(self) -> None:
         with workspace_temp_dir() as temp_dir:

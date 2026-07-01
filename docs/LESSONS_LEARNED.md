@@ -130,3 +130,19 @@ Local Ollama models can time out on the first call while loading into memory.
 Treat that as a controlled fallback, keep retrieved sources visible, and give
 the user simple local tools to check status, warm up the model, and retry with a
 longer timeout instead of hiding the problem or implying generation succeeded.
+
+## 23. PDF visual redaction must remove content, not hide it.
+
+For PDF review outputs, drawing a rectangle over sensitive text is not enough.
+The generated PDF must use true redaction so matched source text is removed
+from the PDF content and cannot be copied, searched, or recovered from beneath
+the block. Keep the text `_ANON` output available for approved indexing, but
+make the visual `_ANON.pdf` a review aid with clear limitations.
+
+## 24. PDF redaction reports must distinguish detection from visual coverage.
+
+Text anonymization and PDF visual redaction can cover different sets of
+categories. Reports must separately show what was detected, what the TXT output
+anonymized, what the PDF output actually redacted, and what was detected but
+not PDF-redacted. If any detected category is not visually redacted, the PDF
+status must be partial, with a safe warning and no source values.

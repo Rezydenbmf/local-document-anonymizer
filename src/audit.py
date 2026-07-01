@@ -24,6 +24,7 @@ HIGH_RISK_AUDIT_CATEGORIES = (
     "PESEL",
     "TELEFON",
     "SENSITIVE_DICTIONARY_TERM",
+    "PERSON_NAME_TYPO",
     "ADDRESS_LIKE",
     "ID_LIKE_NUMBER",
     "LONG_NUMBER_SEQUENCE",
@@ -35,6 +36,7 @@ AUDIT_CATEGORY_ORDER = (
     "TELEFON",
     "DATA",
     "SENSITIVE_DICTIONARY_TERM",
+    "PERSON_NAME_TYPO",
     "CASE_REFERENCE",
     "POSTAL_CODE",
     "ADDRESS_LIKE",
@@ -78,6 +80,21 @@ _AUDIT_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
                 (?:0[1-9]|[12]\d|3[01])\.(?:0[1-9]|1[0-2])\.\d{4}
             )
             (?!\w)
+            """,
+            re.VERBOSE,
+        ),
+    ),
+    (
+        "PERSON_NAME_TYPO",
+        re.compile(
+            r"""
+            (?<![\w-])
+            [A-Z][A-Za-z]{2,}
+            -
+            (?P<surname>[A-Z][A-Za-z]{2,})
+            \s+
+            (?P=surname)
+            (?![\w-])
             """,
             re.VERBOSE,
         ),

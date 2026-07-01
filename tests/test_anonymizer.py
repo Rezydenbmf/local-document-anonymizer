@@ -44,6 +44,14 @@ class AnonymizerEngineTests(unittest.TestCase):
         self.assertEqual(anonymized, "Date: [DATA].")
         self.assertEqual(report, {"DATA": 1})
 
+    def test_replaces_conservative_person_name_typo_pattern(self) -> None:
+        text = "Reviewer Jan-Kowalski Kowalski signed."
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(anonymized, "Reviewer [PERSON_NAME_TYPO] signed.")
+        self.assertEqual(report, {"PERSON_NAME_TYPO": 1})
+
     def test_replaces_multiple_categories_in_one_text(self) -> None:
         text = (
             "Email tester@example.test on 2026-06-01. "
@@ -101,8 +109,11 @@ class AnonymizerEngineTests(unittest.TestCase):
             self.assertNotIn(source_value, report_as_text)
         self.assertEqual(report, {"EMAIL": 1, "PESEL": 1, "TELEFON": 1, "DATA": 1})
 
-    def test_supported_labels_are_limited_to_stage_1_categories(self) -> None:
-        self.assertEqual(SUPPORTED_LABELS, ("PESEL", "EMAIL", "TELEFON", "DATA"))
+    def test_supported_labels_are_limited_to_current_regex_categories(self) -> None:
+        self.assertEqual(
+            SUPPORTED_LABELS,
+            ("PESEL", "EMAIL", "TELEFON", "DATA", "PERSON_NAME_TYPO"),
+        )
 
 
 if __name__ == "__main__":

@@ -36,11 +36,18 @@ try:
     )
     from .ner import DEFAULT_NER_MODEL, NER_LABELS, NER_STATUSES, anonymize_text_with_ner
     from .ner import build_ner_metadata, prepare_ner_context
+    from .ner import detect_entities
     from .llm_review import (
         LLM_REVIEW_STATUSES,
         LLM_RESIDUAL_CATEGORIES,
         LLM_RISK_LEVELS,
         run_llm_review,
+    )
+    from .pdf_redaction import (
+        PDF_REDACTION_STATUSES,
+        build_pdf_redaction_metadata,
+        build_pdf_redaction_skipped_ocr_metadata,
+        save_redacted_pdf_copy,
     )
     from .report import (
         BATCH_ERROR_EMPTY_TEXT_PDF,
@@ -89,11 +96,18 @@ except ImportError:
     )
     from ner import DEFAULT_NER_MODEL, NER_LABELS, NER_STATUSES, anonymize_text_with_ner
     from ner import build_ner_metadata, prepare_ner_context
+    from ner import detect_entities
     from llm_review import (
         LLM_REVIEW_STATUSES,
         LLM_RESIDUAL_CATEGORIES,
         LLM_RISK_LEVELS,
         run_llm_review,
+    )
+    from pdf_redaction import (
+        PDF_REDACTION_STATUSES,
+        build_pdf_redaction_metadata,
+        build_pdf_redaction_skipped_ocr_metadata,
+        save_redacted_pdf_copy,
     )
     from report import (
         BATCH_ERROR_EMPTY_TEXT_PDF,
@@ -113,8 +127,11 @@ except ImportError:
     from sensitive_terms import SensitiveTerm, apply_sensitive_terms, load_sensitive_terms
 
 
-SUPPORTED_LABELS = ("PESEL", "EMAIL", "TELEFON", "DATA")
+SUPPORTED_LABELS = ("PESEL", "EMAIL", "TELEFON", "DATA", "PERSON_NAME_TYPO")
 REPORT_CATEGORY_ORDER = (*SUPPORTED_LABELS, *NER_LABELS)
+PDF_COVERAGE_WARNING = (
+    "PDF redaction may be partial; some detected categories were not PDF-redacted"
+)
 
 
 @dataclass(frozen=True)
@@ -128,6 +145,7 @@ class FileWorkflowResult:
     ocr_result: dict[str, object]
     ner_result: dict[str, object]
     llm_review_result: dict[str, object]
+    pdf_redaction_result: dict[str, object] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -148,6 +166,7 @@ class BatchResult:
     llm_review_status_counts: dict[str, int] = field(default_factory=dict)
     llm_review_risk_level_counts: dict[str, int] = field(default_factory=dict)
     llm_review_category_counters: dict[str, int] = field(default_factory=dict)
+    pdf_redaction_status_counts: dict[str, int] = field(default_factory=dict)
 
 _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
@@ -187,6 +206,21 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
             re.VERBOSE,
         ),
     ),
+    (
+        "PERSON_NAME_TYPO",
+        re.compile(
+            r"""
+            (?<![\w-])
+            [A-Z][A-Za-z]{2,}
+            -
+            (?P<surname>[A-Z][A-Za-z]{2,})
+            \s+
+            (?P=surname)
+            (?![\w-])
+            """,
+            re.VERBOSE,
+        ),
+    ),
 )
 
 
@@ -216,13 +250,10 @@ def _anonymize_text_with_dictionary_counters(
     if not isinstance(text, str):
         raise TypeError("text must be a string")
 
-    anonymized, counters = apply_sensitive_terms(text, sensitive_terms)
-    dictionary_counters = dict(counters)
-
-    for label, pattern in _PATTERNS:
-        anonymized, count = pattern.subn(f"[{label}]", anonymized)
-        if count:
-            counters[label] = counters.get(label, 0) + count
+    anonymized, counters, dictionary_counters = _apply_dictionary_and_regex(
+        text,
+        sensitive_terms=sensitive_terms,
+    )
 
     if ner_context is None:
         ner_result = build_ner_metadata(
@@ -238,6 +269,93 @@ def _anonymize_text_with_dictionary_counters(
         _merge_counters(counters, ner_counters)
 
     return anonymized, counters, dictionary_counters, ner_result
+
+
+def _apply_dictionary_and_regex(
+    text: str,
+    sensitive_terms: Iterable[SensitiveTerm] | None = None,
+) -> tuple[str, dict[str, int], dict[str, int]]:
+    """Apply deterministic replacements before optional NER."""
+    anonymized, counters = apply_sensitive_terms(text, sensitive_terms)
+    dictionary_counters = dict(counters)
+
+    for label, pattern in _PATTERNS:
+        anonymized, count = pattern.subn(f"[{label}]", anonymized)
+        if count:
+            counters[label] = counters.get(label, 0) + count
+
+    return anonymized, counters, dictionary_counters
+
+
+def _pdf_ner_redaction_terms(
+    pre_ner_text: str,
+    ner_context,
+) -> list[tuple[str, str]]:
+    """Return exact NER text spans for internal PDF redaction only."""
+    try:
+        entities, _ = detect_entities(pre_ner_text, ner_context)
+    except Exception:
+        return []
+
+    redaction_terms: list[tuple[str, str]] = []
+    for entity in entities:
+        value = pre_ner_text[entity.start:entity.end].strip()
+        if value and "[" not in value and "]" not in value:
+            redaction_terms.append((entity.label, value))
+    return redaction_terms
+
+
+def _positive_counts(source: object) -> dict[str, int]:
+    if not isinstance(source, dict):
+        return {}
+    return {
+        str(label): count
+        for label, count in source.items()
+        if isinstance(count, int) and count > 0
+    }
+
+
+def _build_pdf_detected_categories(
+    counters: dict[str, int],
+    audit_result: dict[str, object],
+    ner_result: dict[str, object],
+) -> dict[str, int]:
+    detected: dict[str, int] = {}
+    _merge_counters(detected, _positive_counts(counters))
+    _merge_counters(detected, _positive_counts(audit_result.get("findings")))
+    for label, count in _positive_counts(ner_result.get("counters")).items():
+        detected[label] = max(detected.get(label, 0), count)
+    return detected
+
+
+def _attach_pdf_coverage_metadata(
+    pdf_redaction_result: dict[str, object],
+    *,
+    counters: dict[str, int],
+    audit_result: dict[str, object],
+    ner_result: dict[str, object],
+) -> dict[str, object]:
+    metadata = dict(pdf_redaction_result)
+    detected = _build_pdf_detected_categories(counters, audit_result, ner_result)
+    txt_anonymized = _positive_counts(counters)
+    pdf_redacted = _positive_counts(metadata.get("counters"))
+    not_redacted = {
+        label: count
+        for label, count in detected.items()
+        if pdf_redacted.get(label, 0) <= 0
+    }
+
+    metadata["detected_categories"] = detected
+    metadata["txt_anonymized_categories"] = txt_anonymized
+    metadata["pdf_redacted_categories"] = pdf_redacted
+    metadata["detected_not_pdf_redacted_categories"] = not_redacted
+    if not_redacted:
+        metadata["warning"] = PDF_COVERAGE_WARNING
+        if metadata.get("status") in ("completed", "no_matches"):
+            metadata["status"] = "completed_with_warnings"
+            metadata["used"] = True
+            metadata["true_redaction"] = bool(metadata.get("output_name"))
+    return metadata
 
 
 def _reusable_sensitive_terms(
@@ -668,22 +786,50 @@ def _anonymize_pdf_file_result(
         sensitive_terms, sensitive_terms_path
     )
     ner_context = prepare_ner_context(enabled=use_ner, model_name=ner_model_name)
+    text_based_pdf = False
     try:
         text = read_pdf_file(source_path)
         ocr_result = build_ocr_not_used_metadata(OCR_INPUT_TYPE_PDF)
+        text_based_pdf = True
     except ValueError as error:
         if "no extractable text" not in str(error):
             raise
         extraction = extract_text_with_ocr(source_path)
         text = extraction.text
         ocr_result = extraction.metadata
-    anonymized, counters, dictionary_counters, ner_result = (
-        _anonymize_text_with_dictionary_counters(
-            text,
-            sensitive_terms=terms,
-            ner_context=ner_context,
-        )
+        pdf_redaction_result = build_pdf_redaction_skipped_ocr_metadata()
+    pre_ner_text, counters, dictionary_counters = _apply_dictionary_and_regex(
+        text,
+        sensitive_terms=terms,
     )
+    pdf_ner_redaction_terms = _pdf_ner_redaction_terms(pre_ner_text, ner_context)
+    if ner_context is None:
+        anonymized = pre_ner_text
+        ner_result = build_ner_metadata(
+            enabled=False,
+            used=False,
+            status="disabled",
+            model_name=DEFAULT_NER_MODEL,
+        )
+    else:
+        anonymized, ner_counters, ner_result = anonymize_text_with_ner(
+            pre_ner_text,
+            ner_context,
+        )
+        _merge_counters(counters, ner_counters)
+
+    if text_based_pdf:
+        try:
+            pdf_redaction_result = save_redacted_pdf_copy(
+                source_path,
+                sensitive_terms=terms,
+                extra_redaction_terms=pdf_ner_redaction_terms,
+                output_dir=output_dir,
+            )
+        except RuntimeError:
+            pdf_redaction_result = build_pdf_redaction_metadata(status="unavailable")
+    else:
+        pdf_redaction_result = build_pdf_redaction_skipped_ocr_metadata()
     output_path = save_anonymized_pdf_txt_copy(
         source_path, anonymized, output_dir=output_dir
     )
@@ -702,6 +848,12 @@ def _anonymize_pdf_file_result(
         dictionary_result,
     )
     audit_result = _attach_ner_result(audit_result, ner_result)
+    pdf_redaction_result = _attach_pdf_coverage_metadata(
+        pdf_redaction_result,
+        counters=counters,
+        audit_result=audit_result,
+        ner_result=ner_result,
+    )
     report_path = _save_anonymization_report(
         source_path,
         output_path,
@@ -711,6 +863,7 @@ def _anonymize_pdf_file_result(
         ocr_result,
         ner_result,
         llm_review_result,
+        pdf_redaction_result,
         output_dir=output_dir,
     )
     return FileWorkflowResult(
@@ -721,6 +874,7 @@ def _anonymize_pdf_file_result(
         ocr_result,
         ner_result,
         llm_review_result,
+        pdf_redaction_result,
     )
 
 
@@ -847,6 +1001,7 @@ def _save_anonymization_report(
     ocr_result: dict[str, object],
     ner_result: dict[str, object],
     llm_review_result: dict[str, object],
+    pdf_redaction_result: dict[str, object] | None = None,
     output_dir: str | Path | None = None,
 ) -> Path:
     source = Path(source_path)
@@ -866,6 +1021,7 @@ def _save_anonymization_report(
         ocr_result=ocr_result,
         ner_result=ner_result,
         llm_review_result=llm_review_result,
+        pdf_redaction_result=pdf_redaction_result,
     )
 
 
@@ -1065,6 +1221,7 @@ def anonymize_batch(
     llm_review_status_counts = {status: 0 for status in LLM_REVIEW_STATUSES}
     llm_review_risk_level_counts = {risk: 0 for risk in LLM_RISK_LEVELS}
     llm_review_category_counters = {category: 0 for category in LLM_RESIDUAL_CATEGORIES}
+    pdf_redaction_status_counts = {status: 0 for status in PDF_REDACTION_STATUSES}
     results: list[dict[str, object]] = []
     success_count = 0
     error_count = 0
@@ -1145,34 +1302,55 @@ def anonymize_batch(
                     llm_review_category_counters[category] = (
                         llm_review_category_counters.get(category, 0) + 1
                     )
+        if result.pdf_redaction_result:
+            pdf_redaction_status = str(
+                result.pdf_redaction_result.get("status", "unavailable")
+            )
+            if pdf_redaction_status not in pdf_redaction_status_counts:
+                pdf_redaction_status = "unavailable"
+            pdf_redaction_status_counts[pdf_redaction_status] = (
+                pdf_redaction_status_counts.get(pdf_redaction_status, 0) + 1
+            )
         dictionary_result = result.audit_result.get("dictionary", {})
         dictionary_status = (
             dictionary_result.get("status")
             if isinstance(dictionary_result, dict)
             else "unknown"
         )
-        results.append(
-            {
-                "input_name": path.name,
-                "status": "success",
-                "output_name": result.output_path.name,
-                "report_name": result.report_path.name,
-                "audit_status": result.audit_result.get("status", "unknown"),
-                "risk_level": result.audit_result.get("risk_level", "unknown"),
-                "dictionary_status": dictionary_status,
-                "ocr_used": result.ocr_result.get("used", False),
-                "ocr_status": result.ocr_result.get("status", "not_used"),
-                "ner_used": result.ner_result.get("used", False),
-                "ner_status": result.ner_result.get("status", "unavailable"),
-                "llm_review_used": result.llm_review_result.get("used", False),
-                "llm_review_status": result.llm_review_result.get(
-                    "status", "disabled"
-                ),
-                "llm_risk_level": result.llm_review_result.get(
-                    "risk_level", "unknown"
-                ),
-            }
-        )
+        success_result = {
+            "input_name": path.name,
+            "status": "success",
+            "output_name": result.output_path.name,
+            "report_name": result.report_path.name,
+            "audit_status": result.audit_result.get("status", "unknown"),
+            "risk_level": result.audit_result.get("risk_level", "unknown"),
+            "dictionary_status": dictionary_status,
+            "ocr_used": result.ocr_result.get("used", False),
+            "ocr_status": result.ocr_result.get("status", "not_used"),
+            "ner_used": result.ner_result.get("used", False),
+            "ner_status": result.ner_result.get("status", "unavailable"),
+            "llm_review_used": result.llm_review_result.get("used", False),
+            "llm_review_status": result.llm_review_result.get("status", "disabled"),
+            "llm_risk_level": result.llm_review_result.get("risk_level", "unknown"),
+        }
+        if result.pdf_redaction_result:
+            success_result.update(
+                {
+                    "pdf_redaction_output_created": result.pdf_redaction_result.get(
+                        "used", False
+                    ),
+                    "pdf_redaction_output_name": result.pdf_redaction_result.get(
+                        "output_name", ""
+                    ),
+                    "pdf_redaction_status": result.pdf_redaction_result.get(
+                        "status", "unavailable"
+                    ),
+                    "pdf_redaction_warning": result.pdf_redaction_result.get(
+                        "warning", ""
+                    ),
+                }
+            )
+        results.append(success_result)
 
     summary_path = build_collision_safe_path(build_batch_summary_path(output_dir))
     save_batch_summary_file(
@@ -1189,6 +1367,7 @@ def anonymize_batch(
         llm_review_status_counts=llm_review_status_counts,
         llm_review_risk_level_counts=llm_review_risk_level_counts,
         llm_review_category_counters=llm_review_category_counters,
+        pdf_redaction_status_counts=pdf_redaction_status_counts,
         results=results,
         category_order=REPORT_CATEGORY_ORDER,
         audit_category_order=AUDIT_CATEGORY_ORDER,
@@ -1210,4 +1389,5 @@ def anonymize_batch(
         llm_review_status_counts=llm_review_status_counts,
         llm_review_risk_level_counts=llm_review_risk_level_counts,
         llm_review_category_counters=llm_review_category_counters,
+        pdf_redaction_status_counts=pdf_redaction_status_counts,
     )

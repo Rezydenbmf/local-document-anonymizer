@@ -13,7 +13,9 @@ and whitespace-tolerant, using the same private dictionary matcher as
 anonymization.
 Stage 12 aggregates per-file audit statuses into the safe batch summary. Stage
 16 adds stronger deterministic warning categories and a per-file risk level for
-manual-review prioritization.
+manual-review prioritization. Stage 23 adds a conservative
+`PERSON_NAME_TYPO` warning for typo-shaped names such as
+`Firstname-Lastname Lastname`.
 
 ## Related files
 
@@ -63,6 +65,7 @@ The audit result contains only safe metadata:
         "TELEFON": 1,
         "DATA": 0,
         "SENSITIVE_DICTIONARY_TERM": 0,
+        "PERSON_NAME_TYPO": 0,
         "CASE_REFERENCE": 1,
         "POSTAL_CODE": 0,
         "ADDRESS_LIKE": 0,
@@ -88,6 +91,7 @@ The audit checks anonymized output text for conservative remaining patterns:
 - `TELEFON`
 - `DATA`
 - `SENSITIVE_DICTIONARY_TERM`
+- `PERSON_NAME_TYPO`
 - `CASE_REFERENCE`
 - `POSTAL_CODE`
 - `ADDRESS_LIKE`
@@ -96,9 +100,9 @@ The audit checks anonymized output text for conservative remaining patterns:
 - `ID_LIKE_NUMBER`
 - `LONG_NUMBER_SEQUENCE`
 
-Case/reference, address, street, initial/surname, ID-like number, and long
-number checks are intentionally simple and conservative. They are warning
-signals only, not full entity detection.
+Case/reference, address, street, initial/surname, person-name typo, ID-like
+number, and long number checks are intentionally simple and conservative. They
+are warning signals only, not full entity detection.
 
 ## Risk Level Logic
 
@@ -115,6 +119,7 @@ High-risk categories are:
 - `PESEL`
 - `TELEFON`
 - `SENSITIVE_DICTIONARY_TERM`
+- `PERSON_NAME_TYPO`
 - `ADDRESS_LIKE`
 - `ID_LIKE_NUMBER`
 - `LONG_NUMBER_SEQUENCE`
@@ -181,7 +186,8 @@ patterns, ID-like numbers, long number sequences, `ok`, `warning`, and
 safety with synthetic values only. Stage 10.1 tests add workflow coverage for
 loaded dictionary status and dictionary path integration across TXT, DOCX, and
 PDF. Stage 12/16 tests cover audit status, risk level, and category aggregation
-in the batch summary.
+in the batch summary. Stage 23 tests cover the conservative
+`PERSON_NAME_TYPO` warning.
 
 ## Known Limitations
 
@@ -189,6 +195,8 @@ in the batch summary.
 - It can miss sensitive data.
 - It can warn on harmless text.
 - It does not prove that anonymization is complete.
-- It does not add automatic names, cities, organizations, broad addresses,
+- It does not add automatic broad names, cities, organizations, broad addresses,
   context-aware detection, OCR, AI, APIs, cloud services, local LLMs,
   databases, NER, or automatic deletion of originals.
+- `PERSON_NAME_TYPO` is a narrow typo-shape check, not production-grade person
+  detection.

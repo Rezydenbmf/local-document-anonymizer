@@ -211,6 +211,24 @@ def _matching_report_name(output_path: Path, report_names: set[str]) -> str | No
     return None
 
 
+def preferred_review_output_path(output_dir: str | Path, output_name: str) -> Path:
+    """Return companion visual PDF output for PDF-derived TXT review items."""
+    folder = Path(output_dir)
+    safe_output_name = _safe_filename(output_name)
+    output_path = folder / safe_output_name
+    if output_path.suffix.lower() != ".txt":
+        return output_path
+
+    match = _ANON_STEM_PATTERN.match(output_path.stem)
+    if match is None:
+        return output_path
+
+    pdf_candidate = folder / f"{output_path.stem}.pdf"
+    if pdf_candidate.is_file():
+        return pdf_candidate
+    return output_path
+
+
 def _risk_level_from_report(report_path: Path) -> str | None:
     try:
         report_text = report_path.read_text(encoding="utf-8")
