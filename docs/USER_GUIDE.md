@@ -165,6 +165,9 @@ The report contains:
 - NER enabled/used/status/model metadata and NER category counters,
 - LLM review used/status/model/risk metadata and possible residual category
   names,
+- PDF redaction status, true-redaction-used flag, PDF redacted categories,
+  detected-but-not-PDF-redacted categories, and color legend for text-based
+  PDF outputs,
 - post-anonymization audit status, risk level, and category counters,
 - manual review requirement,
 - confirmation that original sensitive values are not stored,
@@ -514,10 +517,14 @@ Manual review is required before using the result.
 ## 16. Where Output Files Are Saved
 
 The application saves anonymized TXT and DOCX copies in the output folder
-selected by the user with the `_ANON` suffix. PDF input is saved in the output
-folder as `_ANON.txt`. A safe report is saved in the same output folder with
-the `_RAPORT.txt` suffix. A batch summary is saved as `_BATCH_SUMMARY.txt`.
-Original files must not be modified.
+selected by the user with the `_ANON` suffix. Text-based PDF input creates
+`_ANON.pdf`, `_ANON.txt`, and `_RAPORT.txt`. The `_ANON.pdf` file is a
+true-redacted visual companion for manual review. The `_ANON.txt` file remains
+the text source for approved workspace export and the Knowledge Assistant. A
+safe report is saved in the same output folder with the `_RAPORT.txt` suffix.
+A batch summary is saved as `_BATCH_SUMMARY.txt`. Original files must not be
+modified. Scanned PDFs still do not get advanced OCR bounding-box visual
+redaction in Stage 23.
 
 The application does not silently overwrite existing generated files. If a
 target name already exists, the next numbered name is used:
@@ -545,16 +552,18 @@ approved workspace unless a custom CLI path is provided.
 ## 17. What Is Not Implemented Yet
 
 The current MVP includes plain string anonymization, TXT file input/output,
-basic DOCX file input/output, text-based PDF input with TXT output, optional
-local OCR foundation for image inputs and scanned-PDF fallback, optional local
-spaCy NER, optional local Ollama review, a simple Tkinter GUI, batch
-processing, an output folder workflow, collision-safe output names, safe
-reports, optional private dictionary input, dictionary status reporting, a
-safe post-anonymization audit with risk prioritization, manual review status
-tracking with approved workspace staging, and a local Knowledge Assistant CLI
-over approved anonymized TXT files. Production-grade entity detection, NER
-candidate export, AI, APIs, cloud services, cloud LLMs, databases, drag and
-drop, advanced preview, editing workflow, Knowledge Assistant GUI, chat
-history, embeddings, vector database, document rewriting, automatic approval,
-rejected/needs-review folder routing, edited image output, and anonymized PDF
-output are not implemented.
+basic DOCX file input/output, text-based PDF input with TXT output and a
+text-based `_ANON.pdf` true-redaction companion, optional local OCR foundation
+for image inputs and scanned-PDF fallback, optional local spaCy NER, optional
+local Ollama review, a simple Tkinter GUI, batch processing, an output folder
+workflow, collision-safe output names, safe reports, optional private
+dictionary input, dictionary status reporting, a safe post-anonymization audit
+with risk prioritization, manual review status tracking with approved
+workspace staging, and a local Knowledge Assistant CLI over approved
+anonymized TXT files. Production-grade entity detection, NER candidate export,
+AI, APIs, cloud services, cloud LLMs, databases, drag and drop, advanced
+preview, broad PDF editing, scanned/OCR visual PDF redaction, editing
+workflow, Knowledge Assistant GUI, chat history, embeddings, vector database,
+document rewriting, automatic approval, rejected/needs-review folder routing,
+and edited image output are not implemented. Manual review is still required,
+including for text-based `_ANON.pdf` outputs.

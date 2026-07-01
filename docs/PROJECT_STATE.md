@@ -2,9 +2,9 @@
 
 ## Current Status
 
-The project is in Stage 23: Layout-preserving PDF redaction MVP, with final
-synthetic text-based PDF smoke verification completed and ready for final
-commit review.
+The project has completed Stage 23: Layout-preserving PDF redaction MVP. Stage
+23 has been committed and pushed as `179033f Implement Stage 23 PDF redaction
+MVP` after final synthetic text-based PDF smoke verification.
 
 The Stage 0-13 MVP implementation contains a narrow regex-based engine that
 accepts a Python string and returns anonymized text plus category counters. It
@@ -515,26 +515,25 @@ python -m unittest discover -s tests
 
 ## Last Completed Committed Stage
 
-Stage 22: Local Knowledge Assistant MVP plus Stage 22.1 CLI warm-up/status UX.
+Stage 23: Layout-preserving PDF redaction MVP.
 
 ```text
-ddd1612 Implement Stage 22 local knowledge assistant
+179033f Implement Stage 23 PDF redaction MVP
 ```
 
 ## Next Logical Step
 
-Review the Stage 23 diff and prepare a small final commit if the scope,
-synthetic smoke verification, tests, and public repository safety checks are
-accepted. The final synthetic text-based PDF smoke verified that `_ANON.pdf`,
-`_ANON.txt`, and `_RAPORT.txt` are created, that copied/searchable text from
-the generated PDF no longer includes the synthetic source values, and that the
-report separates detected, TXT-anonymized, PDF-redacted, and
-detected-but-not-PDF-redacted categories.
-Potential future work requires an explicit project decision, especially
-embedding retrieval with `bge-m3`, OCR quality improvements, NER candidate
+Run a small synthetic or user-approved pilot review of the Stage 23 PDF outputs
+in the normal GUI workflow, or choose the next explicitly approved stage. The
+final synthetic text-based PDF smoke verified that `_ANON.pdf`, `_ANON.txt`,
+and `_RAPORT.txt` are created, that copied/searchable text from the generated
+PDF no longer includes the synthetic source values, and that the report
+separates detected, TXT-anonymized, PDF-redacted, and
+detected-but-not-PDF-redacted categories. Potential future work requires an
+explicit project decision, especially OCR quality improvements, NER candidate
 export, installer work, AI/API integration, broader LLM features, databases,
-broad NLP/entity detection, packaging, release automation, or GUI/chat
-knowledge-base work.
+broad NLP/entity detection, packaging, release automation, embedding retrieval
+with `bge-m3`, or GUI/chat knowledge-base work.
 
 ## Warning
 
