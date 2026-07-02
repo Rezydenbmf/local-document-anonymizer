@@ -4,8 +4,9 @@ A local-first Python/Tkinter desktop tool for anonymizing text documents (TXT, D
 
 **Status:** MVP / in development (Stage 23 complete)
 
-<!-- TODO: add a screenshot of the GUI and/or a before/after example (synthetic
-     document -> anonymized output + report). None currently exist in this repo. -->
+![Batch anonymization result screen](screenshots/screenshot-anonymizer-result.png)
+
+*Batch run over 3 documents: category counters (PESEL, email, phone, dates, NER-detected names/orgs/locations), post-anonymization audit with risk levels (ok/warning/high_risk) and warning categories, and the manual review queue where each output must be approved before use. Filenames are redacted in this example.*
 
 ## Problem it solves
 
