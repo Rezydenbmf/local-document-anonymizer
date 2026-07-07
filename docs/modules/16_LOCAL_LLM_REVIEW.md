@@ -169,10 +169,16 @@ The GUI adds minimal controls:
 
 ```text
 Use local LLM review if available
-LLM model
+LLM model dropdown
+Refresh models
 ```
 
-When enabled, batch anonymization passes `use_llm_review=True` and the entered
+The model dropdown is populated from local `ollama list` output when available,
+so models such as `gemma3:4b` are selectable when already installed. If Ollama
+is unavailable or no models are found, the GUI shows:
+`No local Ollama models found. Install/pull a model first.`
+
+When enabled, batch anonymization passes `use_llm_review=True` and the selected
 model name. If no model is configured, Ollama is unavailable, the model is
 missing, the call times out, or the response is invalid, the workflow records a
 safe status and continues. The GUI shows aggregate LLM status counts in the
@@ -189,6 +195,8 @@ response text, snippets, or traceback details.
 - No OpenAI API, cloud LLM, external API, online processing, RAG, vector
   database, or network dependency is added.
 - No model is downloaded or pulled automatically.
+- Local model discovery is limited to installed Ollama models reported by
+  `ollama list`.
 - Model names are sanitized before reports.
 - Local model output can be wrong or invalid.
 - Manual review remains required for every generated output.
@@ -208,7 +216,9 @@ mocked review, timeout handling, invalid response handling, strict structured
 parsing, LLM risk mapping, residual category aggregation, safe report/batch
 metadata, no-crash unavailable fallback, the anonymized-output-only input
 policy, Windows-safe UTF-8 subprocess settings, BOM normalization, strict JSON
-schema request construction, and attempted-vs-skipped batch counter handling.
+schema request construction, installed model list parsing, and
+attempted-vs-skipped batch counter handling. `tests/test_gui_workflow.py`
+covers the GUI model selector state helper.
 
 ## Known limitations
 

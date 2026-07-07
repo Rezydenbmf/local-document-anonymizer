@@ -1,4 +1,4 @@
-# Module: Text-Based PDF Input, TXT Output, and Visual Redaction
+# Module: PDF Input, TXT Output, and Review PDF Output
 
 ## Purpose
 
@@ -11,11 +11,12 @@ the safe report. Stage 10.1 lets the workflow receive a dictionary path and
 report safe dictionary status. Stage 12 lets the workflow write to a selected
 output folder with collision-safe names. Stage 19 keeps text-based extraction
 first and adds optional local OCR fallback only when a PDF has no extractable
-text layer. Stage 23 adds a true-redacted visual `_ANON.pdf` companion for
-text-based PDFs while keeping `_ANON.txt` as the Local Knowledge Assistant
-text source. Stage 23.1 adds deterministic postal-code/address candidates,
-exact local NER span redaction where available, and safe coverage reporting so
-partial visual PDF coverage is marked with warnings.
+text layer. Stage 24 makes the default PDF review artifact an original-layout
+`_ANON_VISUAL.pdf` created from detected full-word text coordinates with true
+PyMuPDF redaction annotations. `_ANON_REVIEW.pdf` remains an auxiliary rebuilt
+review PDF generated from anonymized text only. The legacy text-search
+original-layout workflow remains available only as explicit experimental
+`_ORIGINAL_REDACTED.pdf` output.
 
 ## Related files
 
@@ -51,11 +52,15 @@ AI, local LLMs, databases, or broad PDF editor behavior.
 read_pdf_file(file_path: str | Path) -> str
 extract_text(file_path: str | Path) -> str
 build_anonymized_pdf_txt_path(source_path: str | Path) -> Path
-build_anonymized_pdf_path(source_path: str | Path) -> Path
+build_pdf_visual_path(source_path: str | Path) -> Path
+build_pdf_review_path(source_path: str | Path) -> Path
+build_original_redacted_pdf_path(source_path: str | Path) -> Path
 build_report_path(source_path: str | Path) -> Path
 save_anonymized_pdf_txt_copy(source_path: str | Path, anonymized_text: str, output_dir=None) -> Path
+save_word_coordinate_redacted_pdf_copy(source_path, word_pages, spans, output_dir=None) -> dict[str, object]
+save_rebuilt_review_pdf_from_text(source_path, anonymized_text, page_texts=None, output_dir=None) -> dict[str, object]
 save_redacted_pdf_copy(source_path, sensitive_terms=None, extra_redaction_terms=None, output_dir=None) -> dict[str, object]
-anonymize_pdf_file(source_path: str | Path, sensitive_terms=None, sensitive_terms_path=None, output_dir=None) -> tuple[Path, dict[str, int]]
+anonymize_pdf_file(source_path: str | Path, sensitive_terms=None, sensitive_terms_path=None, output_dir=None, pdf_output_mode="visual_redaction", pdf_redaction_scope="safe") -> tuple[Path, dict[str, int]]
 anonymize_pdf_file_with_audit(source_path: str | Path, sensitive_terms=None, sensitive_terms_path=None, output_dir=None)
 ```
 
@@ -72,25 +77,43 @@ The PDF workflow is:
    dependencies are available.
 3. `anonymize_pdf_file()` loads an optional dictionary path, applies
    deterministic replacements, and optionally applies local NER.
-4. For text-based PDFs, `save_redacted_pdf_copy()` creates a true-redacted
-   visual `_ANON.pdf` companion using PyMuPDF redaction annotations and
-   `apply_redactions()`. It redacts supported deterministic categories,
-   private dictionary exact text, and exact local NER spans where available.
-5. `save_anonymized_pdf_txt_copy()` writes the anonymized text as UTF-8 TXT.
-6. The output file is saved with an `_ANON.txt` suffix, in the selected output
+4. `save_anonymized_pdf_txt_copy()` writes the anonymized text as UTF-8 TXT.
+5. By default, `save_word_coordinate_redacted_pdf_copy()` creates
+   `_ANON_VISUAL.pdf` from detected spans mapped to full PDF word rectangles.
+6. `save_rebuilt_review_pdf_from_text()` creates auxiliary `_ANON_REVIEW.pdf`
+   from anonymized text only, with simple source-page headers and wrapped
+   lines.
+7. If the experimental original-layout mode is explicitly selected,
+   `save_redacted_pdf_copy()` creates `_ORIGINAL_REDACTED.pdf` using PyMuPDF
+   redaction annotations and `apply_redactions()`. Safe mode uses deterministic
+   matches, dictionary aliases, typo-shaped names, and conservative exact
+   `NER_PERSON` spans when the full span can be located. Broad token fallback
+   is disabled.
+8. The output file is saved with an `_ANON.txt` suffix, in the selected output
    folder when one is provided.
-7. `audit_text()` checks the anonymized TXT output.
-8. A safe report file is saved with a `_RAPORT.txt` suffix. The report includes
-   safe dictionary status, label counters, OCR metadata, and PDF redaction
-   coverage metadata only. If detected categories were not PDF-redacted, the
-   status is `completed_with_warnings`.
+9. `audit_text()` checks the anonymized TXT output.
+10. A safe `_REVIEW_CHECKLIST.txt` file is saved as the manual review guide. It
+   contains safe basenames, counts, review tasks, PDF text extraction mode,
+   visual/review PDF type, and short anonymized-label context only.
+11. A safe report file is saved with a `_RAPORT.txt` suffix. The report includes
+   safe dictionary status, label counters, OCR metadata, visual PDF metadata,
+   review PDF metadata, checklist filename, and redaction coverage metadata
+   only.
 
 Example:
 
 ```text
 output folder / document_ANON.txt
-output folder / document_ANON.pdf
+output folder / document_ANON_VISUAL.pdf
+output folder / document_ANON_REVIEW.pdf
+output folder / document_REVIEW_CHECKLIST.txt
 output folder / document_RAPORT.txt
+```
+
+Experimental original-layout mode can additionally create:
+
+```text
+output folder / document_ORIGINAL_REDACTED.pdf
 ```
 
 The original PDF file is not modified. Existing generated files are not
@@ -114,15 +137,19 @@ The PDF workflow still does not support:
 
 - PDF files are read locally.
 - The original source PDF is left unchanged.
-- Text-based PDF input produces TXT and visual true-redacted PDF output.
-- Scanned/OCR-only PDF input produces TXT output only.
+- PDF input produces TXT, a true-redacted visual PDF, an auxiliary rebuilt
+  review PDF, a review checklist, and a report by default for text-based PDFs.
+- Scanned/OCR-only PDF input can produce a rebuilt review PDF from OCR text, but
+  no scanned-PDF visual redaction is created.
 - Scanned PDF OCR is optional and local.
-- No scanned/OCR-only anonymized PDF file is created.
+- No scanned/OCR-only original-layout redacted PDF file is created.
 - The safe report file receives the `_RAPORT.txt` suffix.
+- The safe review checklist receives the `_REVIEW_CHECKLIST.txt` suffix.
 - Generated files can be written to a selected output folder.
 - Existing generated files are not overwritten silently.
 - No replacement map is created.
 - No source values are written to reports, metadata, or counters.
+- No source values are written to review checklists.
 - The integration helper returns only the output path and category counters.
 - Counters contain category names and counts only.
 - Private dictionary terms are not written to reports, counters, or returned
@@ -130,9 +157,13 @@ The PDF workflow still does not support:
 - Dictionary workflow metadata contains only status names, labels, and
   counters.
 - OCR metadata contains only used/status/input-type/page-count/warning fields.
-- PDF redaction metadata contains only status, safe generated basename,
-  redaction counts, category names, coverage counters, safe partial-coverage
+- PDF metadata contains only text extraction mode, visual/review PDF
+  status/type, safe generated basenames, redaction scope/status, redaction
+  counts, category names, coverage counters, unmapped category counters, safe
+  partial-coverage warnings, safe-scope NER exclusion notes, strict-scope
   warnings, and a color legend.
+- Checklist findings come from anonymized output labels only, not original PDF
+  source text.
 - Audit results contain only status, category counters, and the manual review
   flag. They do not contain source values, snippets, dictionary terms, raw OCR
   text, or a replacement map.
@@ -151,9 +182,11 @@ extractable text at the reader layer, writing `_ANON.txt` output, preserving
 the original PDF, PDF-to-TXT anonymization integration, safe counters without
 source values. Stage 19 tests cover text-based PDF non-OCR regression, mocked
 scanned-PDF OCR fallback, and controlled OCR-unavailable batch behavior. Stage
-23 tests cover `_ANON.pdf` creation, true-redaction extraction behavior, safe
-redaction report metadata, detected/TXT/PDF coverage metadata, batch metadata,
-and conservative `PERSON_NAME_TYPO` handling.
+Stage 24 tests cover `_ANON_VISUAL.pdf` default creation, auxiliary
+`_ANON_REVIEW.pdf` creation, visual/review PDF report metadata, anonymized
+labels in the rebuilt PDF, absence of source values in the visual/review PDFs,
+experimental `_ORIGINAL_REDACTED.pdf` behavior, bounded original-layout
+redaction, batch metadata, and conservative `PERSON_NAME_TYPO` handling.
 
 ## Known limitations
 
@@ -163,13 +196,23 @@ and conservative `PERSON_NAME_TYPO` handling.
 - Extracted PDF text may not preserve visual layout or reading order.
 - Scanned PDF OCR requires optional local OCR dependencies and Tesseract.
 - OCR can be inaccurate and must be manually reviewed.
-- Text-based `_ANON.pdf` output is a visual review aid, not proof of complete
-  anonymization.
-- Exact local NER span redaction depends on both local NER quality and whether
-  PyMuPDF can locate the same text in the PDF content stream.
-- Scanned-PDF/OCR visual redaction is not implemented.
-- PDF input still writes `document_ANON.txt` for indexing, and text-based PDFs
-  also write `document_ANON.pdf`; Stage 12 collision-safe naming prevents
-  silent overwrites in the output folder.
+- `_ANON_VISUAL.pdf` depends on text-layer word coordinates and can miss text
+  that cannot be mapped safely to whole words.
+- `_ANON_REVIEW.pdf` output is an auxiliary readable review aid generated from
+  anonymized text, not proof of complete anonymization and not a
+  layout-preserving copy.
+- Default visual PDF redaction skips unmappable spans instead of falling back to
+  broad substring or token redaction. Strict legacy scope can include broader
+  selected exact NER spans, but depends on local NER quality and PyMuPDF text
+  matching; strict scope may over-redact.
+- Single-token person-like NER detections and known public/legal or
+  disease/scientific false positives are skipped by default unless stronger
+  person context exists.
+- Weak grouped phone-like numeric values in tables are left visible unless
+  explicit contact context is nearby.
+- Scanned-PDF/OCR original-layout visual redaction is not implemented.
+- PDF input still writes `document_ANON.txt` for indexing, and by default also
+  writes `document_ANON_VISUAL.pdf` and `document_ANON_REVIEW.pdf`; Stage 12
+  collision-safe naming prevents silent overwrites in the output folder.
 - Stage 9 audit checks only the extracted anonymized TXT output.
 - Manual review is still required before trusting or sharing anonymized output.

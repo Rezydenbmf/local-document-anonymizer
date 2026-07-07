@@ -19,6 +19,7 @@ from ner import (
     NER_STATUS_DISABLED,
     NER_STATUS_MODEL_MISSING,
     detect_entities,
+    detect_entities_with_details,
     detect_ner_support,
     prepare_ner_context,
 )
@@ -113,6 +114,250 @@ class NerFoundationTests(unittest.TestCase):
         self.assertEqual(counters["NER_ORG"], 1)
         self.assertEqual(counters["NER_LOCATION"], 1)
 
+    def test_ner_filters_public_version_and_scientific_false_positives(self) -> None:
+        model = FakeNerModel(
+            [
+                ("Ministra Zdrowia", "persName"),
+                ("Pa\u0144stwowa Inspekcja Sanitarna", "orgName"),
+                ("Version 1.0, 2007", "persName"),
+                ("Streptococcus pneumoniae", "persName"),
+                ("Salmonella", "persName"),
+                ("R\u00f3\u017ca", "persName"),
+                ("Jan Kowalski", "persName"),
+            ]
+        )
+
+        with patch("ner._spacy_module", return_value=FakeSpacy(model=model)):
+            context = prepare_ner_context(enabled=True)
+            entities, counters, exclusions, linebreak_count = detect_entities_with_details(
+                (
+                    "Ministra Zdrowia. Pa\u0144stwowa Inspekcja Sanitarna. "
+                    "Version 1.0, 2007. Streptococcus pneumoniae. "
+                    "Salmonella. R\u00f3\u017ca. Jan Kowalski."
+                ),
+                context,
+            )
+
+        self.assertEqual([entity.label for entity in entities], ["NER_PERSON"])
+        self.assertEqual(counters["NER_PERSON"], 1)
+        self.assertEqual(exclusions["PUBLIC_INSTITUTION_PHRASE"], 2)
+        self.assertEqual(exclusions["VERSION_LIKE"], 1)
+        self.assertEqual(exclusions["SCIENTIFIC_NAME"], 3)
+        self.assertEqual(linebreak_count, 0)
+
+    def test_ner_filters_polish_public_health_and_ordinary_false_positives(self) -> None:
+        ordinary_terms = [
+            "EPIDEMIOLOGICZNEJ",
+            "\u017bYWNO\u015aCI\u0104",
+            "PUBLICZNEJ",
+            "wiotkie",
+        ]
+        public_terms = [
+            "Pa\u0144stwow\u0105 Inspekcj\u0119 Sanitarn\u0105",
+            "Powiatowej Stacji",
+            "Stanu Sanitarnego Powiatu",
+            "Urz\u0119dem Statystycznym w Krakowie",
+            "Wojew\u00f3dzkiej Stacji Sanitarno-Epidemiologicznej",
+            "GUS",
+            "ECDC",
+            "\u015awiatow\u0105 Organizacj\u0119 Zdrowia",
+            "WHO",
+        ]
+        health_terms = [
+            "Salmonella Enteritidis",
+            "WZW B",
+            "B\u0142onica-T\u0119\u017cec-Krztusiec",
+            "POLIO",
+            "Haemophilus",
+            "B\u0141ONICA",
+            "T\u0119\u017cec-B\u0142onica",
+            "Zaka\u017cenia Neisseria",
+        ]
+        rules = [(term, "persName") for term in ordinary_terms]
+        rules.extend((term, "orgName") for term in public_terms)
+        rules.extend((term, "persName") for term in health_terms)
+        rules.extend(
+            [
+                ("Jan Kowalski", "persName"),
+                ("Anna Nowak", "persName"),
+            ]
+        )
+        text = ". ".join(ordinary_terms + public_terms + health_terms)
+        text = f"{text}. Jan Kowalski. Anna Nowak."
+
+        with patch("ner._spacy_module", return_value=FakeSpacy(FakeNerModel(rules))):
+            context = prepare_ner_context(enabled=True)
+            entities, counters, exclusions, linebreak_count = detect_entities_with_details(
+                text,
+                context,
+            )
+
+        self.assertEqual([entity.label for entity in entities], [
+            "NER_PERSON",
+            "NER_PERSON",
+        ])
+        self.assertEqual(counters["NER_PERSON"], 2)
+        self.assertEqual(exclusions["ORDINARY_WORD"], len(ordinary_terms))
+        self.assertEqual(exclusions["PUBLIC_INSTITUTION_PHRASE"], len(public_terms))
+        self.assertEqual(exclusions["SCIENTIFIC_NAME"], len(health_terms))
+        self.assertEqual(linebreak_count, 0)
+
+    def test_ner_allowlist_normalizes_case_dashes_boundaries_and_pdf_partial_term(self) -> None:
+        public_terms = [
+            "Wojew\u00f3dzkiej Stacji Sanitarno\u2013Epidemiologicznej",
+            "Wojew\u00f3dzka Stacja Sanitarno \u2014 Epidemiologiczna",
+            "ojew\u00f3dzkiej Stacji Sanitarno-Epidemiologicznej",
+            "Raport: Wojew\u00f3dzkiej Stacji Sanitarno-Epidemiologicznej",
+        ]
+        health_terms = [
+            "Odra",
+            "WZW B",
+            "POLIO",
+            "Haemophilus influenzae",
+            "Neisseria meningitidis",
+            "B\u0141ONICA",
+            "T\u0119\u017cec\u2013B\u0142onica",
+            "B\u0142onica\u2014T\u0119\u017cec\u2013Krztusiec",
+        ]
+        model_public_terms = [
+            "Wojew\u00f3dzkiej Stacji Sanitarno-Epidemiologicznej",
+            "Wojew\u00f3dzka Stacja Sanitarno - Epidemiologiczna",
+            "ojew\u00f3dzkiej Stacji Sanitarno-Epidemiologicznej",
+            "Raport: Wojew\u00f3dzkiej Stacji Sanitarno-Epidemiologicznej",
+        ]
+        model_health_terms = [
+            "Odra",
+            "WZW B",
+            "POLIO",
+            "Haemophilus influenzae",
+            "Neisseria meningitidis",
+            "B\u0141ONICA",
+            "T\u0119\u017cec-B\u0142onica",
+            "B\u0142onica-T\u0119\u017cec-Krztusiec",
+        ]
+        rules = [(term, "orgName") for term in model_public_terms]
+        rules.extend((term, "persName") for term in model_health_terms)
+        rules.append(("Jan Kowalski", "persName"))
+        text = ". ".join(public_terms + health_terms + ["Jan Kowalski"])
+
+        with patch("ner._spacy_module", return_value=FakeSpacy(FakeNerModel(rules))):
+            context = prepare_ner_context(enabled=True)
+            entities, counters, exclusions, linebreak_count = detect_entities_with_details(
+                text,
+                context,
+            )
+
+        self.assertEqual([entity.label for entity in entities], ["NER_PERSON"])
+        self.assertEqual(counters["NER_PERSON"], 1)
+        self.assertEqual(exclusions["PUBLIC_INSTITUTION_PHRASE"], len(public_terms))
+        self.assertEqual(exclusions["SCIENTIFIC_NAME"], len(health_terms))
+        self.assertEqual(linebreak_count, 0)
+
+    def test_txt_flow_keeps_false_positive_terms_but_redacts_strong_values(self) -> None:
+        model = FakeNerModel(
+            [
+                ("EPIDEMIOLOGICZNEJ", "persName"),
+                ("\u017bYWNO\u015aCI\u0104", "persName"),
+                ("PUBLICZNEJ", "persName"),
+                ("wiotkie", "persName"),
+                ("WHO", "orgName"),
+                ("GUS", "orgName"),
+                ("WZW B", "orgName"),
+                ("POLIO", "placeName"),
+                ("Haemophilus", "orgName"),
+                ("B\u0141ONICA", "placeName"),
+                ("T\u0119\u017cec-B\u0142onica", "MISC"),
+                ("Jan Kowalski", "persName"),
+                ("Anna Nowak", "persName"),
+                ("Jan Testowy", "persName"),
+            ]
+        )
+
+        with workspace_temp_dir() as temp_dir:
+            source_path = Path(temp_dir) / "document.txt"
+            dictionary_path = Path(temp_dir) / "sensitive_terms.txt"
+            dictionary_path.write_text("WHO = [PRIVATE_ORG]\n", encoding="utf-8")
+            source_path.write_text(
+                (
+                    "EPIDEMIOLOGICZNEJ \u017bYWNO\u015aCI\u0104 PUBLICZNEJ wiotkie. "
+                    "GUS WZW B POLIO Haemophilus B\u0141ONICA T\u0119\u017cec-B\u0142onica. WHO. "
+                    "Jan Kowalski. Anna Nowak. mgr in\u017c. Jan Testowy. "
+                    "Email safe@example.test. PESEL 00000000000. tel. 123 456 789."
+                ),
+                encoding="utf-8",
+            )
+
+            with patch("ner._spacy_module", return_value=FakeSpacy(model)):
+                output_path, counters = anonymize_file(
+                    source_path,
+                    sensitive_terms_path=dictionary_path,
+                    use_ner=True,
+                )
+
+            output_text = output_path.read_text(encoding="utf-8")
+            report_text = (Path(temp_dir) / "document_RAPORT.txt").read_text(
+                encoding="utf-8"
+            )
+
+        for safe_term in (
+            "EPIDEMIOLOGICZNEJ",
+            "\u017bYWNO\u015aCI\u0104",
+            "PUBLICZNEJ",
+            "wiotkie",
+            "GUS",
+            "WZW B",
+            "POLIO",
+            "Haemophilus",
+            "B\u0141ONICA",
+            "T\u0119\u017cec-B\u0142onica",
+        ):
+            self.assertIn(safe_term, output_text)
+        self.assertIn("[PRIVATE_ORG]", output_text)
+        self.assertEqual(output_text.count("[NER_PERSON]"), 3)
+        self.assertIn("mgr in\u017c. [NER_PERSON]", output_text)
+        self.assertIn("[EMAIL]", output_text)
+        self.assertIn("[PESEL]", output_text)
+        self.assertIn("[TELEFON]", output_text)
+        self.assertEqual(counters["NER_PERSON"], 3)
+        self.assertEqual(counters["PRIVATE_ORG"], 1)
+        self.assertEqual(counters["EMAIL"], 1)
+        self.assertEqual(counters["PESEL"], 1)
+        self.assertEqual(counters["TELEFON"], 1)
+        self.assertIn("* ORDINARY_WORD: 4", report_text)
+        self.assertIn("* PUBLIC_INSTITUTION_PHRASE: 1", report_text)
+        self.assertIn("* SCIENTIFIC_NAME: 5", report_text)
+        self.assertNotIn("WHO", report_text)
+        self.assertNotIn("Jan Kowalski", report_text)
+
+    def test_ner_detects_person_across_soft_line_break(self) -> None:
+        model = FakeNerModel([("Jan Kowalski", "persName")])
+
+        with patch("ner._spacy_module", return_value=FakeSpacy(model=model)):
+            context = prepare_ner_context(enabled=True)
+            entities, counters, exclusions, linebreak_count = detect_entities_with_details(
+                "Uczestnik Jan\nKowalski startowa\u0142 w konkursie.",
+                context,
+            )
+
+        self.assertEqual(len(entities), 1)
+        self.assertEqual(counters["NER_PERSON"], 1)
+        self.assertEqual(sum(exclusions.values()), 0)
+        self.assertEqual(linebreak_count, 1)
+
+    def test_ner_does_not_join_unrelated_lowercase_line_break(self) -> None:
+        model = FakeNerModel([("sanitarno epidemiologiczna", "persName")])
+
+        with patch("ner._spacy_module", return_value=FakeSpacy(model=model)):
+            context = prepare_ner_context(enabled=True)
+            entities, counters, _, linebreak_count = detect_entities_with_details(
+                "sanitarno\nepidemiologiczna stacja",
+                context,
+            )
+
+        self.assertEqual(entities, [])
+        self.assertEqual(counters["NER_PERSON"], 0)
+        self.assertEqual(linebreak_count, 0)
+
     def test_person_left_expansion_masks_simple_capitalized_previous_token(self) -> None:
         person_first = "Jan"
         person_last = "Kowalski"
@@ -153,6 +398,21 @@ class NerFoundationTests(unittest.TestCase):
         self.assertEqual(output_text, "pan [NER_PERSON] wrote a note.")
         self.assertEqual(counters["NER_PERSON"], 1)
 
+    def test_single_token_person_with_title_context_is_kept(self) -> None:
+        model = FakeNerModel([("Kowalski", "persName")])
+
+        with workspace_temp_dir() as temp_dir:
+            source_path = Path(temp_dir) / "document.txt"
+            source_path.write_text("dr Kowalski wrote a note.", encoding="utf-8")
+
+            with patch("ner._spacy_module", return_value=FakeSpacy(model=model)):
+                output_path, counters = anonymize_file(source_path, use_ner=True)
+
+            output_text = output_path.read_text(encoding="utf-8")
+
+        self.assertEqual(output_text, "dr [NER_PERSON] wrote a note.")
+        self.assertEqual(counters["NER_PERSON"], 1)
+
     def test_person_left_expansion_does_not_cross_placeholder(self) -> None:
         model = FakeNerModel([("Kowalski", "persName")])
 
@@ -165,8 +425,8 @@ class NerFoundationTests(unittest.TestCase):
 
             output_text = output_path.read_text(encoding="utf-8")
 
-        self.assertEqual(output_text, "[EMAIL] [NER_PERSON] wrote a note.")
-        self.assertEqual(counters["NER_PERSON"], 1)
+        self.assertEqual(output_text, "[EMAIL] Kowalski wrote a note.")
+        self.assertEqual(counters, {})
 
     def test_person_left_expansion_does_not_cross_punctuation(self) -> None:
         model = FakeNerModel([("Kowalski", "persName")])
@@ -180,8 +440,8 @@ class NerFoundationTests(unittest.TestCase):
 
             output_text = output_path.read_text(encoding="utf-8")
 
-        self.assertEqual(output_text, "Jan, [NER_PERSON] wrote a note.")
-        self.assertEqual(counters["NER_PERSON"], 1)
+        self.assertEqual(output_text, "Jan, Kowalski wrote a note.")
+        self.assertEqual(counters, {})
 
     def test_person_left_expansion_does_not_cross_all_caps_token(self) -> None:
         model = FakeNerModel([("Kowalski", "persName")])
@@ -195,8 +455,8 @@ class NerFoundationTests(unittest.TestCase):
 
             output_text = output_path.read_text(encoding="utf-8")
 
-        self.assertEqual(output_text, "ACME [NER_PERSON] wrote a note.")
-        self.assertEqual(counters["NER_PERSON"], 1)
+        self.assertEqual(output_text, "ACME Kowalski wrote a note.")
+        self.assertEqual(counters, {})
 
     def test_person_left_expansion_does_not_cross_line_break(self) -> None:
         model = FakeNerModel([("Kowalski", "persName")])
@@ -210,8 +470,8 @@ class NerFoundationTests(unittest.TestCase):
 
             output_text = output_path.read_text(encoding="utf-8")
 
-        self.assertEqual(output_text, "Jan\n[NER_PERSON] wrote a note.")
-        self.assertEqual(counters["NER_PERSON"], 1)
+        self.assertEqual(output_text, "Jan\nKowalski wrote a note.")
+        self.assertEqual(counters, {})
 
     def test_existing_full_person_detection_still_masks_original_span(self) -> None:
         person = "Anna Nowak"

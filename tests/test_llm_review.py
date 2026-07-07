@@ -90,12 +90,17 @@ class LlmReviewTests(unittest.TestCase):
         self.assertEqual(result["model_name"], "local-model:latest")
 
     def test_installed_model_listing_parses_safe_names(self) -> None:
-        output = "NAME ID SIZE MODIFIED\nbielik:latest abc 1GB now\nllama3.1 xyz 2GB now\n"
+        output = (
+            "NAME ID SIZE MODIFIED\n"
+            "gemma3:4b abc 3GB now\n"
+            "bielik:latest def 1GB now\n"
+            "llama3.1 xyz 2GB now\n"
+        )
         with patch("llm_review._subprocess_run", return_value=completed(output)):
             status, models = list_installed_models()
 
         self.assertEqual(status, LLM_STATUS_AVAILABLE)
-        self.assertEqual(models, ["bielik:latest", "llama3.1"])
+        self.assertEqual(models, ["gemma3:4b", "bielik:latest", "llama3.1"])
 
     def test_successful_mocked_llm_review_parses_structured_output(self) -> None:
         side_effects = [

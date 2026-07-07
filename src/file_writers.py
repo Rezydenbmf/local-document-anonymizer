@@ -9,8 +9,13 @@ DOCX_EXTENSION = ".docx"
 PDF_EXTENSION = ".pdf"
 IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".tif", ".tiff")
 ANON_SUFFIX = "_ANON"
+ANON_VISUAL_SUFFIX = "_ANON_VISUAL"
+ANON_REVIEW_SUFFIX = "_ANON_REVIEW"
+ORIGINAL_REDACTED_SUFFIX = "_ORIGINAL_REDACTED"
 REPORT_SUFFIX = "_RAPORT"
+REVIEW_CHECKLIST_SUFFIX = "_REVIEW_CHECKLIST"
 BATCH_SUMMARY_FILENAME = "_BATCH_SUMMARY.txt"
+BATCH_REVIEW_CHECKLIST_FILENAME = "_BATCH_REVIEW_CHECKLIST.txt"
 AnonymizeFunction = Callable[[str], tuple[str, dict[str, int]]]
 
 
@@ -121,6 +126,39 @@ def build_anonymized_pdf_path(
     return _output_directory(path, output_dir) / f"{path.stem}{ANON_SUFFIX}{PDF_EXTENSION}"
 
 
+def build_pdf_visual_path(
+    source_path: str | Path, output_dir: str | Path | None = None
+) -> Path:
+    """Return the word-coordinate visual redaction PDF output path."""
+    path = _ensure_pdf_path(source_path)
+    return (
+        _output_directory(path, output_dir)
+        / f"{path.stem}{ANON_VISUAL_SUFFIX}{PDF_EXTENSION}"
+    )
+
+
+def build_pdf_review_path(
+    source_path: str | Path, output_dir: str | Path | None = None
+) -> Path:
+    """Return the rebuilt review PDF output path for a PDF source file."""
+    path = _ensure_pdf_path(source_path)
+    return (
+        _output_directory(path, output_dir)
+        / f"{path.stem}{ANON_REVIEW_SUFFIX}{PDF_EXTENSION}"
+    )
+
+
+def build_original_redacted_pdf_path(
+    source_path: str | Path, output_dir: str | Path | None = None
+) -> Path:
+    """Return the experimental original-layout redacted PDF output path."""
+    path = _ensure_pdf_path(source_path)
+    return (
+        _output_directory(path, output_dir)
+        / f"{path.stem}{ORIGINAL_REDACTED_SUFFIX}{PDF_EXTENSION}"
+    )
+
+
 def build_anonymized_image_txt_path(
     source_path: str | Path, output_dir: str | Path | None = None
 ) -> Path:
@@ -145,9 +183,33 @@ def build_report_path(
     return _output_directory(path, output_dir) / f"{path.stem}{REPORT_SUFFIX}{TXT_EXTENSION}"
 
 
+def build_review_checklist_path(
+    source_path: str | Path, output_dir: str | Path | None = None
+) -> Path:
+    """Return the manual review checklist path for a supported source file."""
+    path = Path(source_path)
+    if path.suffix.lower() not in (
+        TXT_EXTENSION,
+        DOCX_EXTENSION,
+        PDF_EXTENSION,
+        *IMAGE_EXTENSIONS,
+    ):
+        raise _unsupported_extension_error(path)
+
+    return (
+        _output_directory(path, output_dir)
+        / f"{path.stem}{REVIEW_CHECKLIST_SUFFIX}{TXT_EXTENSION}"
+    )
+
+
 def build_batch_summary_path(output_dir: str | Path) -> Path:
     """Return the default batch summary path in an output workspace."""
     return Path(output_dir) / BATCH_SUMMARY_FILENAME
+
+
+def build_batch_review_checklist_path(output_dir: str | Path) -> Path:
+    """Return the default batch review checklist path in an output workspace."""
+    return Path(output_dir) / BATCH_REVIEW_CHECKLIST_FILENAME
 
 
 def save_anonymized_txt_copy(

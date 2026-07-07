@@ -253,24 +253,39 @@ class ReportTests(unittest.TestCase):
 
             output_path, counters = anonymize_pdf_file(source_path)
             report_path = Path(temp_dir) / "document_RAPORT.txt"
-            redacted_pdf_path = Path(temp_dir) / "document_ANON.pdf"
+            visual_pdf_path = Path(temp_dir) / "document_ANON_VISUAL.pdf"
+            review_pdf_path = Path(temp_dir) / "document_ANON_REVIEW.pdf"
+            checklist_path = Path(temp_dir) / "document_REVIEW_CHECKLIST.txt"
 
             self.assertEqual(output_path, Path(temp_dir) / "document_ANON.txt")
             self.assertEqual(
                 output_path.read_text(encoding="utf-8").strip(),
                 "Contact [EMAIL] on [DATA].",
             )
-            self.assertTrue(redacted_pdf_path.exists())
+            self.assertTrue(visual_pdf_path.exists())
+            self.assertTrue(review_pdf_path.exists())
+            self.assertTrue(checklist_path.exists())
             self.assertTrue(report_path.exists())
             self.assertEqual(counters, {"EMAIL": 1, "DATA": 1})
             self.assert_report_is_safe(report_path)
             report_text = report_path.read_text(encoding="utf-8")
             self.assertIn("PDF redaction:", report_text)
+            self.assertIn("PDF text extraction used: text_layer", report_text)
+            self.assertIn("Visual PDF created: yes", report_text)
+            self.assertIn("Visual PDF output: document_ANON_VISUAL.pdf", report_text)
+            self.assertIn("Redaction mapping: word_coordinates", report_text)
+            self.assertIn("Review PDF created: yes", report_text)
+            self.assertIn("Review PDF type: rebuilt_from_anonymized_text", report_text)
+            self.assertIn("Layout-preserving original redaction used: yes", report_text)
             self.assertIn("PDF redaction output created: yes", report_text)
             self.assertIn("PDF redaction status: completed", report_text)
             self.assertIn("PDF true redaction used: yes", report_text)
             self.assertIn("PDF redaction color legend:", report_text)
             self.assertIn("* EMAIL: 1", report_text)
+            self.assertIn("Review checklist created: yes", report_text)
+            self.assertIn("Review checklist output: document_REVIEW_CHECKLIST.txt", report_text)
+            self.assertIn("Review PDF note: rebuilt from anonymized text", report_text)
+            self.assertIn("Review PDF table-heavy note:", report_text)
 
     def test_pdf_report_marks_partial_redaction_with_safe_warning(self) -> None:
         report_text = build_report_text(
@@ -282,6 +297,16 @@ class ReportTests(unittest.TestCase):
                 "used": True,
                 "status": "completed_with_warnings",
                 "output_name": "document_ANON.pdf",
+                "visual_pdf_created": True,
+                "visual_pdf_name": "document_ANON_VISUAL.pdf",
+                "visual_pdf_type": "original_layout_word_coordinate_redaction",
+                "visual_redaction_mode": "word_coordinates",
+                "review_pdf_created": False,
+                "review_pdf_name": "",
+                "review_pdf_type": "none",
+                "text_extraction": "text_layer",
+                "original_layout_redaction_used": True,
+                "original_layout_redaction_experimental": True,
                 "redaction_count": 1,
                 "counters": {"EMAIL": 1},
                 "true_redaction": True,
@@ -289,6 +314,7 @@ class ReportTests(unittest.TestCase):
                 "txt_anonymized_categories": {"EMAIL": 1, "NER_ORG": 1},
                 "pdf_redacted_categories": {"EMAIL": 1},
                 "detected_not_pdf_redacted_categories": {"NER_ORG": 1},
+                "unmapped_categories": {"NER_ORG": 1},
                 "warning": (
                     "PDF redaction may be partial; some detected categories "
                     "were not PDF-redacted"
@@ -297,6 +323,8 @@ class ReportTests(unittest.TestCase):
         )
 
         self.assertIn("PDF redaction status: completed_with_warnings", report_text)
+        self.assertIn("Visual PDF output: document_ANON_VISUAL.pdf", report_text)
+        self.assertIn("Unmapped PDF detections:", report_text)
         self.assertIn("Detected but not PDF-redacted categories:", report_text)
         self.assertIn("* NER_ORG: 1", report_text)
         self.assertIn("PDF redaction warning: PDF redaction may be partial", report_text)
@@ -315,6 +343,7 @@ class ReportTests(unittest.TestCase):
                     "status": "success",
                     "output_name": "document_ANON.txt",
                     "report_name": "document_RAPORT.txt",
+                    "checklist_name": "document_REVIEW_CHECKLIST.txt",
                     "audit_status": "ok",
                     "risk_level": "ok",
                     "pdf_redaction_output_created": True,
@@ -327,10 +356,13 @@ class ReportTests(unittest.TestCase):
                 }
             ],
             pdf_redaction_status_counts={"completed_with_warnings": 1},
+            batch_review_checklist_name="_BATCH_REVIEW_CHECKLIST.txt",
             category_order=SUPPORTED_LABELS,
             audit_category_order=AUDIT_CATEGORY_ORDER,
         )
 
+        self.assertIn("Batch review checklist: _BATCH_REVIEW_CHECKLIST.txt", summary_text)
+        self.assertIn("checklist: document_REVIEW_CHECKLIST.txt", summary_text)
         self.assertIn("* completed_with_warnings: 1", summary_text)
         self.assertIn("PDF redaction status: completed_with_warnings", summary_text)
         self.assertIn("PDF redaction warning: PDF redaction may be partial", summary_text)

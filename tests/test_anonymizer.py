@@ -36,6 +36,22 @@ class AnonymizerEngineTests(unittest.TestCase):
         self.assertEqual(anonymized, "Phone: [TELEFON].")
         self.assertEqual(report, {"TELEFON": 1})
 
+    def test_replaces_grouped_phone_only_with_contact_context(self) -> None:
+        text = "Kontakt tel. 123 456 789."
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(anonymized, "Kontakt tel. [TELEFON].")
+        self.assertEqual(report, {"TELEFON": 1})
+
+    def test_does_not_replace_weak_table_like_phone_number(self) -> None:
+        text = "Tabela: populacja 123 456 789 oraz warto\u015b\u0107 43 595."
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(anonymized, text)
+        self.assertEqual(report, {})
+
     def test_replaces_data(self) -> None:
         text = "Date: 2026-06-01."
 
@@ -51,6 +67,51 @@ class AnonymizerEngineTests(unittest.TestCase):
 
         self.assertEqual(anonymized, "Reviewer [PERSON_NAME_TYPO] signed.")
         self.assertEqual(report, {"PERSON_NAME_TYPO": 1})
+
+    def test_replaces_malformed_hyphenated_person_name_pattern(self) -> None:
+        text = "Reviewer Jan-Kowalski Nowak signed."
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(anonymized, "Reviewer [PERSON_NAME_TYPO] signed.")
+        self.assertEqual(report, {"PERSON_NAME_TYPO": 1})
+
+    def test_replaces_person_name_typo_with_unicode_dash_variants(self) -> None:
+        examples = (
+            "Reviewer Jan\u2011Kowalski Nowak signed.",
+            "Reviewer Jan\u2013Kowalski Nowak signed.",
+            "Reviewer Jan \u2014 Kowalski Nowak signed.",
+            "Reviewer Jan\u00adKowalski Nowak signed.",
+            "Reviewer Jan-\u00a0Kowalski\u00a0Nowak signed.",
+            "Reviewer \u0141ukasz-\u017bak Nowak signed.",
+            "podpisano: Jan-Kowalski Nowak,",
+        )
+
+        for text in examples[:-1]:
+            with self.subTest(text=text):
+                anonymized, report = anonymize_text(text)
+
+                self.assertEqual(anonymized, "Reviewer [PERSON_NAME_TYPO] signed.")
+                self.assertEqual(report, {"PERSON_NAME_TYPO": 1})
+
+        anonymized, report = anonymize_text(examples[-1])
+        self.assertEqual(anonymized, "podpisano: [PERSON_NAME_TYPO],")
+        self.assertEqual(report, {"PERSON_NAME_TYPO": 1})
+
+    def test_does_not_replace_normal_hyphenated_non_person_phrase(self) -> None:
+        examples = (
+            "Status Raport-Roczny Finansowy remains unchanged.",
+            "bia\u0142o-czerwony sztandar",
+            "sanitarno-epidemiologiczna stacja",
+            "\u017co\u0142\u0105dkowo-jelitowych i bronchoskop\u00f3w",
+        )
+
+        for text in examples:
+            with self.subTest(text=text):
+                anonymized, report = anonymize_text(text)
+
+                self.assertEqual(anonymized, text)
+                self.assertEqual(report, {})
 
     def test_replaces_multiple_categories_in_one_text(self) -> None:
         text = (

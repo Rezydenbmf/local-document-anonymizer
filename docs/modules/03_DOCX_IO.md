@@ -142,7 +142,9 @@ preservation, DOCX anonymization integration, safe counters without source
 values, TXT regression coverage, and unsupported extension errors. Stage 9
 tests cover audit report safety and dispatcher audit metadata. Stage 10.1 tests
 cover dictionary path replacement and report safety for DOCX. Stage 12 tests
-cover DOCX processing through the batch workflow.
+cover DOCX processing through the batch workflow. Stage 24 tests cover the
+malformed hyphenated person-name pattern in the DOCX workflow with synthetic
+data, including Unicode dash variants and split runs.
 
 ## Known limitations
 

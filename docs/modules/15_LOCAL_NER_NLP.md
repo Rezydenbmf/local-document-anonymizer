@@ -41,6 +41,7 @@ repository must not include spaCy model files.
 detect_ner_support(enabled=True, model_name="pl_core_news_sm") -> dict[str, object]
 prepare_ner_context(enabled=False, model_name="pl_core_news_sm") -> NerContext
 detect_entities(text, context) -> tuple[list[NerEntity], dict[str, int]]
+detect_entities_with_details(text, context) -> tuple[list[NerEntity], dict[str, int], dict[str, int], int]
 anonymize_text_with_ner(text, context) -> tuple[str, dict[str, int], dict[str, object]]
 anonymize_text(text, sensitive_terms=None, use_ner=False, ner_model_name="pl_core_news_sm")
 anonymize_file(..., use_ner=False, ner_model_name="pl_core_news_sm")
@@ -78,9 +79,19 @@ When NER is enabled, the workflow order is:
    available.
 4. Use a conservative PERSON left-expansion heuristic for simple
    adjacent-token cases where the local model returns only the trailing token.
-5. Skip existing placeholders such as `[EMAIL]`, `[DATA]`, or private
+5. Normalize only soft line breaks between simple capitalized name-like tokens
+   for analysis so person names split across PDF text lines can still be
+   detected while preserving offsets back to the original text. The analysis
+   layer also normalizes non-breaking spaces, soft hyphens, and common Unicode
+   dash variants for deterministic allowlist matching.
+6. Skip conservative built-in false-positive categories such as public
+   institutional/legal health-ministry phrases, version-like strings,
+   disease/microbiology/vaccine terms, likely Latin binomials, selected
+   ordinary Polish words seen as false positives, and single-token person-like
+   detections without strong person context.
+7. Skip existing placeholders such as `[EMAIL]`, `[DATA]`, or private
    dictionary labels to avoid double replacement.
-6. Save anonymized output, audit it, and write safe reports as before.
+8. Save anonymized output, audit it, and write safe reports as before.
 
 If spaCy is missing, the model is missing, NER is disabled, or NER processing
 fails, the file workflow continues without NER replacements and records a safe
@@ -96,6 +107,10 @@ Per-file reports can include:
 - NER status
 - NER model name
 - NER counters by internal category
+- NER/PDF exclusion counters by safe category only, including public
+  institution phrases, scientific/health-domain terms, ordinary-word
+  exclusions, version-like strings, and single-token person skips
+- line-break person candidate counts
 
 Batch summaries can include:
 
@@ -105,9 +120,9 @@ Batch summaries can include:
 - aggregate NER category counters
 - per-file NER status
 
-Reports and summaries must not include detected entity text, source snippets,
-raw OCR text, private dictionary terms, aliases, full paths, tracebacks, or
-replacement maps.
+Reports and summaries must not include detected entity text, excluded entity
+text, source snippets, raw OCR text, private dictionary terms, aliases, full
+paths, tracebacks, or replacement maps.
 
 ## GUI behavior
 
@@ -152,13 +167,22 @@ python -m unittest discover -s tests
 `tests/test_ner.py` uses fake spaCy/model objects and synthetic files. It does
 not require a real Polish spaCy model. It covers availability detection,
 missing dependency behavior, missing model behavior, mapped entity labels,
-PERSON/ORG/location anonymization, placeholder skipping, safe report metadata,
-safe batch summary metadata, no-crash unavailable fallback, and DOCX workflow
-integration.
+PERSON/ORG/location anonymization, placeholder skipping, public/version/
+scientific/ordinary-word false-positive exclusions, line-break person
+detection, safe report metadata, safe batch summary metadata, no-crash
+unavailable fallback, and DOCX workflow integration.
 
 ## Known limitations
 
 - NER quality depends on the installed local spaCy model.
+- The built-in false-positive exclusions are intentionally narrow and can miss
+  other public/legal/scientific/health-domain phrases or ordinary words.
+  Exact configured health-domain terms are skipped across NER labels, including
+  person, organization, location, and miscellaneous labels.
+- Single-token `NER_PERSON` detections are skipped by default unless title or
+  full-name context makes them stronger person candidates.
+- Line-break normalization is limited to simple capitalized name-like tokens and
+  does not join arbitrary headings, table rows, or lowercase phrases.
 - No spaCy model files are bundled.
 - No model download runs automatically at runtime.
 - NER is not fuzzy matching, inflection-proof detection, or a guarantee of

@@ -221,3 +221,26 @@ def apply_sensitive_terms(
         return f"[{label}]"
 
     return pattern.sub(replace, text), counters
+
+
+def iter_sensitive_term_spans(
+    text: str,
+    sensitive_terms: Iterable[SensitiveTerm] | None,
+) -> list[tuple[str, int, int]]:
+    """Return private dictionary label spans without exposing matched values."""
+    if not isinstance(text, str):
+        raise TypeError("text must be a string")
+    if sensitive_terms is None:
+        return []
+
+    compiled = _compile_sensitive_terms_pattern(sensitive_terms)
+    if compiled is None:
+        return []
+
+    pattern, labels_by_group = compiled
+    spans: list[tuple[str, int, int]] = []
+    for match in pattern.finditer(text):
+        if match.lastgroup is None:
+            raise RuntimeError("sensitive term match has no group")
+        spans.append((labels_by_group[match.lastgroup], match.start(), match.end()))
+    return spans

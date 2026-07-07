@@ -35,7 +35,13 @@ APPROVED_INDEX_FILENAME = "_APPROVED_INDEX.txt"
 
 _ANON_STEM_PATTERN = re.compile(r"^(?P<base>.+)_ANON(?P<number>_\d+)?$")
 _REPORT_STEM_PATTERN = re.compile(r"^(?P<base>.+)_RAPORT(?P<number>_\d+)?$")
+_CHECKLIST_STEM_PATTERN = re.compile(
+    r"^(?P<base>.+)_REVIEW_CHECKLIST(?P<number>_\d+)?$"
+)
 _BATCH_SUMMARY_PATTERN = re.compile(r"^_BATCH_SUMMARY(?:_\d+)?\.txt$")
+_BATCH_REVIEW_CHECKLIST_PATTERN = re.compile(
+    r"^_BATCH_REVIEW_CHECKLIST(?:_\d+)?\.txt$"
+)
 _REPORT_RISK_LEVEL_PATTERN = re.compile(
     rf"^Risk level:\s*({'|'.join(RISK_LEVELS)})\s*$",
     re.MULTILINE,
@@ -54,6 +60,7 @@ class ReviewItem:
 
     output_name: str
     report_name: str | None = None
+    checklist_name: str | None = None
     status: str = DEFAULT_REVIEW_STATUS
     risk_level: str | None = None
 
@@ -128,10 +135,16 @@ def _coerce_review_item(item: ReviewItem) -> ReviewItem:
     report_name = (
         _safe_filename(item.report_name) if item.report_name is not None else None
     )
+    checklist_name = (
+        _safe_filename(item.checklist_name)
+        if item.checklist_name is not None
+        else None
+    )
     _validate_review_status(item.status)
     return ReviewItem(
         output_name=output_name,
         report_name=report_name,
+        checklist_name=checklist_name,
         status=item.status,
         risk_level=_safe_risk_level(item.risk_level),
     )
@@ -187,6 +200,15 @@ def _report_names_by_stem(output_dir: Path) -> set[str]:
     return report_names
 
 
+def _checklist_names_by_stem(output_dir: Path) -> set[str]:
+    checklist_names: set[str] = set()
+    for path in output_dir.iterdir():
+        if path.is_file() and path.suffix.lower() == ".txt":
+            if _CHECKLIST_STEM_PATTERN.match(path.stem):
+                checklist_names.add(path.name)
+    return checklist_names
+
+
 def _matching_report_name(output_path: Path, report_names: set[str]) -> str | None:
     match = _ANON_STEM_PATTERN.match(output_path.stem)
     if match is None:
@@ -211,6 +233,33 @@ def _matching_report_name(output_path: Path, report_names: set[str]) -> str | No
     return None
 
 
+def _matching_checklist_name(
+    output_path: Path,
+    checklist_names: set[str],
+) -> str | None:
+    match = _ANON_STEM_PATTERN.match(output_path.stem)
+    if match is None:
+        return None
+
+    base = match.group("base")
+    number = match.group("number") or ""
+    numbered_candidate = f"{base}_REVIEW_CHECKLIST{number}.txt"
+    base_candidate = f"{base}_REVIEW_CHECKLIST.txt"
+
+    for candidate in (numbered_candidate, base_candidate):
+        if candidate in checklist_names:
+            return candidate
+
+    possible_matches = sorted(
+        name
+        for name in checklist_names
+        if re.match(rf"^{re.escape(base)}_REVIEW_CHECKLIST(?:_\d+)?\.txt$", name)
+    )
+    if len(possible_matches) == 1:
+        return possible_matches[0]
+    return None
+
+
 def preferred_review_output_path(output_dir: str | Path, output_name: str) -> Path:
     """Return companion visual PDF output for PDF-derived TXT review items."""
     folder = Path(output_dir)
@@ -223,9 +272,20 @@ def preferred_review_output_path(output_dir: str | Path, output_name: str) -> Pa
     if match is None:
         return output_path
 
-    pdf_candidate = folder / f"{output_path.stem}.pdf"
-    if pdf_candidate.is_file():
-        return pdf_candidate
+    base = match.group("base")
+    number = match.group("number") or ""
+    visual_pdf_candidate = folder / f"{base}_ANON_VISUAL{number}.pdf"
+    if visual_pdf_candidate.is_file():
+        return visual_pdf_candidate
+    original_redacted_candidate = folder / f"{base}_ORIGINAL_REDACTED{number}.pdf"
+    if original_redacted_candidate.is_file():
+        return original_redacted_candidate
+    review_pdf_candidate = folder / f"{base}_ANON_REVIEW{number}.pdf"
+    if review_pdf_candidate.is_file():
+        return review_pdf_candidate
+    legacy_pdf_candidate = folder / f"{output_path.stem}.pdf"
+    if legacy_pdf_candidate.is_file():
+        return legacy_pdf_candidate
     return output_path
 
 
@@ -246,6 +306,14 @@ def _detect_batch_summary_names(output_dir: Path) -> list[str]:
         path.name
         for path in output_dir.iterdir()
         if path.is_file() and _BATCH_SUMMARY_PATTERN.match(path.name)
+    )
+
+
+def _detect_batch_review_checklist_names(output_dir: Path) -> list[str]:
+    return sorted(
+        path.name
+        for path in output_dir.iterdir()
+        if path.is_file() and _BATCH_REVIEW_CHECKLIST_PATTERN.match(path.name)
     )
 
 
@@ -273,12 +341,14 @@ def detect_review_workspace(output_dir: str | Path) -> ReviewWorkspace:
     """Detect generated anonymized outputs and safe companion files."""
     folder = Path(output_dir)
     report_names = _report_names_by_stem(folder)
+    checklist_names = _checklist_names_by_stem(folder)
     items: list[ReviewItem] = []
     for path in folder.iterdir():
         if not _is_anonymized_output(path):
             continue
 
         report_name = _matching_report_name(path, report_names)
+        checklist_name = _matching_checklist_name(path, checklist_names)
         risk_level = (
             _risk_level_from_report(folder / report_name)
             if report_name is not None
@@ -288,13 +358,17 @@ def detect_review_workspace(output_dir: str | Path) -> ReviewWorkspace:
             ReviewItem(
                 output_name=path.name,
                 report_name=report_name,
+                checklist_name=checklist_name,
                 risk_level=risk_level,
             )
         )
 
     return ReviewWorkspace(
         items=_sorted_review_items(items),
-        batch_summary_names=_detect_batch_summary_names(folder),
+        batch_summary_names=(
+            _detect_batch_summary_names(folder)
+            + _detect_batch_review_checklist_names(folder)
+        ),
     )
 
 
@@ -316,6 +390,7 @@ def apply_review_statuses(
             ReviewItem(
                 output_name=item.output_name,
                 report_name=item.report_name,
+                checklist_name=item.checklist_name,
                 status=status,
                 risk_level=item.risk_level,
             )
@@ -385,10 +460,17 @@ def _approved_review_items_from_payload(
         report_name = (
             _safe_filename(raw_report_name) if raw_report_name is not None else None
         )
+        raw_checklist_name = raw_item.get("checklist_name")
+        checklist_name = (
+            _safe_filename(raw_checklist_name)
+            if raw_checklist_name is not None
+            else None
+        )
         approved_items.append(
             ReviewItem(
                 output_name=output_name,
                 report_name=report_name,
+                checklist_name=checklist_name,
                 status=REVIEW_STATUS_APPROVED,
                 risk_level=_safe_risk_level(raw_item.get("risk_level")),
             )
@@ -504,6 +586,7 @@ def export_approved_workspace(
             ReviewItem(
                 output_name=output_destination.name,
                 report_name=item.report_name,
+                checklist_name=item.checklist_name,
                 status=REVIEW_STATUS_APPROVED,
                 risk_level=item.risk_level,
             )
@@ -584,6 +667,8 @@ def build_review_status_payload(
                 "output_name": item.output_name,
                 "report_name": item.report_name,
                 "report_present": item.report_name is not None,
+                "checklist_name": item.checklist_name,
+                "checklist_present": item.checklist_name is not None,
                 "risk_level": item.risk_level or "unknown",
                 "status": item.status,
             }
@@ -642,8 +727,10 @@ def build_review_summary_text(
     if review_items:
         for item in review_items:
             report_name = item.report_name or "missing"
+            checklist_name = item.checklist_name or "missing"
             lines.append(f"* output: {item.output_name}")
             lines.append(f"  report: {report_name}")
+            lines.append(f"  checklist: {checklist_name}")
             lines.append(f"  risk level: {item.risk_level or 'unknown'}")
             lines.append(f"  status: {item.status}")
     else:

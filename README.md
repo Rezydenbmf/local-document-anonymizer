@@ -2,7 +2,7 @@
 
 A local-first Python/Tkinter desktop tool for anonymizing text documents (TXT, DOCX, PDF, and images via OCR) entirely on the user's own machine — no cloud APIs, no external services, no databases.
 
-**Status:** MVP / in development (Stage 23 complete)
+**Status:** MVP / in development (Stage 24 pilot corrections in progress)
 
 ![Batch anonymization result screen](screenshots/screenshot-anonymizer-result.png)
 
@@ -16,7 +16,7 @@ Manually redacting personal data (names, PESEL numbers, emails, phone numbers, a
 
 - **Language:** Python
 - **GUI:** Tkinter
-- **Document I/O:** `python-docx` (DOCX), `pypdf` / `PyMuPDF` (PDF, incl. visual redaction)
+- **Document I/O:** `python-docx` (DOCX), `pypdf` / `PyMuPDF` (PDF text extraction, rebuilt review PDFs, optional experimental visual redaction)
 - **Optional OCR:** `pytesseract` + Pillow, backed by a locally installed Tesseract engine
 - **Optional NER:** spaCy with a locally installed Polish model (`pl_core_news_sm`)
 - **Optional LLM review:** local Ollama (no cloud calls, no bundled/auto-downloaded models)
@@ -40,7 +40,7 @@ Full stage-by-stage detail lives in [`docs/`](docs/) — see [`docs/TECHNICAL_OV
 
 Everything runs locally by default. There are no API calls, cloud services, or databases anywhere in the core flow. OCR, NER, and LLM review are all optional and only activate when their local dependencies are installed and explicitly enabled — nothing is downloaded automatically. The optional LLM review step only ever receives already-anonymized text, never raw source text or dictionary contents.
 
-The repository itself must never contain real documents, real personal data, private dictionaries, or generated output/report files. Reports and summaries are designed to hold counts and labels only, never source values.
+The repository itself must never contain real documents, real personal data, private dictionaries, or generated output/report files. Reports, review checklists, and summaries are designed to hold safe filenames, counts, labels, and anonymized-label context only, never source values.
 
 ## Installation
 
@@ -74,8 +74,8 @@ python src/main.py
 
 1. Add one or more supported files (`.txt`, `.docx`, `.pdf`, `.png`, `.jpg`, `.jpeg`, `.tif`, `.tiff`).
 2. Select an output folder.
-3. Optionally select a private dictionary, enable NER, or enable local LLM review.
-4. Click **Anonymize batch** and check the generated `_ANON` files, `_RAPORT` reports, and batch summary.
+3. Optionally select a private dictionary, enable NER, choose the PDF output mode, or enable local LLM review with a locally installed Ollama model selected from the GUI.
+4. Click **Anonymize batch** and check the generated `_ANON` files, `_REVIEW_CHECKLIST` checklists, `_RAPORT` reports, and batch summary.
 5. Use the manual review section to mark each output `approved` / `needs_review` / `rejected`, then optionally export an `approved/` workspace.
 
 Local Knowledge Assistant, over an approved workspace:
@@ -98,7 +98,8 @@ src/
   anonymizer.py        Core engine and file workflow dispatchers
   audit.py             Post-anonymization audit
   file_readers.py      TXT, DOCX, and text-based PDF reading
-  file_writers.py      _ANON output and _RAPORT path helpers
+  file_writers.py      _ANON output, checklist, and _RAPORT path helpers
+  checklist.py         Safe manual review checklist generation
   gui.py / main.py     Tkinter GUI and entry point
   knowledge_assistant.py / knowledge_cli.py
                        Local index, retrieval, and CLI for approved TXT
@@ -120,7 +121,9 @@ docs/                  Technical overview, user guide, security assumptions, roa
 - Manual review is always required — this is not production-ready, complete anonymization.
 - OCR, NER, and LLM review are all optional, local-dependency-based, and imperfect; each can miss or misclassify content.
 - Regex detection and private-dictionary matching are deterministic and conservative, not fuzzy/ML-based.
-- Text-based PDF redaction depends on PyMuPDF text search and can miss unusual encodings, rotated text, or text embedded in images; there is no scanned-PDF/OCR bounding-box redaction.
+- PDF input now writes `_ANON.txt`, `_ANON_VISUAL.pdf`, `_ANON_REVIEW.pdf`, `_REVIEW_CHECKLIST.txt`, and `_RAPORT.txt` by default for text-based PDFs. `_ANON_VISUAL.pdf` is the primary original-layout manual review artifact and uses true PyMuPDF redaction annotations mapped from detected text spans to word coordinates. `_ANON_REVIEW.pdf` remains an auxiliary rebuilt-text review PDF.
+- PDF visual redaction is text-layer based. It can miss unusual encodings, rotated/fragmented text, forms, annotations, or text embedded in images; there is no scanned-PDF/OCR bounding-box redaction. Legacy `_ORIGINAL_REDACTED.pdf` remains experimental.
+- Stage 24 precision filters intentionally leave weak table-like phone numbers, selected public/institution/health-domain NER false positives, ordinary-word false positives, and single-token person-like NER detections visible unless stronger context exists; reports/checklists show category-only skipped counts.
 - DOCX support covers basic paragraphs and simple tables only (no headers, footers, comments, or embedded images).
 - Batch processing is sequential.
 - Audit risk levels are a review-prioritization hint, not a safety guarantee.

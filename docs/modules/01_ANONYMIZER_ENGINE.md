@@ -18,13 +18,22 @@ dictionary/regex-only unless `use_ner=True` is passed.
 Stage 21 adds keyword-only optional local LLM review controls for file and
 batch workflows. The plain text engine itself remains deterministic; LLM
 review runs only after output text has already been anonymized.
-Stage 23 adds a conservative `PERSON_NAME_TYPO` regex category and creates a
-true-redacted visual PDF companion in the PDF file workflow without changing
-the plain text engine return shape.
+Stage 23 adds a conservative `PERSON_NAME_TYPO` regex category and created an
+original-layout true-redacted PDF companion in the PDF file workflow without
+changing the plain text engine return shape. Stage 24 makes the default PDF
+review artifact a true-redacted `_ANON_VISUAL.pdf` generated from detected PDF
+word coordinates, keeps `_ANON_REVIEW.pdf` as an auxiliary rebuilt-text review
+PDF, and keeps legacy original-layout redaction as explicit experimental
+`_ORIGINAL_REDACTED.pdf` output. Stage 24 also extends the typo-name category
+for a malformed `Firstname-LastnamePart1 LastnamePart2` pilot pattern, Unicode
+dash variants, and simple spacing around the dash. Stage 24 also coordinates
+privacy-safe `_REVIEW_CHECKLIST.txt` and `_BATCH_REVIEW_CHECKLIST.txt` review
+guides generated from safe metadata and anonymized output labels only.
 
 ## Related files
 
 - `src/anonymizer.py`
+- `src/checklist.py`
 - `src/ner.py`
 - `src/sensitive_terms.py`
 - `tests/test_anonymizer.py`
@@ -79,8 +88,10 @@ When local NER is explicitly enabled and available, Stage 20 can also emit
 internal labels `NER_PERSON`, `NER_ORG`, `NER_LOCATION`, and `NER_MISC`.
 
 `PERSON_NAME_TYPO` is a conservative pilot hardening pattern for typo-shaped
-person names such as `Firstname-Lastname Lastname`. Address and postal-code
-detection are not implemented as automatic regex categories.
+person names such as `Firstname-Lastname Lastname` and
+`Firstname-LastnamePart1 LastnamePart2`, including supported Unicode dash
+variants and simple spacing around the dash. Address and postal-code detection
+are not implemented as automatic regex categories.
 
 ## How it works
 
@@ -185,8 +196,9 @@ tests cover output workspace dispatch and batch processing. Stage 16 tests
 cover audit risk levels and safe risk metadata propagation. Stage 20 tests
 cover optional local NER with mocked model output. Stage 21 tests cover local
 LLM review with mocked Ollama behavior and anonymized-output-only input.
-Stage 23 tests cover the conservative person-name typo category and
-text-based PDF redaction workflow metadata.
+Stage 23/24 tests cover the conservative person-name typo category, Unicode
+dash variants, split DOCX run behavior, default visual PDF review output, and
+experimental text-based PDF redaction workflow metadata.
 
 ## Known limitations
 
@@ -197,8 +209,9 @@ text-based PDF redaction workflow metadata.
 - Date detection is limited to `YYYY-MM-DD` and `DD.MM.YYYY`.
 - Production-grade names, surnames, cities, organizations, context-based
   detection, uppercase word detection, addresses, and postal codes are not
-  implemented. The `PERSON_NAME_TYPO` category is intentionally narrow and is
-  not general name detection.
+  implemented. The `PERSON_NAME_TYPO` category is intentionally narrow,
+  includes a conservative surname-like ending guard, and is not general name
+  detection.
 - Private dictionary matching is deterministic, case-insensitive, and
   whitespace-tolerant, but not fuzzy matching, inflection handling, NER, or
   automatic entity detection.

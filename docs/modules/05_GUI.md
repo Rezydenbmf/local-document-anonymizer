@@ -26,8 +26,14 @@ Stage 20 adds one optional local NER checkbox and safe aggregate NER status
 display without redesigning the GUI. Stage 21 adds one optional local LLM
 review checkbox, a model-name field, and safe aggregate LLM status display
 without redesigning the GUI. Stage 23 adds safe PDF redaction status display
-through the existing batch summary and makes the manual-review open action
-prefer a companion `_ANON.pdf` when one exists for a PDF-derived `_ANON.txt`.
+through the existing batch summary. Stage 24 makes `_ANON_VISUAL.pdf` the
+recommended PDF manual-review artifact and makes the manual-review open action
+prefer it when one exists for a PDF-derived `_ANON.txt`.
+Stage 24 adds a simple visible per-file processing status during batch runs, a
+local Ollama model selector for optional LLM review, comfortable mouse
+wheel/touchpad scrolling for the main content, and a PDF output selector with
+recommended visual redaction, auxiliary rebuilt review PDF, and legacy
+experimental original-layout redaction choices.
 
 ## Related files
 
@@ -81,23 +87,32 @@ The GUI supports this flow:
    and the workflow loads the dictionary.
 5. Leave `Use local NER if available` checked to request local NER, or uncheck
    it for dictionary/regex-only processing.
-6. Optionally enable `Use local LLM review if available` and enter a local
-   Ollama model name that has already been installed manually.
-7. Check the readiness hint if `Anonymize batch` is disabled.
-8. Click `Anonymize batch`.
-9. Review the status, safe dictionary status, category counters, aggregate
+6. Optionally enable `Use local LLM review if available` and select a local
+   Ollama model from the dropdown. Use `Refresh models` after installing or
+   pulling a model outside the app.
+7. Keep `Original-layout visual redaction from detected text (recommended)`, or
+   explicitly select the auxiliary rebuilt review PDF or legacy experimental
+   original-layout redaction if that advanced review aid is needed and its
+   under-redaction/over-redaction risk is acceptable.
+8. Check the readiness hint if `Anonymize batch` is disabled.
+9. Click `Anonymize batch`.
+10. During processing, the status area shows the current file, for example
+   `Processing 1/3: filename.pdf` and `Please wait...`.
+11. Review the status, safe dictionary status, category counters, aggregate
    audit status counts, aggregate risk counts, aggregate OCR/NER/LLM/PDF
-   redaction status, generated output filenames, generated report filenames, batch summary
-   filename, and manual review warning.
-10. Manually inspect every anonymized output file before using or sharing it.
-11. Load the output folder in the manual review section.
-12. Optionally open the selected `_ANON` output or matching `_RAPORT` report in
-   the operating system default application. For PDF-derived TXT outputs, the
-   open action prefers the companion `_ANON.pdf` when it exists.
-13. Assign each generated output one manual status: `approved`,
+   redaction status, generated output filenames, generated checklist/report
+   filenames, batch checklist/summary filenames, and manual review warning.
+12. Manually inspect every anonymized output file before using or sharing it.
+13. Load the output folder in the manual review section.
+14. Optionally open the selected `_ANON` output, matching
+   `_REVIEW_CHECKLIST` checklist, or matching `_RAPORT` report in the
+   operating system default application. For PDF-derived TXT outputs, the open
+   output action prefers `_ANON_VISUAL.pdf`, then `_ORIGINAL_REDACTED.pdf`,
+   then `_ANON_REVIEW.pdf`, then legacy `_ANON.pdf` when one exists.
+15. Assign each generated output one manual status: `approved`,
    `needs_review`, or `rejected`.
-14. Save `_REVIEW_STATUS.json` and a collision-safe `_REVIEW_SUMMARY.txt`.
-15. Optionally click `Export approved` to copy approved `_ANON` files into
+16. Save `_REVIEW_STATUS.json` and a collision-safe `_REVIEW_SUMMARY.txt`.
+17. Optionally click `Export approved` to copy approved `_ANON` files into
     `approved/` and write `_APPROVED_INDEX.txt`.
 
 `Remove selected` and `Clear files` affect only the GUI selected-file list.
@@ -119,14 +134,21 @@ The GUI shows:
 - aggregate OCR status counts,
 - aggregate NER status counts,
 - aggregate LLM review status counts,
+- local Ollama model choices when `ollama list` can find installed models,
+- a clear no-models-found hint when Ollama is unavailable or no local models
+  are installed,
+- PDF output choices: recommended original-layout visual redaction, auxiliary
+  rebuilt review PDF, experimental original-layout safe redaction, or
+  experimental original-layout strict redaction,
 - output filenames,
-- report filenames and batch summary filename,
+- checklist/report filenames and batch checklist/summary filenames,
 - generated output filenames detected for manual review,
 - risk level for review items when paired Stage 16 reports are present,
+- checklist filenames paired with review items when present,
 - report filenames paired with review items when present,
 - manual review statuses,
-- clear status messages when selected generated outputs or reports are opened
-  or missing,
+- clear status messages when selected generated outputs, checklists, or reports
+  are opened or missing,
 - review status and summary filenames after save,
 - approved workspace export counts and approved index filename,
 - missing-report warnings during approved export,
@@ -156,6 +178,7 @@ TXT input:
 
 ```text
 output folder / document_ANON.txt
+output folder / document_REVIEW_CHECKLIST.txt
 output folder / document_RAPORT.txt
 ```
 
@@ -163,21 +186,30 @@ DOCX input:
 
 ```text
 output folder / document_ANON.docx
+output folder / document_REVIEW_CHECKLIST.txt
 output folder / document_RAPORT.txt
 ```
 
 Text-based PDF input:
 
 ```text
-output folder / document_ANON.pdf
+output folder / document_ANON_REVIEW.pdf
 output folder / document_ANON.txt
+output folder / document_REVIEW_CHECKLIST.txt
 output folder / document_RAPORT.txt
+```
+
+Experimental original-layout mode can additionally create:
+
+```text
+output folder / document_ORIGINAL_REDACTED.pdf
 ```
 
 OCR image input:
 
 ```text
 output folder / scan_ANON.txt
+output folder / scan_REVIEW_CHECKLIST.txt
 output folder / scan_RAPORT.txt
 ```
 
@@ -186,6 +218,7 @@ Original files are not modified.
 Batch run:
 
 ```text
+output folder / _BATCH_REVIEW_CHECKLIST.txt
 output folder / _BATCH_SUMMARY.txt
 ```
 
@@ -219,8 +252,10 @@ and approved indexes.
 - The GUI displays OCR status counts only.
 - The GUI displays NER status counts only.
 - The GUI displays LLM review status counts only.
-- The GUI displays PDF redaction status metadata only through safe report and
-  batch summary text.
+- The GUI displays local Ollama model names returned by `ollama list`, but it
+  does not install, pull, or download models.
+- The GUI displays PDF review/redaction status metadata only through safe
+  checklist, report, and batch summary text.
 - The GUI displays dictionary status names and safe match metadata only.
 - The GUI does not display original detected source values.
 - The GUI does not display private dictionary contents.
@@ -228,14 +263,17 @@ and approved indexes.
 - The GUI displays generated filenames, not report contents or source values.
 - The GUI displays manual review item filenames, safe risk levels, and statuses
   only.
-- The GUI can ask the operating system to open a selected generated output or
-  matching report, but it does not preview or inspect those files itself. When
-  a PDF-derived TXT output has a companion `_ANON.pdf`, the visual PDF is
-  opened for convenience.
+- The GUI can ask the operating system to open a selected generated output,
+  matching review checklist, or matching report, but it does not preview or
+  inspect those files itself. When a PDF-derived TXT output has a companion
+  `_ANON_REVIEW.pdf`, that rebuilt review PDF is opened for convenience.
+  Experimental `_ORIGINAL_REDACTED.pdf` and legacy `_ANON.pdf` companions are
+  fallback open targets.
 - `approved` is a manual user decision, not an automatic application decision.
 - No replacement map is created.
-- Safe report files are created by the existing file workflow helpers.
-- A safe batch summary is created by the batch workflow.
+- Safe checklist and report files are created by the existing file workflow
+  helpers.
+- A safe batch checklist and batch summary are created by the batch workflow.
 - Safe review status and summary files are created by the review workflow.
 - Approved workspace files and the approved index are created by the review
   workflow from saved manual decisions.
@@ -277,6 +315,11 @@ Stage 19 OCR GUI-adjacent status formatting is covered by
 formatting is covered by `tests/test_ner.py` and `tests/test_gui_workflow.py`.
 Stage 21 LLM status behavior is covered by `tests/test_llm_review.py`.
 Stage 23 PDF open preference is covered by `tests/test_review_workflow.py`.
+Stage 24 per-file processing status formatting, mouse wheel delta handling, and
+PDF output selector mapping are covered by `tests/test_gui_workflow.py`, and the
+batch progress callback is covered by `tests/test_batch_processing.py`. The
+Stage 24 local LLM model selector helper is covered by
+`tests/test_gui_workflow.py`.
 Fragile widget tests are not included.
 
 ## Known limitations
@@ -299,7 +342,8 @@ Fragile widget tests are not included.
 - NER requires optional local spaCy dependencies and a local Polish model; the
   GUI does not install, download, or configure those dependencies.
 - LLM review requires optional local Ollama and a user-installed local model;
-  the GUI does not install, download, pull, or configure those dependencies.
+  the GUI can list installed models but does not install, download, pull, or
+  configure those dependencies.
 - The GUI does not support drag and drop, preview, split-screen review,
   highlighting, chat, document rewriting, edited image output, or scanned-PDF
   visual redaction.

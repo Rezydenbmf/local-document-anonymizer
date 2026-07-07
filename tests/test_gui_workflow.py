@@ -13,16 +13,39 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from anonymizer import BatchResult, anonymize_file, anonymize_file_with_audit
 from gui import (
+    LLM_MODELS_FOUND_HINT,
+    LLM_NO_MODELS_HINT,
+    PDF_OUTPUT_LABEL_VISUAL_REDACTION,
+    PDF_OUTPUT_LABEL_REBUILT_REVIEW,
+    PDF_OUTPUT_LABEL_ORIGINAL_SAFE,
+    PDF_OUTPUT_LABEL_ORIGINAL_STRICT,
     format_anonymize_readiness,
     format_audit_result,
     format_approved_export_status,
     format_batch_audit_result,
     format_batch_status,
     format_dictionary_result,
+    format_llm_model_selector_state,
+    format_processing_status,
     format_selected_file_count,
+    mousewheel_scroll_units,
     open_path_with_default_app,
+    pdf_output_mode_from_gui_label,
+    pdf_redaction_scope_from_gui_label,
     remove_paths_by_indexes,
 )
+from anonymizer import (
+    PDF_OUTPUT_MODE_ORIGINAL_REDACTION,
+    PDF_OUTPUT_MODE_REBUILT_REVIEW,
+    PDF_OUTPUT_MODE_VISUAL,
+)
+from llm_review import LLM_STATUS_AVAILABLE, LLM_STATUS_OLLAMA_NOT_FOUND
+
+
+class FakeWheelEvent:
+    def __init__(self, *, delta: int = 0, num: int | None = None) -> None:
+        self.delta = delta
+        self.num = num
 
 
 def workspace_temp_dir():
@@ -34,6 +57,50 @@ class GuiWorkflowTests(unittest.TestCase):
         module = importlib.import_module("src.gui")
 
         self.assertTrue(hasattr(module, "start_gui"))
+
+    def test_mousewheel_scroll_units_handles_wheel_and_touchpad_deltas(self) -> None:
+        self.assertEqual(mousewheel_scroll_units(FakeWheelEvent(delta=120)), -3)
+        self.assertEqual(mousewheel_scroll_units(FakeWheelEvent(delta=-120)), 3)
+        self.assertEqual(mousewheel_scroll_units(FakeWheelEvent(delta=1)), -3)
+        self.assertEqual(mousewheel_scroll_units(FakeWheelEvent(delta=0)), 0)
+        self.assertEqual(mousewheel_scroll_units(FakeWheelEvent(num=4)), -3)
+        self.assertEqual(mousewheel_scroll_units(FakeWheelEvent(num=5)), 3)
+
+    def test_pdf_output_label_defaults_to_visual_and_supports_auxiliary_modes(self) -> None:
+        self.assertEqual(
+            pdf_output_mode_from_gui_label(PDF_OUTPUT_LABEL_VISUAL_REDACTION),
+            PDF_OUTPUT_MODE_VISUAL,
+        )
+        self.assertEqual(
+            pdf_redaction_scope_from_gui_label(PDF_OUTPUT_LABEL_VISUAL_REDACTION),
+            "safe",
+        )
+        self.assertEqual(
+            pdf_output_mode_from_gui_label(PDF_OUTPUT_LABEL_REBUILT_REVIEW),
+            PDF_OUTPUT_MODE_REBUILT_REVIEW,
+        )
+        self.assertEqual(
+            pdf_redaction_scope_from_gui_label(PDF_OUTPUT_LABEL_REBUILT_REVIEW),
+            "safe",
+        )
+        self.assertEqual(
+            pdf_output_mode_from_gui_label(PDF_OUTPUT_LABEL_ORIGINAL_SAFE),
+            PDF_OUTPUT_MODE_ORIGINAL_REDACTION,
+        )
+        self.assertEqual(
+            pdf_redaction_scope_from_gui_label(PDF_OUTPUT_LABEL_ORIGINAL_SAFE),
+            "safe",
+        )
+        self.assertEqual(
+            pdf_output_mode_from_gui_label(PDF_OUTPUT_LABEL_ORIGINAL_STRICT),
+            PDF_OUTPUT_MODE_ORIGINAL_REDACTION,
+        )
+        self.assertEqual(
+            pdf_redaction_scope_from_gui_label(PDF_OUTPUT_LABEL_ORIGINAL_STRICT),
+            "strict",
+        )
+        self.assertEqual(pdf_output_mode_from_gui_label("unknown"), PDF_OUTPUT_MODE_VISUAL)
+        self.assertEqual(pdf_redaction_scope_from_gui_label("unknown"), "safe")
 
     def test_anonymizes_supported_txt_file_through_application_workflow(self) -> None:
         with workspace_temp_dir() as temp_dir:
@@ -167,6 +234,35 @@ class GuiWorkflowTests(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             format_anonymize_readiness(-1, False)
+
+    def test_gui_formats_processing_status(self) -> None:
+        self.assertEqual(
+            format_processing_status(2, 3, Path("document.docx")),
+            "Processing 2/3: document.docx\nPlease wait...",
+        )
+
+        with self.assertRaises(ValueError):
+            format_processing_status(0, 3, Path("document.docx"))
+
+    def test_gui_llm_model_selector_uses_installed_models(self) -> None:
+        values, selected_model, hint = format_llm_model_selector_state(
+            LLM_STATUS_AVAILABLE,
+            ["gemma3:4b", "bielik:latest", "gemma3:4b"],
+        )
+
+        self.assertEqual(values, ["gemma3:4b", "bielik:latest"])
+        self.assertEqual(selected_model, "gemma3:4b")
+        self.assertEqual(hint, LLM_MODELS_FOUND_HINT)
+
+    def test_gui_llm_model_selector_handles_missing_ollama(self) -> None:
+        values, selected_model, hint = format_llm_model_selector_state(
+            LLM_STATUS_OLLAMA_NOT_FOUND,
+            [],
+        )
+
+        self.assertEqual(values, [])
+        self.assertEqual(selected_model, "")
+        self.assertEqual(hint, LLM_NO_MODELS_HINT)
 
     def test_gui_removes_paths_by_selected_indexes(self) -> None:
         paths = [

@@ -10,7 +10,17 @@ from tkinter import filedialog, ttk
 
 try:
     from .audit import AUDIT_CATEGORY_ORDER
-    from .anonymizer import SUPPORTED_LABELS, BatchResult, anonymize_batch
+    from .anonymizer import (
+        PDF_OUTPUT_MODE_ORIGINAL_REDACTION,
+        PDF_OUTPUT_MODE_REBUILT_REVIEW,
+        PDF_OUTPUT_MODE_VISUAL,
+        PDF_REDACTION_SCOPE_SAFE,
+        PDF_REDACTION_SCOPE_STRICT,
+        SUPPORTED_LABELS,
+        BatchResult,
+        anonymize_batch,
+    )
+    from .llm_review import LLM_STATUS_AVAILABLE, list_installed_models
     from .report import (
         DICTIONARY_STATUS_INVALID,
         DICTIONARY_STATUS_LOADED,
@@ -28,7 +38,17 @@ try:
     )
 except ImportError:
     from audit import AUDIT_CATEGORY_ORDER
-    from anonymizer import SUPPORTED_LABELS, BatchResult, anonymize_batch
+    from anonymizer import (
+        PDF_OUTPUT_MODE_ORIGINAL_REDACTION,
+        PDF_OUTPUT_MODE_REBUILT_REVIEW,
+        PDF_OUTPUT_MODE_VISUAL,
+        PDF_REDACTION_SCOPE_SAFE,
+        PDF_REDACTION_SCOPE_STRICT,
+        SUPPORTED_LABELS,
+        BatchResult,
+        anonymize_batch,
+    )
+    from llm_review import LLM_STATUS_AVAILABLE, list_installed_models
     from report import (
         DICTIONARY_STATUS_INVALID,
         DICTIONARY_STATUS_LOADED,
@@ -54,6 +74,40 @@ WINDOW_MIN_WIDTH = 720
 WINDOW_MIN_HEIGHT = 560
 WINDOW_DEFAULT_SIZE = "900x720"
 SELECTED_FILE_LIST_HEIGHT = 6
+LLM_NO_MODELS_HINT = "No local Ollama models found. Install/pull a model first."
+LLM_MODELS_FOUND_HINT = "Select a local Ollama model for optional LLM review."
+PDF_OUTPUT_LABEL_VISUAL_REDACTION = (
+    "Original-layout visual redaction from detected text (recommended)"
+)
+PDF_OUTPUT_LABEL_REBUILT_REVIEW = (
+    "Rebuilt text review PDF (simple text only)"
+)
+PDF_OUTPUT_LABEL_ORIGINAL_SAFE = "Experimental original-layout redaction (safe scope)"
+PDF_OUTPUT_LABEL_ORIGINAL_STRICT = (
+    "Experimental original-layout redaction (strict scope, may over-redact)"
+)
+PDF_REDACTION_SCOPE_LABELS = {
+    PDF_REDACTION_SCOPE_SAFE: PDF_OUTPUT_LABEL_ORIGINAL_SAFE,
+    PDF_REDACTION_SCOPE_STRICT: PDF_OUTPUT_LABEL_ORIGINAL_STRICT,
+}
+PDF_OUTPUT_SETTINGS_BY_LABEL = {
+    PDF_OUTPUT_LABEL_VISUAL_REDACTION: (
+        PDF_OUTPUT_MODE_VISUAL,
+        PDF_REDACTION_SCOPE_SAFE,
+    ),
+    PDF_OUTPUT_LABEL_REBUILT_REVIEW: (
+        PDF_OUTPUT_MODE_REBUILT_REVIEW,
+        PDF_REDACTION_SCOPE_SAFE,
+    ),
+    PDF_OUTPUT_LABEL_ORIGINAL_SAFE: (
+        PDF_OUTPUT_MODE_ORIGINAL_REDACTION,
+        PDF_REDACTION_SCOPE_SAFE,
+    ),
+    PDF_OUTPUT_LABEL_ORIGINAL_STRICT: (
+        PDF_OUTPUT_MODE_ORIGINAL_REDACTION,
+        PDF_REDACTION_SCOPE_STRICT,
+    ),
+}
 
 
 def _file_word(count: int) -> str:
@@ -82,6 +136,63 @@ def format_anonymize_readiness(input_file_count: int, has_output_dir: bool) -> s
     if missing_input_files:
         return "Add at least one input file."
     return "Select an output folder."
+
+
+def format_processing_status(index: int, total: int, path: Path) -> str:
+    """Format the visible per-file processing status."""
+    if index < 1 or total < 1 or index > total:
+        raise ValueError("processing index must be within the batch size")
+    return f"Processing {index}/{total}: {path.name}\nPlease wait..."
+
+
+def format_llm_model_selector_state(
+    status: str,
+    models: list[str] | tuple[str, ...],
+) -> tuple[list[str], str, str]:
+    """Return combobox values, default selection, and a safe GUI hint."""
+    unique_models: list[str] = []
+    for model in models:
+        model_name = str(model or "").strip()
+        if model_name and model_name not in unique_models:
+            unique_models.append(model_name)
+
+    if status == LLM_STATUS_AVAILABLE and unique_models:
+        return unique_models, unique_models[0], LLM_MODELS_FOUND_HINT
+
+    return [], "", LLM_NO_MODELS_HINT
+
+
+def mousewheel_scroll_units(event: object) -> int:
+    """Return comfortable canvas scroll units for mouse wheel/touchpad events."""
+    event_num = getattr(event, "num", None)
+    if event_num == 4:
+        return -3
+    if event_num == 5:
+        return 3
+
+    delta = int(getattr(event, "delta", 0) or 0)
+    if delta == 0:
+        return 0
+
+    steps = max(1, abs(delta) // 120)
+    direction = -1 if delta > 0 else 1
+    return direction * steps * 3
+
+
+def pdf_redaction_scope_from_gui_label(label: str) -> str:
+    """Return the internal PDF redaction scope for a GUI combobox label."""
+    settings = PDF_OUTPUT_SETTINGS_BY_LABEL.get(str(label).strip())
+    if settings is None:
+        return PDF_REDACTION_SCOPE_SAFE
+    return settings[1]
+
+
+def pdf_output_mode_from_gui_label(label: str) -> str:
+    """Return the internal PDF output mode for a GUI combobox label."""
+    settings = PDF_OUTPUT_SETTINGS_BY_LABEL.get(str(label).strip())
+    if settings is None:
+        return PDF_OUTPUT_MODE_VISUAL
+    return settings[0]
 
 
 def remove_paths_by_indexes(paths: list[Path], indexes: tuple[int, ...]) -> list[Path]:
@@ -379,6 +490,10 @@ class AnonymizerGui:
         self.use_ner_var = tk.BooleanVar(value=True)
         self.use_llm_review_var = tk.BooleanVar(value=False)
         self.llm_model_var = tk.StringVar(value="")
+        self.llm_model_hint_var = tk.StringVar(value=LLM_NO_MODELS_HINT)
+        self.pdf_redaction_scope_var = tk.StringVar(
+            value=PDF_OUTPUT_LABEL_VISUAL_REDACTION
+        )
         self.readiness_var = tk.StringVar(
             value=format_anonymize_readiness(0, False)
         )
@@ -401,6 +516,8 @@ class AnonymizerGui:
         self.selected_files_listbox: tk.Listbox | None = None
         self.review_tree: ttk.Treeview | None = None
         self.anonymize_button: ttk.Button | None = None
+        self.llm_model_combobox: ttk.Combobox | None = None
+        self.pdf_redaction_scope_combobox: ttk.Combobox | None = None
         self.wrap_labels: list[ttk.Label] = []
 
         self._build()
@@ -538,9 +655,58 @@ class AnonymizerGui:
         ttk.Label(main, text="LLM model:").grid(
             row=10, column=0, sticky="w", pady=(0, 10)
         )
-        ttk.Entry(main, textvariable=self.llm_model_var).grid(
-            row=10, column=1, columnspan=2, sticky="ew", pady=(0, 10)
+        llm_model_frame = ttk.Frame(main)
+        llm_model_frame.grid(row=10, column=1, columnspan=2, sticky="ew", pady=(0, 10))
+        llm_model_frame.columnconfigure(0, weight=1)
+        self.llm_model_combobox = ttk.Combobox(
+            llm_model_frame,
+            textvariable=self.llm_model_var,
+            state="readonly",
+            values=(),
         )
+        self.llm_model_combobox.grid(row=0, column=0, sticky="ew")
+        ttk.Button(
+            llm_model_frame,
+            text="Refresh models",
+            command=self.refresh_llm_models,
+        ).grid(row=0, column=1, sticky="e", padx=(8, 0))
+
+        llm_model_hint_label = ttk.Label(
+            main,
+            textvariable=self.llm_model_hint_var,
+            wraplength=500,
+        )
+        llm_model_hint_label.grid(
+            row=11, column=1, columnspan=2, sticky="ew", pady=(0, 10)
+        )
+        self.wrap_labels.append(llm_model_hint_label)
+
+        ttk.Label(main, text="PDF output:").grid(
+            row=12, column=0, sticky="w", pady=(0, 10)
+        )
+        self.pdf_redaction_scope_combobox = ttk.Combobox(
+            main,
+            textvariable=self.pdf_redaction_scope_var,
+            state="readonly",
+            values=tuple(PDF_OUTPUT_SETTINGS_BY_LABEL.keys()),
+        )
+        self.pdf_redaction_scope_combobox.grid(
+            row=12, column=1, columnspan=2, sticky="ew", pady=(0, 10)
+        )
+
+        pdf_output_hint_label = ttk.Label(
+            main,
+            text=(
+                "Recommended visual PDF keeps the original layout and applies "
+                "true redaction to detected text coordinates. Image-only text "
+                "may still require OCR/manual review."
+            ),
+            wraplength=500,
+        )
+        pdf_output_hint_label.grid(
+            row=13, column=1, columnspan=2, sticky="ew", pady=(0, 10)
+        )
+        self.wrap_labels.append(pdf_output_hint_label)
 
         self.anonymize_button = ttk.Button(
             main,
@@ -548,28 +714,28 @@ class AnonymizerGui:
             command=self.anonymize_selected_files,
             state="disabled",
         )
-        self.anonymize_button.grid(row=11, column=0, sticky="w", pady=(0, 14))
+        self.anonymize_button.grid(row=14, column=0, sticky="w", pady=(0, 14))
 
         readiness_label = ttk.Label(
             main,
             textvariable=self.readiness_var,
             wraplength=500,
         )
-        readiness_label.grid(row=11, column=1, columnspan=2, sticky="ew", pady=(0, 14))
+        readiness_label.grid(row=14, column=1, columnspan=2, sticky="ew", pady=(0, 14))
         self.wrap_labels.append(readiness_label)
 
         ttk.Label(main, text="Status:").grid(
-            row=12, column=0, sticky="nw", pady=(0, 10)
+            row=15, column=0, sticky="nw", pady=(0, 10)
         )
         status_label = ttk.Label(
             main, textvariable=self.status_var, wraplength=500
         )
-        status_label.grid(row=12, column=1, columnspan=2, sticky="ew", pady=(0, 10))
+        status_label.grid(row=15, column=1, columnspan=2, sticky="ew", pady=(0, 10))
         self.wrap_labels.append(status_label)
 
         counters_frame = ttk.LabelFrame(main, text="Category counters", padding=10)
         counters_frame.grid(
-            row=13, column=0, columnspan=3, sticky="ew", pady=(0, 14)
+            row=16, column=0, columnspan=3, sticky="ew", pady=(0, 14)
         )
         counters_frame.columnconfigure(0, weight=1)
         ttk.Label(
@@ -582,7 +748,7 @@ class AnonymizerGui:
             main, text="Post-anonymization audit", padding=10
         )
         audit_frame.grid(
-            row=14, column=0, columnspan=3, sticky="ew", pady=(0, 14)
+            row=17, column=0, columnspan=3, sticky="ew", pady=(0, 14)
         )
         audit_frame.columnconfigure(0, weight=1)
         ttk.Label(
@@ -592,24 +758,24 @@ class AnonymizerGui:
         ).grid(row=0, column=0, sticky="w")
 
         ttk.Label(main, text="Output files:").grid(
-            row=15, column=0, sticky="nw", pady=(0, 10)
+            row=18, column=0, sticky="nw", pady=(0, 10)
         )
         output_label = ttk.Label(
             main, textvariable=self.output_path_var, wraplength=500
         )
-        output_label.grid(row=15, column=1, columnspan=2, sticky="ew", pady=(0, 10))
+        output_label.grid(row=18, column=1, columnspan=2, sticky="ew", pady=(0, 10))
         self.wrap_labels.append(output_label)
 
         ttk.Label(main, text="Reports:").grid(
-            row=16, column=0, sticky="nw", pady=(0, 10)
+            row=19, column=0, sticky="nw", pady=(0, 10)
         )
         report_label = ttk.Label(
             main, textvariable=self.report_path_var, wraplength=500
         )
-        report_label.grid(row=16, column=1, columnspan=2, sticky="ew", pady=(0, 10))
+        report_label.grid(row=19, column=1, columnspan=2, sticky="ew", pady=(0, 10))
         self.wrap_labels.append(report_label)
 
-        self._build_review_section(main, row=17)
+        self._build_review_section(main, row=20)
 
         warning_label = ttk.Label(
             main,
@@ -617,22 +783,29 @@ class AnonymizerGui:
             foreground="#9a3412",
             wraplength=580,
         )
-        warning_label.grid(row=18, column=0, columnspan=3, sticky="w", pady=(4, 0))
+        warning_label.grid(row=21, column=0, columnspan=3, sticky="w", pady=(4, 0))
         self.wrap_labels.append(warning_label)
 
         main.bind("<Configure>", self._update_wrap_lengths, add="+")
+        self._bind_mousewheel_recursively(main)
+        self.refresh_llm_models()
 
-    def _on_mousewheel(self, event: tk.Event) -> None:
+    def _bind_mousewheel_recursively(self, widget: tk.Widget) -> None:
+        widget.bind("<MouseWheel>", self._on_mousewheel, add="+")
+        widget.bind("<Button-4>", self._on_mousewheel, add="+")
+        widget.bind("<Button-5>", self._on_mousewheel, add="+")
+        for child in widget.winfo_children():
+            self._bind_mousewheel_recursively(child)
+
+    def _on_mousewheel(self, event: tk.Event) -> str | None:
         if self.scroll_canvas is None:
-            return
+            return None
 
-        if getattr(event, "num", None) == 4:
-            units = -1
-        elif getattr(event, "num", None) == 5:
-            units = 1
-        else:
-            units = -1 if getattr(event, "delta", 0) > 0 else 1
-        self.scroll_canvas.yview_scroll(units, "units")
+        units = mousewheel_scroll_units(event)
+        if units:
+            self.scroll_canvas.yview_scroll(units, "units")
+            return "break"
+        return None
 
     def _update_wrap_lengths(self, event: tk.Event) -> None:
         wrap_length = max(360, int(getattr(event, "width", WINDOW_MIN_WIDTH)) - 220)
@@ -644,6 +817,23 @@ class AnonymizerGui:
         self.audit_var.set(format_batch_audit_result(None))
         self.output_path_var.set("No outputs yet.")
         self.report_path_var.set("No reports yet.")
+
+    def refresh_llm_models(self) -> None:
+        status, models = list_installed_models()
+        values, selected_model, hint = format_llm_model_selector_state(status, models)
+        self.llm_model_hint_var.set(hint)
+
+        if self.llm_model_combobox is not None:
+            self.llm_model_combobox.configure(values=values)
+            if values:
+                self.llm_model_combobox.state(["readonly", "!disabled"])
+            else:
+                self.llm_model_combobox.state(["disabled"])
+
+        current_model = self.llm_model_var.get()
+        if current_model in values:
+            return
+        self.llm_model_var.set(selected_model)
 
     def _refresh_selected_files_display(self) -> None:
         self.selected_file_count_var.set(
@@ -818,6 +1008,10 @@ class AnonymizerGui:
         )
         self.root.update_idletasks()
 
+        def update_processing_status(index: int, total: int, path: Path) -> None:
+            self.status_var.set(format_processing_status(index, total, path))
+            self.root.update_idletasks()
+
         try:
             batch_result = anonymize_batch(
                 self.selected_paths,
@@ -826,6 +1020,13 @@ class AnonymizerGui:
                 use_ner=self.use_ner_var.get(),
                 use_llm_review=self.use_llm_review_var.get(),
                 llm_model_name=self.llm_model_var.get(),
+                pdf_redaction_scope=pdf_redaction_scope_from_gui_label(
+                    self.pdf_redaction_scope_var.get()
+                ),
+                pdf_output_mode=pdf_output_mode_from_gui_label(
+                    self.pdf_redaction_scope_var.get()
+                ),
+                progress_callback=update_processing_status,
             )
         except Exception:
             self.status_var.set(
@@ -866,7 +1067,10 @@ class AnonymizerGui:
             "No per-file reports.",
         )
         self.report_path_var.set(
-            f"{reports_text}; batch summary: {batch_result.summary_path.name}"
+            f"{reports_text}; batch summary: {batch_result.summary_path.name}; "
+            f"batch review checklist: {batch_result.review_checklist_path.name}"
+            if batch_result.review_checklist_path is not None
+            else f"{reports_text}; batch summary: {batch_result.summary_path.name}"
         )
         self.review_dir = self.output_dir
         self.review_dir_var.set(f"Review folder selected: {self.output_dir.name}")
@@ -896,7 +1100,7 @@ class AnonymizerGui:
         review_tree_frame.columnconfigure(0, weight=1)
         self.review_tree = ttk.Treeview(
             review_tree_frame,
-            columns=("output", "risk", "report", "status"),
+            columns=("output", "risk", "checklist", "report", "status"),
             show="headings",
             height=5,
             selectmode="extended",
@@ -909,11 +1113,13 @@ class AnonymizerGui:
         self.review_tree.configure(yscrollcommand=review_tree_scrollbar.set)
         self.review_tree.heading("output", text="Output")
         self.review_tree.heading("risk", text="Risk")
+        self.review_tree.heading("checklist", text="Checklist")
         self.review_tree.heading("report", text="Report")
         self.review_tree.heading("status", text="Manual status")
-        self.review_tree.column("output", width=210, anchor="w")
+        self.review_tree.column("output", width=190, anchor="w")
         self.review_tree.column("risk", width=90, anchor="w")
-        self.review_tree.column("report", width=170, anchor="w")
+        self.review_tree.column("checklist", width=170, anchor="w")
+        self.review_tree.column("report", width=150, anchor="w")
         self.review_tree.column("status", width=120, anchor="w")
         self.review_tree.grid(row=0, column=0, sticky="ew")
         review_tree_scrollbar.grid(row=0, column=1, sticky="ns")
@@ -955,6 +1161,12 @@ class AnonymizerGui:
             text="Open matching report",
             command=self.open_selected_review_report,
         ).grid(row=3, column=1, sticky="w", padx=(8, 0), pady=(0, 8))
+
+        ttk.Button(
+            review_frame,
+            text="Open review checklist",
+            command=self.open_selected_review_checklist,
+        ).grid(row=3, column=2, sticky="w", padx=(8, 0), pady=(0, 8))
 
         review_warning_label = ttk.Label(
             review_frame,
@@ -1028,6 +1240,7 @@ class AnonymizerGui:
                 values=(
                     item.output_name,
                     item.risk_level or "unknown",
+                    item.checklist_name or "missing",
                     item.report_name or "missing",
                     item.status,
                 ),
@@ -1128,6 +1341,18 @@ class AnonymizerGui:
             return
 
         self._open_review_file(item.report_name, "report")
+
+    def open_selected_review_checklist(self) -> None:
+        item = self._get_single_selected_review_item()
+        if item is None:
+            return
+        if item.checklist_name is None:
+            self.review_status_var.set(
+                f"No matching review checklist detected for {item.output_name}."
+            )
+            return
+
+        self._open_review_file(item.checklist_name, "review checklist")
 
     def save_review_status(self) -> None:
         if self.review_dir is None:

@@ -162,20 +162,21 @@ or replacement maps.
 `file_writers.py` saves anonymized TXT, DOCX, PDF-to-TXT, and image-to-TXT
 copies without modifying original files. The output filename receives the
 `_ANON` suffix. For example, `document.txt` becomes `document_ANON.txt`,
-`document.docx` becomes `document_ANON.docx`, text-based `document.pdf`
-becomes `document_ANON.pdf` plus `document_ANON.txt`, and `scan.png` becomes
-`scan_ANON.txt`. Stage 12 allows these paths to target a selected output folder
-and uses numbered collision-safe names when a generated file already exists. It
-also builds safe report paths with the `_RAPORT.txt` suffix and the default
-`_BATCH_SUMMARY.txt` path.
+`document.docx` becomes `document_ANON.docx`, PDF `document.pdf`
+becomes `document_ANON_VISUAL.pdf`, `document_ANON_REVIEW.pdf`, and
+`document_ANON.txt`, and `scan.png` becomes `scan_ANON.txt`. Stage 12 allows
+these paths to target a selected output folder and uses numbered collision-safe
+names when a generated file already exists. It also builds safe report paths
+with the `_RAPORT.txt` suffix and the default `_BATCH_SUMMARY.txt` path.
 
 DOCX writing uses `python-docx` locally. It updates supported paragraph and simple table text in a copy of the original document. Basic paragraph and run formatting is preserved when possible, but full DOCX fidelity is not guaranteed.
 
 PDF reading uses `pypdf` locally. Stage 4 extracts text and writes anonymized
 TXT output. Stage 19 keeps that path first and attempts OCR only when a PDF has
-no extractable text. Stage 23 uses PyMuPDF to create a true-redacted visual PDF
-companion for text-based PDFs. It does not add scanned-PDF/OCR bounding-box
-redaction and does not modify the original PDF.
+no extractable text. Stage 24 uses PyMuPDF to create a true-redacted
+`_ANON_VISUAL.pdf` companion for text-based PDFs by mapping detected spans to
+PDF word coordinates. It does not add scanned-PDF/OCR bounding-box redaction
+and does not modify the original PDF.
 
 `report.py` builds and saves safe TXT reports without original sensitive source
 values. It receives only status, input type, output type, anonymization
@@ -324,6 +325,7 @@ using any anonymized DOCX output.
 
 Stage 4 supports PDFs that already contain extractable text. Stage 19 can
 attempt OCR for scanned PDFs when local OCR dependencies are available. OCR can
-be inaccurate. Stage 23 creates a layout-preserving redacted PDF companion only
-for text-based PDFs; scanned/OCR-only PDFs still produce TXT output only and do
-not receive OCR bounding-box visual redaction. Manual review remains required.
+be inaccurate. Stage 24 creates `_ANON_VISUAL.pdf` from text-layer word
+coordinates by default and keeps `_ANON_REVIEW.pdf` as an auxiliary rebuilt
+review PDF from anonymized text. Scanned/OCR-only PDFs do not receive OCR
+bounding-box visual redaction. Manual review remains required.

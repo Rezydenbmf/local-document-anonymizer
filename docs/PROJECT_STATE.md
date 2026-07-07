@@ -2,9 +2,16 @@
 
 ## Current Status
 
-The project has completed Stage 23: Layout-preserving PDF redaction MVP. Stage
-23 has been committed and pushed as `179033f Implement Stage 23 PDF redaction
-MVP` after final synthetic text-based PDF smoke verification.
+The project is in Stage 24 pilot corrections after Stage 23. Stage 23 was
+committed and pushed as `179033f Implement Stage 23 PDF redaction MVP` after
+final synthetic text-based PDF smoke verification. Stage 24 changes the default
+PDF review workflow after pilot feedback: PDF input now creates anonymized TXT,
+a privacy-safe per-file manual review checklist, a safe report, and a rebuilt
+review PDF from anonymized text, while original-layout redaction is kept only
+as an explicit experimental mode. Stage 24 also narrows PDF redaction quality,
+improves a typo-shaped person-name pattern, adds a visible GUI processing
+status, and replaces manual LLM model-name typing with a local Ollama model
+selector.
 
 The Stage 0-13 MVP implementation contains a narrow regex-based engine that
 accepts a Python string and returns anonymized text plus category counters. It
@@ -163,26 +170,58 @@ the user to warm up the model or retry with a longer timeout. Timeout fallback
 still shows retrieved sources and does not pretend generation succeeded. Stage
 22.1 remains CLI-only and does not add a GUI redesign.
 
-Stage 23 adds a layout-preserving true-redacted visual PDF companion for
-text-based PDF inputs. A text-based PDF now produces `_ANON.pdf`,
-`_ANON.txt`, and `_RAPORT.txt`. The PDF redaction helper uses PyMuPDF
-redaction annotations plus `apply_redactions()` so matched source text is
-removed from the generated PDF content rather than hidden under overlays.
-Stage 23.1 expands the text-based PDF redaction MVP with deterministic
-`POSTAL_CODE` and simple labeled-address candidates plus exact local NER spans
-when the NER model is available and the text span can be matched back to the
-PDF. The TXT output remains the source for approved-workspace indexing and the
-Local Knowledge Assistant. Reports and batch summaries include safe PDF
-redaction status/count metadata, a color legend, detected category counts, TXT
-anonymized category counts, PDF-redacted category counts, and
-detected-but-not-PDF-redacted category counts. When detected categories are not
-PDF-redacted, the PDF redaction status is `completed_with_warnings` instead of
-plain `completed`. The manual review open action prefers the companion
-`_ANON.pdf` when it exists, while review metadata still tracks the `_ANON.txt`
-output. Stage 23 also adds a conservative `PERSON_NAME_TYPO` pattern for cases
-such as `Firstname-Lastname Lastname`. Stage 23 does not add scanned-PDF/OCR
-bounding-box redaction, a PDF editor, split-screen review, drag and drop,
-vector databases, or broader LLM features.
+Stage 23 added a layout-preserving true-redacted visual PDF companion for
+text-based PDF inputs. Stage 24 pilot testing showed that broad text-search and
+token fallback redaction could make real review PDFs unusable. The Stage 24
+default for text-based PDF input is now `_ANON.txt`, `_ANON_VISUAL.pdf`,
+`_ANON_REVIEW.pdf`, `_REVIEW_CHECKLIST.txt`, and `_RAPORT.txt`.
+`_ANON_VISUAL.pdf` is the main manual review artifact: it preserves the source
+PDF page layout and applies true PyMuPDF redaction annotations from detected
+spans mapped to full word-coordinate rectangles. The rebuilt `_ANON_REVIEW.pdf`
+is auxiliary, generated from anonymized text only, uses simple source-page
+headers when page text is available, and does not embed original PDF pages.
+The TXT output remains the source for approved-workspace indexing and the Local
+Knowledge Assistant. Legacy `_ORIGINAL_REDACTED.pdf` remains an explicit
+experimental output mode.
+
+The default visual PDF redaction scope avoids broad substring search. It builds
+internal non-persisted spans for deterministic identifiers, dictionary aliases,
+`PERSON_NAME_TYPO`, high-confidence person spans, and exact NER org/location
+spans after allowlist filtering, then maps those spans to whole PDF words. If a
+span cannot be mapped safely to full word rectangles, it is skipped and
+reported by category only. The previous broad token fallback remains disabled.
+Stage 24 also adds conservative NER/PDF false-positive exclusions for public
+institution/legal phrases, version-like strings, disease/microbiology and
+vaccine terms, likely Latin binomials, selected ordinary Polish word false
+positives, and single-token person-like detections without strong person
+context, plus soft line-break handling for person names split across PDF text
+lines. The NER allowlist matcher also normalizes case, non-breaking spaces,
+soft hyphens, and common Unicode dash variants before visual PDF span
+redaction. Grouped phone-like numbers now require contact context unless they
+use a stronger phone format, reducing table/statistical false positives.
+Reports, per-file review checklists, batch review checklists, and batch
+summaries include safe PDF review/redaction status metadata, PDF text
+extraction mode, visual PDF type/output, word-coordinate mapping mode, review
+PDF type, true-redaction status, detected category counts, TXT anonymized
+category counts, PDF-redacted category counts, detected-but-not-PDF-redacted
+category counts, unmapped skipped categories, NER exclusion counters, and
+weak phone-like skipped counts. The manual review open action
+prefers `_ANON_VISUAL.pdf`, then `_ORIGINAL_REDACTED.pdf`, then
+`_ANON_REVIEW.pdf`, then legacy `_ANON.pdf` when present, while review metadata
+still tracks the `_ANON.txt` output and pairs `_REVIEW_CHECKLIST.txt` when
+present. Stage 24 extends the
+conservative
+`PERSON_NAME_TYPO` pattern to cover malformed shapes such as
+`Firstname-LastnamePart1 LastnamePart2`, Unicode dash variants, and simple
+spacing around the dash while avoiding tested normal hyphenated non-person
+phrases. Stage 24 also replaces the GUI's free-text LLM model field with a
+refreshable local Ollama model selector based on `ollama list`; when no local
+models are available, the GUI shows a clear install/pull-model hint. The GUI
+also exposes the recommended visual PDF mode plus auxiliary rebuilt and legacy
+experimental output modes, and supports mouse wheel/touchpad scrolling in the
+tall main window. Stage 24 does not add scanned-PDF/OCR bounding-box redaction,
+a PDF editor, split-screen review, drag and drop, vector databases, or broader
+LLM features.
 
 ## What Exists
 
@@ -226,14 +265,34 @@ vector databases, or broader LLM features.
   local model, and setting an answer generation timeout.
 - Optional spaCy NER model loading with no automatic model download and no
   committed model files.
-- True-redacted visual PDF companion output in `src/pdf_redaction.py` for
-  text-based PDFs using PyMuPDF redaction annotations and
-  `apply_redactions()`.
-- PDF redaction coverage metadata that separates detected categories, TXT
-  anonymized categories, PDF-redacted categories, and detected-but-not-PDF-
-  redacted categories.
+- Conservative NER false-positive exclusions for selected public
+  institution/legal phrases, version-like strings, and selected scientific
+  names, reported as label-only counters.
+- Original-layout visual PDF output in `src/pdf_redaction.py` for text-based
+  PDF inputs, creating `_ANON_VISUAL.pdf` with true redaction annotations
+  mapped from detected spans to full PDF word coordinates.
+- Auxiliary rebuilt PDF review output in `src/pdf_redaction.py` for PDF inputs,
+  creating `_ANON_REVIEW.pdf` from anonymized text only without embedding
+  original PDF pages.
+- Privacy-safe review checklist generation in `src/checklist.py`, creating
+  per-file `_REVIEW_CHECKLIST.txt` files and batch `_BATCH_REVIEW_CHECKLIST.txt`
+  files from safe metadata plus anonymized output labels only.
+- Optional experimental original-layout true-redacted PDF output in
+  `src/pdf_redaction.py` for text-based PDFs using PyMuPDF redaction
+  annotations and `apply_redactions()`.
+- PDF review/redaction metadata that separates text extraction mode, visual PDF
+  type/output, word-coordinate mapping mode, review PDF type, true-redaction
+  status, detected categories, TXT anonymized categories, PDF-redacted
+  categories, detected-but-not-PDF-redacted categories, and unmapped skipped
+  categories.
 - Conservative `PERSON_NAME_TYPO` replacement/audit category for typo-shaped
-  person names such as `Firstname-Lastname Lastname`.
+  person names such as `Firstname-Lastname Lastname` and
+  `Firstname-LastnamePart1 LastnamePart2`.
+- GUI processing status updates between batch files, for example
+  `Processing 1/3: filename.pdf` plus `Please wait...`.
+- GUI local Ollama model selector that loads installed models with
+  `ollama list`, supports models such as `gemma3:4b` when installed, and shows
+  a clear no-models-found hint instead of requiring manual typing.
 - Internal NER labels: `NER_PERSON`, `NER_ORG`, `NER_LOCATION`, and
   `NER_MISC`.
 - Optional image OCR workflow for `.png`, `.jpg`, `.jpeg`, `.tif`, and `.tiff`
@@ -261,12 +320,13 @@ vector databases, or broader LLM features.
   still needed before anonymization can start.
 - GUI file selection for implemented OCR-capable image inputs and safe
   aggregate OCR status display in the existing audit/status area.
-- GUI checkbox for optional local LLM review and a simple model-name field.
-  The GUI shows aggregate LLM review status metadata only.
+- GUI checkbox for optional local LLM review and a refreshable local Ollama
+  model selector. The GUI shows aggregate LLM review status metadata only.
 - Manual review GUI actions to open a selected `_ANON` output or matching
   `_RAPORT` report with the operating system default application.
 - Default GUI entry point in `src/main.py`.
 - Safe report text generation in `src/report.py`.
+- Safe manual review checklist text generation in `src/checklist.py`.
 - Report path helper `build_report_path(...)`, which can target the selected
   output folder.
 - Collision-safe path helper for `_ANON`, `_RAPORT`, and `_BATCH_SUMMARY`
@@ -302,14 +362,17 @@ accepts preloaded `sensitive_terms`.
   aggregate audit category counters, aggregate LLM review status/risk/category
   counters, aggregate PDF redaction status counts, and no private paths.
 - Manual review workflow in `src/review.py` for detecting generated `_ANON`
-  outputs, pairing safe report basenames, reading safe report risk levels,
+  outputs, pairing safe report and review-checklist basenames, reading safe
+  report risk levels,
   applying manual statuses, and saving safe review metadata.
 - GUI support for assigning `approved`, `needs_review`, or `rejected` statuses
   without previewing or editing document contents.
 - GUI support for showing safe manual-review risk levels and sorting
   `high_risk` outputs first.
-- GUI manual-review open action preference for companion `_ANON.pdf` files
-  when a PDF-derived `_ANON.txt` item has a visual redacted PDF next to it.
+- GUI manual-review open action preference for companion `_ANON_VISUAL.pdf`
+  files, then experimental `_ORIGINAL_REDACTED.pdf`, then `_ANON_REVIEW.pdf`,
+  then legacy `_ANON.pdf`, when a PDF-derived `_ANON.txt` item has a PDF review
+  artifact next to it.
 - Safe `_REVIEW_STATUS.json` review manifest output.
 - Collision-safe `_REVIEW_SUMMARY.txt` review summary output.
 - Approved workspace export in `src/review.py` that reads
@@ -381,6 +444,17 @@ accepts preloaded `sensitive_terms`.
 - Unit tests for Stage 23 text-based PDF redaction output, hidden-text removal
   checks on generated synthetic PDFs, safe report/batch redaction metadata,
   manual-review PDF open preference, and the `PERSON_NAME_TYPO` pattern.
+- Unit tests for Stage 24 pilot corrections covering rebuilt review PDF output,
+  reduced broad PDF redaction of ordinary address words, safe and strict
+  experimental original-layout PDF redaction scopes, conservative safe-scope
+  `NER_PERSON` PDF redaction, malformed hyphenated
+  person-name detection in TXT/DOCX/PDF flows including Unicode dash variants,
+  punctuation, non-breaking spaces, Polish letters, and split DOCX runs, a
+  non-person hyphenated phrase regression, NER false-positive exclusions,
+  line-break person detection, privacy-safe per-file and batch review
+  checklist creation, checklist/report/manual-review pairing, batch progress
+  callback formatting, local Ollama model list parsing, and GUI model selector
+  fallback behavior.
 - Manual MVP smoke-test checklist in `docs/MVP_MANUAL_TEST_CHECKLIST.md`.
 - Synthetic sample text files in `tests/sample_data/`.
 - Synthetic example dictionary in `examples/sensitive_terms.example.txt`.
@@ -443,10 +517,12 @@ python -m unittest discover -s tests
   with extractable text or optional OCR fallback, and OCR-capable image inputs.
 - TXT outputs are written to the selected output folder with an `_ANON` suffix.
 - DOCX outputs are written to the selected output folder with an `_ANON` suffix.
-- PDF input is extracted as text and saved as `_ANON.txt`; no anonymized PDF is
-  created for scanned/OCR-only PDFs.
-- Text-based PDF input also creates `_ANON.pdf` as a true-redacted visual
-  companion when PyMuPDF can locate supported matches.
+- PDF input is extracted as text and saved as `_ANON.txt`; the default manual
+  review package also includes `_REVIEW_CHECKLIST.txt` and auxiliary
+  `_ANON_REVIEW.pdf`, rebuilt from anonymized text.
+- Experimental original-layout text-based PDF redaction can create
+  `_ORIGINAL_REDACTED.pdf` when explicitly selected and when PyMuPDF can locate
+  supported matches.
 - Image input is OCR-extracted and saved as `_ANON.txt`; no edited image is
   created.
 - Existing output files are not overwritten silently; numbered suffixes such as
@@ -472,9 +548,11 @@ python -m unittest discover -s tests
   entities.
 - OCR can be inaccurate. OCR output still goes through deterministic
   anonymization and must be manually reviewed.
-- Text-based PDF redaction preserves the source pages as a visual review aid,
-  but unusual encodings, fragmented glyphs, rotated text, form fields,
-  annotations, or text in images can be missed.
+- Rebuilt PDF review output is readable but not layout-preserving. It is
+  generated from anonymized text only. Experimental original-layout redaction
+  can miss unusual encodings, fragmented glyphs, rotated text, form fields,
+  annotations, or text in images, and can still over-redact when strict NER
+  scope is selected.
 - The GUI processes selected files sequentially and does not include document
   preview, editing, or drag and drop.
 - The manual review workflow tracks statuses only. It does not inspect,
@@ -523,13 +601,13 @@ Stage 23: Layout-preserving PDF redaction MVP.
 
 ## Next Logical Step
 
-Run a small synthetic or user-approved pilot review of the Stage 23 PDF outputs
-in the normal GUI workflow, or choose the next explicitly approved stage. The
-final synthetic text-based PDF smoke verified that `_ANON.pdf`, `_ANON.txt`,
-and `_RAPORT.txt` are created, that copied/searchable text from the generated
-PDF no longer includes the synthetic source values, and that the report
-separates detected, TXT-anonymized, PDF-redacted, and
-detected-but-not-PDF-redacted categories. Potential future work requires an
+Run a focused synthetic or user-approved pilot review of the Stage 24 corrected
+PDF outputs and checklist workflow in the normal GUI workflow, or choose the
+next explicitly approved stage. The Stage 24 correction makes `_ANON.txt`,
+`_REVIEW_CHECKLIST.txt`, `_ANON_REVIEW.pdf`, and `_RAPORT.txt` the default PDF
+workflow, keeps experimental
+`_ORIGINAL_REDACTED.pdf` true redaction available only by explicit selection,
+and reports the difference clearly. Potential future work requires an
 explicit project decision, especially OCR quality improvements, NER candidate
 export, installer work, AI/API integration, broader LLM features, databases,
 broad NLP/entity detection, packaging, release automation, embedding retrieval

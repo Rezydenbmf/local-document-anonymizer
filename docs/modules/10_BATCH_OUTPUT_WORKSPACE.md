@@ -5,20 +5,23 @@
 This module documents Stage 12: safe output workspace and batch processing.
 
 Stage 12 lets the user select multiple supported files and one output folder.
-All generated `_ANON`, `_RAPORT`, and `_BATCH_SUMMARY` files are written to
-that output folder instead of next to the source files. Generated names are
-collision-safe, so existing files are not silently overwritten.
+All generated `_ANON`, `_REVIEW_CHECKLIST`, `_RAPORT`, `_BATCH_SUMMARY`, and
+`_BATCH_REVIEW_CHECKLIST` files are written to that output folder instead of
+next to the source files. Generated names are collision-safe, so existing files
+are not silently overwritten.
 
 Stage 19 keeps batch processing sequential and adds safe OCR status metadata
 for image inputs and scanned-PDF fallback. Stage 20 adds safe NER status and
 category metadata when local NER is enabled. Stage 21 adds safe LLM review
 status, risk, and residual category metadata when local LLM review is enabled.
-Stage 23 adds safe PDF redaction status metadata and companion `_ANON.pdf`
-outputs for text-based PDF inputs.
+Stage 24 adds safe PDF review/redaction status metadata, default
+`_ANON_VISUAL.pdf` and `_ANON_REVIEW.pdf` outputs for PDF inputs, per-file review checklists, and a
+batch review checklist.
 
 ## Related files
 
 - `src/anonymizer.py`
+- `src/checklist.py`
 - `src/file_writers.py`
 - `src/report.py`
 - `src/gui.py`
@@ -37,6 +40,7 @@ build_collision_safe_path(candidate_path)
 build_batch_summary_path(output_dir)
 build_batch_summary_text(...)
 save_batch_summary_file(...)
+build_batch_review_checklist_path(output_dir)
 ```
 
 The existing single-file helpers keep their original return shapes. Stage 12
@@ -47,18 +51,19 @@ chosen output workspace.
 input count, success count, error count, aggregate counters, audit status
 counts, risk level counts, aggregate audit category counters, aggregate OCR
 counts, aggregate NER counts, aggregate LLM review counts, aggregate PDF
-redaction status counts, and per-file result entries using filenames only.
+redaction status counts, the batch review checklist path, and per-file result
+entries using filenames only.
 
 ## Output Workspace
 
 The output folder is selected by the user in the GUI. The workflow writes:
 
 ```text
-document.txt  -> document_ANON.txt  + document_RAPORT.txt
-document.docx -> document_ANON.docx + document_RAPORT.txt
-document.pdf  -> document_ANON.pdf + document_ANON.txt + document_RAPORT.txt
-scan.png      -> scan_ANON.txt      + scan_RAPORT.txt
-batch run     -> _BATCH_SUMMARY.txt
+document.txt  -> document_ANON.txt  + document_REVIEW_CHECKLIST.txt + document_RAPORT.txt
+document.docx -> document_ANON.docx + document_REVIEW_CHECKLIST.txt + document_RAPORT.txt
+document.pdf  -> document_ANON_VISUAL.pdf + document_ANON_REVIEW.pdf + document_ANON.txt + document_REVIEW_CHECKLIST.txt + document_RAPORT.txt
+scan.png      -> scan_ANON.txt      + scan_REVIEW_CHECKLIST.txt + scan_RAPORT.txt
+batch run     -> _BATCH_REVIEW_CHECKLIST.txt + _BATCH_SUMMARY.txt
 ```
 
 Only generated output goes to the selected output folder. Source files are not
@@ -75,8 +80,9 @@ document_ANON_2.txt
 document_ANON_3.txt
 ```
 
-The same rule applies to `_RAPORT.txt` reports and `_BATCH_SUMMARY.txt` batch
-summary reports.
+The same rule applies to `_REVIEW_CHECKLIST.txt` checklists, `_RAPORT.txt`
+reports, `_BATCH_REVIEW_CHECKLIST.txt` batch checklists, and
+`_BATCH_SUMMARY.txt` batch summary reports.
 
 ## Batch Processing
 
@@ -107,8 +113,10 @@ The `_BATCH_SUMMARY.txt` report may contain:
 - aggregate LLM review status counts, LLM risk counts, and LLM residual
   category counters,
 - aggregate PDF redaction status counts,
+- batch review checklist basename,
 - safe input filenames,
 - safe generated output filenames,
+- safe generated review checklist filenames,
 - safe generated report filenames,
 - controlled safe error descriptions,
 - manual review requirement.
@@ -130,6 +138,11 @@ The batch summary must not contain:
 - matched PDF redaction source values,
 - document snippets,
 - logs or snippets.
+
+The `_BATCH_REVIEW_CHECKLIST.txt` file is the batch-level review guide. It
+lists total processed files, successes/errors, files requiring manual review,
+per-file risk priorities, per-file output/report/checklist basenames, and
+aggregate category counts. It does not store source values or full paths.
 
 ## GUI Behavior
 
@@ -158,8 +171,8 @@ dictionary contents, audit snippets, or raw exception text.
 - Reports do not store replacement maps.
 - Batch errors are sanitized before being written to `_BATCH_SUMMARY.txt`.
 - Risk levels are prioritization metadata only and do not approve files.
-- PDF redaction metadata is safe status/count metadata only and does not prove
-  complete anonymization.
+- PDF review/redaction metadata is safe status/count metadata only and does not
+  prove complete anonymization.
 - Manual review remains required for every generated output.
 
 ## How to Test
@@ -180,8 +193,8 @@ tests cover safe OCR batch continuation and OCR status summary metadata. Stage
 20 tests cover safe NER status summary metadata with mocked model output.
 Stage 21 tests cover safe LLM status/risk/category summary metadata with
 mocked Ollama behavior.
-Stage 23 tests cover PDF redaction status summary metadata with generated
-synthetic PDFs.
+Stage 24 tests cover PDF review/redaction status summary metadata with
+generated synthetic PDFs.
 
 ## Known Limitations
 
@@ -195,8 +208,9 @@ synthetic PDFs.
   detection.
 - LLM review counts are status metadata only and do not guarantee complete
   anonymization or correct risk classification.
-- PDF redaction counts are status metadata only and text-based redaction can
-  miss unusual PDF text structures.
+- PDF review/redaction counts are status metadata only. The visual PDF depends
+  on text-layer word coordinates, and the auxiliary rebuilt review PDF is not
+  layout-preserving.
 - The batch summary uses safe filenames, but filenames themselves should still
   be chosen carefully by the user.
 - Manual review is still required.

@@ -18,14 +18,21 @@ adds safe OCR metadata to per-file reports and batch summaries. Stage 20 adds
 safe NER metadata to per-file reports and batch summaries. Stage 21 adds safe
 local LLM review metadata to per-file reports and batch summaries. Stage 23
 adds safe PDF redaction status, category counters, generated PDF basename, and
-color legend metadata for text-based PDF inputs. Stage 23.1 separates detected
-categories, TXT-anonymized categories, PDF-redacted categories, and
-detected-but-not-PDF-redacted categories so PDF visual redaction is not
-reported as complete when known detected categories were not redacted.
+color legend metadata for text-based PDF inputs. Stage 24 adds visual PDF and
+auxiliary review PDF metadata, including text extraction mode, visual PDF type,
+redaction mapping mode, visual/review PDF basenames, true-redaction status, and
+whether legacy experimental original-layout redaction was used. Detected
+categories, TXT-anonymized categories, PDF-redacted categories,
+detected-but-not-PDF-redacted categories, and unmapped skipped categories stay
+separated so PDF visual redaction is not reported as complete when known
+detected categories were not redacted.
+Stage 24 also adds privacy-safe per-file review checklists and a batch review
+checklist generated from safe metadata and anonymized output labels only.
 
 ## Related files
 
 - `src/report.py`
+- `src/checklist.py`
 - `src/file_writers.py`
 - `src/anonymizer.py`
 - `src/gui.py`
@@ -46,6 +53,10 @@ save_report_file(...) -> Path
 build_report_path(source_path: str | Path) -> Path
 build_batch_summary_text(...) -> str
 save_batch_summary_file(...) -> Path
+build_review_checklist_text(...) -> str
+save_review_checklist_file(...) -> Path
+build_batch_review_checklist_text(...) -> str
+save_batch_review_checklist_file(...) -> Path
 build_review_summary_text(...) -> str
 save_review_files(...) -> ReviewSaveResult
 build_approved_index_text(...) -> str
@@ -78,12 +89,31 @@ Stage 12 saves these generated files in the selected output folder. Original
 files are not modified. Existing generated files are not overwritten silently;
 numbered names such as `document_RAPORT_2.txt` are used when needed.
 
+Per-file review checklists are saved with the `_REVIEW_CHECKLIST.txt` suffix:
+
+```text
+document.txt -> document_REVIEW_CHECKLIST.txt
+document.docx -> document_REVIEW_CHECKLIST.txt
+document.pdf -> document_REVIEW_CHECKLIST.txt
+```
+
+The checklist is the primary privacy-safe manual review guide. It uses safe
+basenames, category counts, review tasks, and short context from anonymized
+output labels only.
+
 Batch summary reports are saved as:
 
 ```text
 _BATCH_SUMMARY.txt
 _BATCH_SUMMARY_2.txt
 _BATCH_SUMMARY_3.txt
+```
+
+Batch review checklists are saved as:
+
+```text
+_BATCH_REVIEW_CHECKLIST.txt
+_BATCH_REVIEW_CHECKLIST_2.txt
 ```
 
 Manual review metadata files are saved as:
@@ -122,9 +152,11 @@ The report contains only safe metadata:
 - NER enabled/used/status/model metadata and NER category counters,
 - LLM review used/status/model/risk metadata and possible residual category
   names,
-- PDF redaction used/status/output metadata, detected/TXT/PDF coverage
-  counters, detected-but-not-PDF-redacted category counters, safe partial
-  coverage warnings, and color legend for text-based PDFs,
+- PDF text extraction mode, review PDF created/type/output metadata,
+  original-layout redaction used/experimental metadata, detected/TXT/PDF
+  coverage counters, detected-but-not-PDF-redacted category counters, safe
+  partial coverage warnings, and color legend for PDF inputs,
+- review checklist created yes/no and review checklist basename,
 - post-anonymization audit status,
 - post-anonymization audit risk level,
 - post-anonymization audit counters by warning category,
@@ -145,12 +177,14 @@ The batch summary contains only safe metadata:
 - aggregate NER status counts and NER category counters,
 - aggregate LLM review status counts, LLM risk counts, and LLM residual
   category counters,
-- aggregate PDF redaction status counts and safe per-file PDF redaction
-  warnings,
+- aggregate PDF review/redaction status counts and safe per-file PDF
+  review/redaction warnings,
+- batch review checklist basename,
 - manual review requirement,
 - safe input filenames,
 - safe generated output filenames,
 - safe generated report filenames,
+- safe generated review checklist filenames,
 - controlled safe error descriptions.
 
 The manual review summary contains only safe metadata:
@@ -162,6 +196,7 @@ The manual review summary contains only safe metadata:
 - safe risk level when it can be read from a paired Stage 16 report,
 - safe generated output basenames,
 - safe report basenames or a missing-report marker,
+- safe review checklist basenames or a missing-checklist marker,
 - safe batch summary basenames when present,
 - confirmation that source data and replacement maps are not stored.
 
@@ -272,8 +307,9 @@ text is not written to reports or batch summaries. Stage 20 tests cover safe
 NER metadata and confirm detected entity text is not written to reports or
 batch summaries. Stage 21 tests cover safe LLM metadata and confirm raw
 prompts, raw responses, and source text are not written to reports or batch
-summaries. Stage 23 tests cover safe PDF redaction metadata and generated-PDF
-basename reporting with synthetic PDFs only.
+summaries. Stage 24 tests cover safe visual PDF metadata, auxiliary rebuilt
+review PDF metadata, legacy experimental original-layout redaction metadata,
+and generated-PDF basename reporting with synthetic PDFs only.
 
 ## Known Limitations
 
@@ -285,8 +321,8 @@ basename reporting with synthetic PDFs only.
 - Detected NER entity text is not written to reports or summaries.
 - Raw LLM prompts and raw LLM responses are not written to reports or
   summaries.
-- PDF redaction reports contain metadata and counters only, not matched source
-  values or snippets.
+- PDF review/redaction reports contain metadata and counters only, not matched
+  source values or snippets.
 - No original private dictionary aliases or terms are written to reports.
 - Per-file reports do not write source filenames into the report body.
 - Batch summaries write safe filenames only, not full paths.

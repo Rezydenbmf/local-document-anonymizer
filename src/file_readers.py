@@ -110,6 +110,11 @@ def read_docx_file(file_path: str | Path) -> str:
 
 def read_pdf_file(file_path: str | Path) -> str:
     """Read extractable text from a local text-based PDF file."""
+    return "\n".join(read_pdf_file_pages(file_path))
+
+
+def read_pdf_file_pages(file_path: str | Path) -> list[str]:
+    """Read extractable text from a local text-based PDF file by page."""
     path = _ensure_pdf_path(file_path)
     PdfReader = _load_pdf_reader_class()
     reader = PdfReader(path)
@@ -127,7 +132,7 @@ def read_pdf_file(file_path: str | Path) -> str:
             "supported; scanned PDFs and OCR are not supported."
         )
 
-    return text
+    return text_parts
 
 
 def extract_text(file_path: str | Path) -> str:

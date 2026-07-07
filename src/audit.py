@@ -46,6 +46,35 @@ AUDIT_CATEGORY_ORDER = (
     "LONG_NUMBER_SEQUENCE",
 )
 
+_UPPER_LETTERS = "A-ZĄĆĘŁŃÓŚŹŻ"
+_LOWER_LETTERS = "A-Za-zĄĆĘŁŃÓŚŹŻąćęłńóśźż"
+_NAME_TOKEN = rf"[{_UPPER_LETTERS}][{_LOWER_LETTERS}]{{2,}}"
+_NAME_HYPHEN = r"[-\u00ad\u2010\u2011\u2012\u2013\u2014]"
+_SURNAME_LIKE_TOKEN = (
+    rf"[{_UPPER_LETTERS}][{_LOWER_LETTERS}]{{2,}}"
+    r"(?:ski|ska|cki|cka|dzki|dzka|ak|ek|ik|yk|uk|cz|icz|wicz|owicz|ewicz)"
+)
+PERSON_NAME_TYPO_PATTERN = re.compile(
+    rf"""
+    (?<![\w\-\u00ad\u2010\u2011\u2012\u2013\u2014])
+    {_NAME_TOKEN}
+    \s*
+    {_NAME_HYPHEN}
+    \s*
+    (?:
+        {_SURNAME_LIKE_TOKEN}
+        \s+
+        {_NAME_TOKEN}
+        |
+        {_NAME_TOKEN}
+        \s+
+        {_SURNAME_LIKE_TOKEN}
+    )
+    (?![\w\-\u00ad\u2010\u2011\u2012\u2013\u2014])
+    """,
+    re.VERBOSE,
+)
+
 _AUDIT_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
         "EMAIL",
@@ -60,9 +89,9 @@ _AUDIT_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
             r"""
             (?<![\w+])
             (?:
-                (?:\+48|0048)[ -]?\d{3}[ -]?\d{3}[ -]?\d{3}
+                (?:\+48|0048)[\s-]?\d{3}[\s-]?\d{3}[\s-]?\d{3}
                 |
-                \d{3}[- ]\d{3}[- ]\d{3}
+                \d{9}
             )
             (?!\w)
             """,
@@ -86,18 +115,7 @@ _AUDIT_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ),
     (
         "PERSON_NAME_TYPO",
-        re.compile(
-            r"""
-            (?<![\w-])
-            [A-Z][A-Za-z]{2,}
-            -
-            (?P<surname>[A-Z][A-Za-z]{2,})
-            \s+
-            (?P=surname)
-            (?![\w-])
-            """,
-            re.VERBOSE,
-        ),
+        PERSON_NAME_TYPO_PATTERN,
     ),
     (
         "CASE_REFERENCE",

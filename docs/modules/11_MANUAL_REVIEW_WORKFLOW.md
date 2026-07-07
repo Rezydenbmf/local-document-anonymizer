@@ -20,10 +20,12 @@ Stage 17 adds approved workspace export from saved review decisions. It reads
 writes a safe `_APPROVED_INDEX.txt` manifest. This is not automatic approval
 and not a guarantee of complete anonymization.
 
-Stage 23 keeps PDF-derived review items anchored on the `_ANON.txt` output so
+Stage 24 keeps PDF-derived review items anchored on the `_ANON.txt` output so
 the TXT can still be approved/exported for the Local Knowledge Assistant. When
-a companion `_ANON.pdf` exists, the GUI open action prefers that visual PDF for
-manual review.
+a companion PDF exists, the GUI open action prefers `_ANON_VISUAL.pdf`, then
+experimental `_ORIGINAL_REDACTED.pdf`, then `_ANON_REVIEW.pdf`, then legacy `_ANON.pdf` for manual
+review. Stage 24 also pairs `_REVIEW_CHECKLIST.txt` files and exposes them as
+the primary privacy-safe manual review guide.
 
 ## Related files
 
@@ -55,8 +57,10 @@ metadata is intentionally small:
 
 - generated anonymized output basename,
 - matching report basename when present,
+- matching review checklist basename when present,
 - safe risk level from a paired Stage 16 report when present,
 - missing-report state when no report is paired,
+- missing-checklist state when no checklist is paired,
 - manual status.
 
 The supported manual statuses are:
@@ -85,18 +89,27 @@ document_RAPORT.txt
 document_RAPORT_2.txt
 ```
 
+It pairs matching review checklist files when present:
+
+```text
+document_REVIEW_CHECKLIST.txt
+document_REVIEW_CHECKLIST_2.txt
+```
+
 It also records safe batch summary basenames such as:
 
 ```text
 _BATCH_SUMMARY.txt
 _BATCH_SUMMARY_2.txt
+_BATCH_REVIEW_CHECKLIST.txt
 ```
 
 The workflow uses basenames only. It does not store full paths.
 
 For PDF inputs, the workflow still detects the generated `_ANON.txt` review
-item. A companion `_ANON.pdf` with the same stem can be opened preferentially
-by the GUI, but the review status payload remains based on safe TXT basenames.
+item. A companion `_ANON_VISUAL.pdf`, `_ANON_REVIEW.pdf`, `_ORIGINAL_REDACTED.pdf`, or legacy
+`_ANON.pdf` can be opened preferentially by the GUI, but the review status
+payload remains based on safe TXT basenames.
 
 When a paired report is present, the workflow reads only the safe `Risk level:`
 line and accepts only `ok`, `warning`, or `high_risk`. Missing, unreadable, or
@@ -140,6 +153,7 @@ Review metadata may contain:
 
 - generated output basenames,
 - report basenames,
+- review checklist basenames,
 - safe risk levels,
 - batch summary basenames,
 - manual status values,
@@ -184,18 +198,21 @@ The GUI provides a manual review section that can:
 
 1. Select an output folder.
 2. Load detected generated outputs.
-3. Show output basename, risk level, report basename or `missing`, and manual
-   status.
+3. Show output basename, risk level, review checklist basename or `missing`,
+   report basename or `missing`, and manual status.
 4. Sort `high_risk` items first when safe risk metadata is available.
 5. Open the selected generated output with the operating system default
-   application, preferring a companion `_ANON.pdf` for PDF-derived TXT outputs
-   when it exists.
+   application, preferring `_ANON_VISUAL.pdf`, then `_ORIGINAL_REDACTED.pdf`,
+   then `_ANON_REVIEW.pdf`,
+   then legacy `_ANON.pdf` for PDF-derived TXT outputs when present.
 6. Open the matching report with the operating system default application when
    one is detected.
-7. Assign `approved`, `needs_review`, or `rejected` to one or more selected
+7. Open the matching review checklist with the operating system default
+   application when one is detected.
+8. Assign `approved`, `needs_review`, or `rejected` to one or more selected
    rows.
-8. Save the review status and summary files.
-9. Export files marked `approved` into the approved workspace after review
+9. Save the review status and summary files.
+10. Export files marked `approved` into the approved workspace after review
    status has been saved.
 
 The GUI does not show full document content, report content, dictionary

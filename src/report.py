@@ -134,11 +134,16 @@ PDF_REDACTION_STATUSES = (
     "skipped_ocr",
     "unavailable",
 )
+PDF_REDACTION_SCOPES = ("safe", "strict")
+PDF_REVIEW_TYPES = ("rebuilt_from_anonymized_text", "none")
+PDF_TEXT_EXTRACTION_TYPES = ("text_layer", "ocr_fallback", "ocr_forced", "")
 PDF_REDACTION_COLOR_LEGEND = (
     ("red", "PESEL and strong numeric identifiers"),
     ("orange", "phone numbers and conservative person-name typo matches"),
     ("blue", "email and electronic identifiers"),
-    ("gray/purple", "dates, organizations, locations, and other markers"),
+    ("gray", "dates"),
+    ("purple", "organizations"),
+    ("green", "locations"),
 )
 
 
@@ -298,6 +303,44 @@ def _safe_pdf_redaction_output_name(value: object) -> str:
     return _safe_filename(value)
 
 
+def _safe_pdf_redaction_scope(value: object) -> str:
+    scope = str(value or "").strip().lower()
+    if scope in PDF_REDACTION_SCOPES:
+        return scope
+    return "safe"
+
+
+def _safe_pdf_review_type(value: object) -> str:
+    review_type = str(value or "").strip()
+    if review_type in PDF_REVIEW_TYPES:
+        return review_type
+    return "none"
+
+
+def _safe_pdf_text_extraction(value: object) -> str:
+    extraction = str(value or "").strip()
+    if extraction in PDF_TEXT_EXTRACTION_TYPES:
+        return extraction or "unknown"
+    return "unknown"
+
+
+def _review_checklist_section_lines(
+    checklist_result: Mapping[str, object] | None,
+) -> list[str]:
+    created = bool(checklist_result and checklist_result.get("created", False))
+    output_name = (
+        _safe_filename(checklist_result.get("output_name", "not created"))
+        if checklist_result
+        else "not created"
+    )
+    return [
+        "",
+        "Review checklist:",
+        f"Review checklist created: {'yes' if created else 'no'}",
+        f"Review checklist output: {output_name if created else 'not created'}",
+    ]
+
+
 def _append_counter_lines(
     lines: list[str],
     title: str,
@@ -327,10 +370,39 @@ def _pdf_redaction_section_lines(
     redaction_count = pdf_redaction_result.get("redaction_count", 0)
     _validate_count(redaction_count)
     true_redaction = bool(pdf_redaction_result.get("true_redaction", False))
+    visual_pdf_created = bool(pdf_redaction_result.get("visual_pdf_created", False))
+    visual_pdf_name = _safe_pdf_redaction_output_name(
+        pdf_redaction_result.get("visual_pdf_name", "")
+    )
+    visual_pdf_type = str(pdf_redaction_result.get("visual_pdf_type", "none")).strip()
+    visual_redaction_mode = str(
+        pdf_redaction_result.get("visual_redaction_mode", "")
+    ).strip()
+    review_pdf_created = bool(pdf_redaction_result.get("review_pdf_created", False))
+    review_pdf_name = _safe_pdf_redaction_output_name(
+        pdf_redaction_result.get("review_pdf_name", "")
+    )
+    review_pdf_type = _safe_pdf_review_type(
+        pdf_redaction_result.get("review_pdf_type", "none")
+    )
+    text_extraction = _safe_pdf_text_extraction(
+        pdf_redaction_result.get("text_extraction", "")
+    )
+    original_layout_redaction_used = bool(
+        pdf_redaction_result.get("original_layout_redaction_used", False)
+    )
+    original_layout_redaction_experimental = bool(
+        pdf_redaction_result.get("original_layout_redaction_experimental", False)
+    )
     raw_counters = pdf_redaction_result.get("counters", {})
     if not isinstance(raw_counters, Mapping):
         raise TypeError("PDF redaction counters must be a mapping")
     warning = str(pdf_redaction_result.get("warning", "")).strip()
+    safe_scope_note = str(pdf_redaction_result.get("safe_scope_note", "")).strip()
+    strict_scope_warning = str(
+        pdf_redaction_result.get("strict_scope_warning", "")
+    ).strip()
+    scope = _safe_pdf_redaction_scope(pdf_redaction_result.get("scope", "safe"))
     detected_categories = pdf_redaction_result.get("detected_categories", {})
     txt_anonymized_categories = pdf_redaction_result.get(
         "txt_anonymized_categories", {}
@@ -343,11 +415,20 @@ def _pdf_redaction_section_lines(
         "detected_not_pdf_redacted_categories",
         {},
     )
+    ner_safe_scope_skipped_categories = pdf_redaction_result.get(
+        "ner_safe_scope_skipped_categories",
+        {},
+    )
+    unmapped_categories = pdf_redaction_result.get("unmapped_categories", {})
+    weak_phone_like_skipped = pdf_redaction_result.get("weak_phone_like_skipped", 0)
+    _validate_count(weak_phone_like_skipped)
     for label, value in (
         ("PDF detected categories", detected_categories),
         ("TXT anonymized categories", txt_anonymized_categories),
         ("PDF redacted categories", pdf_redacted_categories),
         ("Detected but not PDF-redacted categories", not_redacted_categories),
+        ("Unmapped PDF detections", unmapped_categories),
+        ("NER categories not PDF-redacted by current PDF scope", ner_safe_scope_skipped_categories),
     ):
         if not isinstance(value, Mapping):
             raise TypeError(f"{label} must be a mapping")
@@ -355,15 +436,41 @@ def _pdf_redaction_section_lines(
     lines = [
         "",
         "PDF redaction:",
+        f"PDF text extraction used: {text_extraction}",
+        f"Visual PDF created: {'yes' if visual_pdf_created else 'no'}",
+        f"Visual PDF type: {visual_pdf_type or 'none'}",
+        f"Visual PDF output: {visual_pdf_name}",
+        f"Redaction mapping: {visual_redaction_mode or 'none'}",
+        f"Review PDF created: {'yes' if review_pdf_created else 'no'}",
+        f"Review PDF type: {review_pdf_type}",
+        f"Review PDF output: {review_pdf_name}",
+        "Layout-preserving original redaction used: "
+        f"{'yes' if original_layout_redaction_used else 'no'}",
+        "Layout-preserving original redaction experimental: "
+        f"{'yes' if original_layout_redaction_experimental else 'no'}",
         f"PDF redaction output created: {'yes' if used else 'no'}",
         f"PDF redaction status: {status}",
+        f"PDF redaction scope: {scope}",
         f"PDF redaction output: {output_name}",
         f"PDF true redaction used: {'yes' if true_redaction else 'no'}",
         f"PDF redaction blocks: {redaction_count}",
+        f"Weak phone-like numeric values skipped: {weak_phone_like_skipped}",
         "PDF redaction color legend:",
     ]
     for color, meaning in PDF_REDACTION_COLOR_LEGEND:
         lines.append(f"* {color}: {meaning}")
+    if scope == "safe":
+        if visual_redaction_mode == "word_coordinates":
+            lines.append(
+                "PDF safe scope rule: word-coordinate visual redaction maps detected "
+                "full-word spans only; unmapped spans are reported by category."
+            )
+        else:
+            lines.append(
+                "PDF safe scope rule: NER_PERSON uses conservative exact-span "
+                "redaction; broad NER_ORG, NER_LOCATION, and NER_MISC are not "
+                "PDF-redacted by default."
+            )
 
     _append_counter_lines(lines, "PDF detected categories:", detected_categories)
     _append_counter_lines(
@@ -377,6 +484,12 @@ def _pdf_redaction_section_lines(
         "Detected but not PDF-redacted categories:",
         not_redacted_categories,
     )
+    _append_counter_lines(
+        lines,
+        "NER categories not PDF-redacted by current PDF scope:",
+        ner_safe_scope_skipped_categories,
+    )
+    _append_counter_lines(lines, "Unmapped PDF detections:", unmapped_categories)
     lines.append("PDF redaction categories:")
     if raw_counters:
         for label in sorted(raw_counters):
@@ -387,6 +500,23 @@ def _pdf_redaction_section_lines(
         lines.append("* none: 0")
     if warning:
         lines.append(f"PDF redaction warning: {warning}")
+    if safe_scope_note:
+        lines.append(f"PDF safe scope note: {safe_scope_note}")
+    if strict_scope_warning:
+        lines.append(f"PDF strict scope warning: {strict_scope_warning}")
+    if original_layout_redaction_experimental:
+        lines.append(
+            "PDF original-layout redaction warning: experimental; may under-redact "
+            "or over-redact."
+        )
+    if review_pdf_created and review_pdf_type == "rebuilt_from_anonymized_text":
+        lines.append(
+            "Review PDF note: rebuilt from anonymized text and not layout-preserving."
+        )
+        lines.append(
+            "Review PDF table-heavy note: for table-heavy or multi-column PDFs, "
+            "use the review checklist and original document during manual review."
+        )
 
     return lines
 
@@ -428,6 +558,11 @@ def _ner_section_lines(ner_result: Mapping[str, object] | None) -> list[str]:
     raw_counters = ner_result.get("counters", {})
     if not isinstance(raw_counters, Mapping):
         raise TypeError("NER counters must be a mapping")
+    raw_exclusion_counters = ner_result.get("exclusion_counters", {})
+    if not isinstance(raw_exclusion_counters, Mapping):
+        raise TypeError("NER exclusion counters must be a mapping")
+    linebreak_person_candidates = ner_result.get("linebreak_person_candidates", 0)
+    _validate_count(linebreak_person_candidates)
 
     lines = [
         "",
@@ -451,6 +586,19 @@ def _ner_section_lines(ner_result: Mapping[str, object] | None) -> list[str]:
         lines.append("* none: 0")
     if warning:
         lines.append(f"NER warning: {warning}")
+    lines.append("NER/PDF exclusions applied:")
+    has_exclusion_counter = False
+    for label in sorted(raw_exclusion_counters):
+        count = raw_exclusion_counters.get(label, 0)
+        _validate_count(count)
+        lines.append(f"* {label}: {count}")
+        if count:
+            has_exclusion_counter = True
+    if not raw_exclusion_counters:
+        lines.append("* none: 0")
+    lines.append(
+        f"NER line-break person candidates handled: {linebreak_person_candidates}"
+    )
 
     return lines
 
@@ -603,6 +751,7 @@ def build_report_text(
     ner_result: Mapping[str, object] | None = None,
     llm_review_result: Mapping[str, object] | None = None,
     pdf_redaction_result: Mapping[str, object] | None = None,
+    checklist_result: Mapping[str, object] | None = None,
 ) -> str:
     """Build a safe text report without source values or replacement maps."""
     if not isinstance(status, str):
@@ -632,6 +781,7 @@ def build_report_text(
     lines.extend(_ner_section_lines(ner_result))
     lines.extend(_llm_review_section_lines(llm_review_result))
     lines.extend(_pdf_redaction_section_lines(pdf_redaction_result))
+    lines.extend(_review_checklist_section_lines(checklist_result))
     lines.extend(_audit_section_lines(audit_result, audit_category_order))
 
     lines.extend(
@@ -660,6 +810,7 @@ def save_report_file(
     ner_result: Mapping[str, object] | None = None,
     llm_review_result: Mapping[str, object] | None = None,
     pdf_redaction_result: Mapping[str, object] | None = None,
+    checklist_result: Mapping[str, object] | None = None,
 ) -> Path:
     """Save a safe anonymization report and return the report path."""
     path = Path(report_path)
@@ -676,6 +827,7 @@ def save_report_file(
         ner_result=ner_result,
         llm_review_result=llm_review_result,
         pdf_redaction_result=pdf_redaction_result,
+        checklist_result=checklist_result,
     )
     path.write_text(report_text, encoding="utf-8")
     return path
@@ -701,6 +853,7 @@ def build_batch_summary_text(
     audit_category_order: Iterable[str] | None = None,
     status: str = "completed",
     manual_review_required: bool = True,
+    batch_review_checklist_name: str | None = None,
 ) -> str:
     """Build a safe batch report without paths, source values, or aliases."""
     for count in (input_count, success_count, error_count):
@@ -719,6 +872,7 @@ def build_batch_summary_text(
         f"Successful files: {success_count}",
         f"Errors: {error_count}",
         f"Manual review required: {manual_review_text}",
+        f"Batch review checklist: {_safe_filename(batch_review_checklist_name) if batch_review_checklist_name else 'not created'}",
         "",
         "Detected categories:",
     ]
@@ -900,6 +1054,9 @@ def build_batch_summary_text(
         if file_status == "success":
             lines.append(f"  output: {_safe_filename(result.get('output_name', 'unknown'))}")
             lines.append(f"  report: {_safe_filename(result.get('report_name', 'unknown'))}")
+            lines.append(
+                f"  checklist: {_safe_filename(result.get('checklist_name', 'unknown'))}"
+            )
             lines.append(f"  audit status: {result.get('audit_status', 'unknown')}")
             lines.append(
                 f"  risk level: "
@@ -909,6 +1066,7 @@ def build_batch_summary_text(
             lines.append(f"  error: {_safe_batch_error(result.get('error', ''))}")
             lines.append("  output: not created")
             lines.append("  report: not created")
+            lines.append("  checklist: not created")
         if "ocr_status" in result:
             lines.append(f"  OCR used: {'yes' if result.get('ocr_used') is True else 'no'}")
             lines.append(f"  OCR status: {_safe_ocr_status(result.get('ocr_status'))}")
@@ -980,6 +1138,7 @@ def save_batch_summary_file(
     audit_category_order: Iterable[str] | None = None,
     status: str = "completed",
     manual_review_required: bool = True,
+    batch_review_checklist_name: str | None = None,
 ) -> Path:
     """Save a safe batch summary report and return its path."""
     path = Path(summary_path)
@@ -1002,6 +1161,7 @@ def save_batch_summary_file(
         audit_category_order=audit_category_order,
         status=status,
         manual_review_required=manual_review_required,
+        batch_review_checklist_name=batch_review_checklist_name,
     )
     path.write_text(report_text, encoding="utf-8")
     return path

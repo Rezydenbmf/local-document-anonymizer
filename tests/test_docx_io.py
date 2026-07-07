@@ -100,6 +100,147 @@ class DocxIoTests(unittest.TestCase):
                 counters, {"EMAIL": 1, "PESEL": 1, "TELEFON": 1, "DATA": 1}
             )
 
+    def test_docx_anonymizes_malformed_hyphenated_person_name(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            source_path = Path(temp_dir) / "document.docx"
+            write_docx(
+                source_path,
+                [
+                    "Reviewer Jan-Kowalski Nowak signed.",
+                    "Status Raport-Roczny Finansowy remains unchanged.",
+                ],
+            )
+
+            output_path, counters = anonymize_docx_file(source_path)
+
+            self.assertEqual(
+                read_docx_file(output_path),
+                "Reviewer [PERSON_NAME_TYPO] signed.\n"
+                "Status Raport-Roczny Finansowy remains unchanged.",
+            )
+            self.assertEqual(counters, {"PERSON_NAME_TYPO": 1})
+
+    def test_docx_anonymizes_unicode_dash_person_name_typo_in_one_run(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            source_path = Path(temp_dir) / "document.docx"
+            write_docx(
+                source_path,
+                [
+                    "Reviewer Jan \u2014 Kowalski Nowak signed.",
+                    "podpisano: \u0141ukasz-\u017bak Nowak,",
+                ],
+            )
+
+            output_path, counters = anonymize_docx_file(source_path)
+
+            self.assertEqual(
+                read_docx_file(output_path),
+                "Reviewer [PERSON_NAME_TYPO] signed.\n"
+                "podpisano: [PERSON_NAME_TYPO],",
+            )
+            self.assertEqual(counters, {"PERSON_NAME_TYPO": 2})
+
+    def test_docx_anonymizes_split_run_malformed_hyphenated_person_name(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            source_path = Path(temp_dir) / "document.docx"
+            document = Document()
+            paragraph = document.add_paragraph()
+            paragraph.add_run("Reviewer ")
+            paragraph.add_run("Jan\u2011")
+            paragraph.add_run("Kowalski ")
+            paragraph.add_run("Nowak")
+            paragraph.add_run(" signed.")
+            document.save(source_path)
+
+            output_path, counters = anonymize_docx_file(source_path)
+
+            self.assertEqual(
+                read_docx_file(output_path),
+                "Reviewer [PERSON_NAME_TYPO] signed.",
+            )
+            self.assertEqual(counters, {"PERSON_NAME_TYPO": 1})
+
+    def test_docx_anonymizes_punctuation_split_run_person_name_typo(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            source_path = Path(temp_dir) / "document.docx"
+            document = Document()
+            paragraph = document.add_paragraph()
+            paragraph.add_run("podpisano: Jan")
+            paragraph.add_run("-")
+            paragraph.add_run("Kowalski ")
+            paragraph.add_run("Nowak,")
+            document.save(source_path)
+
+            output_path, counters = anonymize_docx_file(source_path)
+
+            self.assertEqual(
+                read_docx_file(output_path),
+                "podpisano: [PERSON_NAME_TYPO],",
+            )
+            self.assertEqual(counters, {"PERSON_NAME_TYPO": 1})
+
+    def test_docx_anonymizes_long_paragraph_split_run_person_name_typo(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            source_path = Path(temp_dir) / "document.docx"
+            document = Document()
+            paragraph = document.add_paragraph()
+            paragraph.add_run("Prosz\u0119 o przyznanie premii dla ")
+            paragraph.add_run("Jan")
+            paragraph.add_run("-")
+            paragraph.add_run("Kowalski")
+            paragraph.add_run(" ")
+            paragraph.add_run("Nowak")
+            paragraph.add_run(".")
+            document.save(source_path)
+
+            output_path, counters = anonymize_docx_file(source_path)
+
+            self.assertEqual(
+                read_docx_file(output_path),
+                "Prosz\u0119 o przyznanie premii dla [PERSON_NAME_TYPO].",
+            )
+            self.assertEqual(counters, {"PERSON_NAME_TYPO": 1})
+
+    def test_docx_anonymizes_split_space_run_person_name_typo(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            source_path = Path(temp_dir) / "document.docx"
+            document = Document()
+            paragraph = document.add_paragraph()
+            paragraph.add_run("Jan-")
+            paragraph.add_run("Kowalski")
+            paragraph.add_run("\u00a0")
+            paragraph.add_run("Nowak")
+            document.save(source_path)
+
+            output_path, counters = anonymize_docx_file(source_path)
+
+            self.assertEqual(read_docx_file(output_path), "[PERSON_NAME_TYPO]")
+            self.assertEqual(counters, {"PERSON_NAME_TYPO": 1})
+
+    def test_docx_keeps_normal_hyphenated_non_person_phrases(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            source_path = Path(temp_dir) / "document.docx"
+            write_docx(
+                source_path,
+                [
+                    "bia\u0142o-czerwony sztandar",
+                    "sanitarno-epidemiologiczna stacja",
+                    "\u017co\u0142\u0105dkowo-jelitowych i bronchoskop\u00f3w",
+                    "spo\u0142eczno-gospodarczy rozw\u00f3j",
+                ],
+            )
+
+            output_path, counters = anonymize_docx_file(source_path)
+
+            self.assertEqual(
+                read_docx_file(output_path),
+                "bia\u0142o-czerwony sztandar\n"
+                "sanitarno-epidemiologiczna stacja\n"
+                "\u017co\u0142\u0105dkowo-jelitowych i bronchoskop\u00f3w\n"
+                "spo\u0142eczno-gospodarczy rozw\u00f3j",
+            )
+            self.assertEqual(counters, {})
+
     def test_docx_dictionary_path_flow_replaces_terms(self) -> None:
         with workspace_temp_dir() as temp_dir:
             source_term = "Person One Example"

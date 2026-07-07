@@ -4,6 +4,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from docx import Document
 
@@ -11,7 +12,12 @@ from docx import Document
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from anonymizer import anonymize_batch, anonymize_file
+from anonymizer import (
+    PDF_OUTPUT_MODE_ORIGINAL_REDACTION,
+    FileWorkflowResult,
+    anonymize_batch,
+    anonymize_file,
+)
 from file_writers import build_collision_safe_path
 
 
@@ -111,8 +117,10 @@ class BatchProcessingTests(unittest.TestCase):
             self.assertEqual(output_path, output_dir / "document_ANON.txt")
             self.assertEqual(counters, {"EMAIL": 1})
             self.assertTrue((output_dir / "document_RAPORT.txt").exists())
+            self.assertTrue((output_dir / "document_REVIEW_CHECKLIST.txt").exists())
             self.assertFalse((source_dir / "document_ANON.txt").exists())
             self.assertFalse((source_dir / "document_RAPORT.txt").exists())
+            self.assertFalse((source_dir / "document_REVIEW_CHECKLIST.txt").exists())
 
     def test_batch_processes_supported_files_and_continues_after_error(self) -> None:
         with workspace_temp_dir() as temp_dir:
@@ -144,9 +152,84 @@ class BatchProcessingTests(unittest.TestCase):
             self.assertTrue((output_dir / "document_ANON.txt").exists())
             self.assertTrue((output_dir / "letter_ANON.docx").exists())
             self.assertTrue((output_dir / "scan_ANON.txt").exists())
-            self.assertTrue((output_dir / "scan_ANON.pdf").exists())
+            self.assertTrue((output_dir / "scan_ANON_REVIEW.pdf").exists())
+            self.assertTrue((output_dir / "document_REVIEW_CHECKLIST.txt").exists())
+            self.assertTrue((output_dir / "letter_REVIEW_CHECKLIST.txt").exists())
+            self.assertTrue((output_dir / "scan_REVIEW_CHECKLIST.txt").exists())
             self.assertFalse((source_dir / "document_ANON.txt").exists())
             self.assertEqual(result.summary_path, output_dir / "_BATCH_SUMMARY.txt")
+            self.assertEqual(
+                result.review_checklist_path,
+                output_dir / "_BATCH_REVIEW_CHECKLIST.txt",
+            )
+            self.assertTrue(result.review_checklist_path.exists())
+            summary_text = result.summary_path.read_text(encoding="utf-8")
+            checklist_text = result.review_checklist_path.read_text(encoding="utf-8")
+            self.assertIn("Batch review checklist: _BATCH_REVIEW_CHECKLIST.txt", summary_text)
+            self.assertIn("checklist: document_REVIEW_CHECKLIST.txt", summary_text)
+            self.assertIn("checklist: letter_REVIEW_CHECKLIST.txt", summary_text)
+            self.assertIn("checklist: scan_REVIEW_CHECKLIST.txt", summary_text)
+            self.assertIn("Batch review checklist", checklist_text)
+            self.assertIn("Total files processed: 4", checklist_text)
+            self.assertIn("Files requiring manual review: 3", checklist_text)
+            self.assertIn("document_REVIEW_CHECKLIST.txt", checklist_text)
+
+    def test_batch_reports_progress_before_each_selected_file(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            source_dir = Path(temp_dir) / "source"
+            output_dir = Path(temp_dir) / "output"
+            source_dir.mkdir()
+            output_dir.mkdir()
+            first_path = source_dir / "first.txt"
+            second_path = source_dir / "second.txt"
+            first_path.write_text("Email safe@example.test.", encoding="utf-8")
+            second_path.write_text("Date 2026-06-01.", encoding="utf-8")
+            progress_events: list[tuple[int, int, str]] = []
+
+            anonymize_batch(
+                [first_path, second_path],
+                output_dir,
+                progress_callback=lambda index, total, path: progress_events.append(
+                    (index, total, path.name)
+                ),
+            )
+
+            self.assertEqual(
+                progress_events,
+                [(1, 2, "first.txt"), (2, 2, "second.txt")],
+            )
+
+    def test_batch_passes_pdf_redaction_scope_to_file_workflow(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            source_path = Path(temp_dir) / "document.pdf"
+            output_dir = Path(temp_dir) / "output"
+            output_dir.mkdir()
+            source_path.write_bytes(b"%PDF-1.4 synthetic placeholder")
+            workflow_result = FileWorkflowResult(
+                output_path=output_dir / "document_ANON.txt",
+                report_path=output_dir / "document_RAPORT.txt",
+                checklist_path=output_dir / "document_REVIEW_CHECKLIST.txt",
+                counters={},
+                audit_result={"status": "ok", "risk_level": "ok", "findings": {}},
+                ocr_result={"used": False, "status": "not_used"},
+                ner_result={"used": False, "status": "disabled", "counters": {}},
+                llm_review_result={"status": "disabled"},
+                pdf_redaction_result={},
+            )
+
+            with patch("anonymizer._anonymize_file_result", return_value=workflow_result) as mocked:
+                anonymize_batch(
+                    [source_path],
+                    output_dir,
+                    pdf_redaction_scope="strict",
+                    pdf_output_mode=PDF_OUTPUT_MODE_ORIGINAL_REDACTION,
+                )
+
+            self.assertEqual(mocked.call_args.kwargs["pdf_redaction_scope"], "strict")
+            self.assertEqual(
+                mocked.call_args.kwargs["pdf_output_mode"],
+                PDF_OUTPUT_MODE_ORIGINAL_REDACTION,
+            )
 
     def test_batch_summary_is_safe_and_collision_safe(self) -> None:
         with workspace_temp_dir() as temp_dir:

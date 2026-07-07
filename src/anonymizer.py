@@ -1,11 +1,17 @@
 """Regex-based plain text anonymization engine."""
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 import re
 
 try:
+    from .checklist import (
+        build_batch_review_checklist_text,
+        build_review_checklist_text,
+        save_batch_review_checklist_file,
+        save_review_checklist_file,
+    )
     from .audit import AUDIT_CATEGORY_ORDER, RISK_LEVELS, audit_text
     from .file_readers import (
         DOCX_EXTENSION,
@@ -14,7 +20,7 @@ try:
         SUPPORTED_EXTENSIONS,
         TXT_EXTENSION,
         read_docx_file,
-        read_pdf_file,
+        read_pdf_file_pages,
         read_txt_file,
     )
     from .file_writers import (
@@ -36,7 +42,7 @@ try:
     )
     from .ner import DEFAULT_NER_MODEL, NER_LABELS, NER_STATUSES, anonymize_text_with_ner
     from .ner import build_ner_metadata, prepare_ner_context
-    from .ner import detect_entities
+    from .ner import detect_entities, detect_entities_with_details
     from .llm_review import (
         LLM_REVIEW_STATUSES,
         LLM_RESIDUAL_CATEGORIES,
@@ -45,9 +51,13 @@ try:
     )
     from .pdf_redaction import (
         PDF_REDACTION_STATUSES,
+        PdfRedactionSpan,
         build_pdf_redaction_metadata,
         build_pdf_redaction_skipped_ocr_metadata,
+        extract_pdf_word_pages,
+        save_rebuilt_review_pdf_from_text,
         save_redacted_pdf_copy,
+        save_word_coordinate_redacted_pdf_copy,
     )
     from .report import (
         BATCH_ERROR_EMPTY_TEXT_PDF,
@@ -64,8 +74,19 @@ try:
         save_batch_summary_file,
         save_report_file,
     )
-    from .sensitive_terms import SensitiveTerm, apply_sensitive_terms, load_sensitive_terms
+    from .sensitive_terms import (
+        SensitiveTerm,
+        apply_sensitive_terms,
+        iter_sensitive_term_spans,
+        load_sensitive_terms,
+    )
 except ImportError:
+    from checklist import (
+        build_batch_review_checklist_text,
+        build_review_checklist_text,
+        save_batch_review_checklist_file,
+        save_review_checklist_file,
+    )
     from audit import AUDIT_CATEGORY_ORDER, RISK_LEVELS, audit_text
     from file_readers import (
         DOCX_EXTENSION,
@@ -74,7 +95,7 @@ except ImportError:
         SUPPORTED_EXTENSIONS,
         TXT_EXTENSION,
         read_docx_file,
-        read_pdf_file,
+        read_pdf_file_pages,
         read_txt_file,
     )
     from file_writers import (
@@ -96,7 +117,7 @@ except ImportError:
     )
     from ner import DEFAULT_NER_MODEL, NER_LABELS, NER_STATUSES, anonymize_text_with_ner
     from ner import build_ner_metadata, prepare_ner_context
-    from ner import detect_entities
+    from ner import detect_entities, detect_entities_with_details
     from llm_review import (
         LLM_REVIEW_STATUSES,
         LLM_RESIDUAL_CATEGORIES,
@@ -105,9 +126,13 @@ except ImportError:
     )
     from pdf_redaction import (
         PDF_REDACTION_STATUSES,
+        PdfRedactionSpan,
         build_pdf_redaction_metadata,
         build_pdf_redaction_skipped_ocr_metadata,
+        extract_pdf_word_pages,
+        save_rebuilt_review_pdf_from_text,
         save_redacted_pdf_copy,
+        save_word_coordinate_redacted_pdf_copy,
     )
     from report import (
         BATCH_ERROR_EMPTY_TEXT_PDF,
@@ -124,13 +149,80 @@ except ImportError:
         save_batch_summary_file,
         save_report_file,
     )
-    from sensitive_terms import SensitiveTerm, apply_sensitive_terms, load_sensitive_terms
+    from sensitive_terms import (
+        SensitiveTerm,
+        apply_sensitive_terms,
+        iter_sensitive_term_spans,
+        load_sensitive_terms,
+    )
 
 
 SUPPORTED_LABELS = ("PESEL", "EMAIL", "TELEFON", "DATA", "PERSON_NAME_TYPO")
 REPORT_CATEGORY_ORDER = (*SUPPORTED_LABELS, *NER_LABELS)
 PDF_COVERAGE_WARNING = (
     "PDF redaction may be partial; some detected categories were not PDF-redacted"
+)
+PDF_SAFE_SCOPE_NOTE = (
+    "Safe PDF scope redacts conservative exact NER_PERSON spans by default; "
+    "NER_ORG, NER_LOCATION, and NER_MISC are detected but not PDF-redacted by "
+    "default safe PDF scope."
+)
+PDF_STRICT_SCOPE_WARNING = "Strict PDF redaction scope was used; it may over-redact."
+PDF_REDACTION_SCOPE_SAFE = "safe"
+PDF_REDACTION_SCOPE_STRICT = "strict"
+PDF_REDACTION_SCOPES = (PDF_REDACTION_SCOPE_SAFE, PDF_REDACTION_SCOPE_STRICT)
+PDF_OUTPUT_MODE_VISUAL = "visual_redaction"
+PDF_OUTPUT_MODE_REBUILT_REVIEW = "rebuilt_review"
+PDF_OUTPUT_MODE_ORIGINAL_REDACTION = "original_redaction"
+PDF_OUTPUT_MODES = (
+    PDF_OUTPUT_MODE_VISUAL,
+    PDF_OUTPUT_MODE_REBUILT_REVIEW,
+    PDF_OUTPUT_MODE_ORIGINAL_REDACTION,
+)
+PDF_PAGE_SEPARATOR = "\n\f\n"
+PDF_SAFE_SCOPE_NER_LABELS = tuple(NER_LABELS)
+PDF_DEFAULT_NER_REDACTION_LABELS = ("NER_PERSON",)
+PDF_VISUAL_NER_REDACTION_LABELS = ("NER_PERSON", "NER_ORG", "NER_LOCATION")
+PDF_STRICT_NER_REDACTION_LABELS = (
+    "NER_PERSON",
+    "NER_ORG",
+    "NER_LOCATION",
+    "NER_MISC",
+)
+PDF_NER_REDACTION_MIN_TEXT_LENGTH = 4
+PDF_NER_PERSON_MIN_WORDS = 2
+WEAK_PHONE_LIKE_SKIPPED_LABEL = "WEAK_PHONE_LIKE_SKIPPED"
+PHONE_CONTEXT_PATTERN = re.compile(
+    r"(?i)(?:tel\.?|telefon|kom\.?|mobile|fax|kontakt|numer telefonu|phone)\s*[:\-]?\s*$"
+)
+WEAK_GROUPED_PHONE_PATTERN = re.compile(r"(?<![\w+])\d{3}[-\s]\d{3}[-\s]\d{3}(?!\w)")
+_UPPER_LETTERS = "A-ZĄĆĘŁŃÓŚŹŻ"
+_LOWER_LETTERS = "A-Za-zĄĆĘŁŃÓŚŹŻąćęłńóśźż"
+_NAME_TOKEN = rf"[{_UPPER_LETTERS}][{_LOWER_LETTERS}]{{2,}}"
+_NAME_HYPHEN = r"[-\u00ad\u2010\u2011\u2012\u2013\u2014]"
+_SURNAME_LIKE_TOKEN = (
+    rf"[{_UPPER_LETTERS}][{_LOWER_LETTERS}]{{2,}}"
+    r"(?:ski|ska|cki|cka|dzki|dzka|ak|ek|ik|yk|uk|cz|icz|wicz|owicz|ewicz)"
+)
+PERSON_NAME_TYPO_PATTERN = re.compile(
+    rf"""
+    (?<![\w\-\u00ad\u2010\u2011\u2012\u2013\u2014])
+    {_NAME_TOKEN}
+    \s*
+    {_NAME_HYPHEN}
+    \s*
+    (?:
+        {_SURNAME_LIKE_TOKEN}
+        \s+
+        {_NAME_TOKEN}
+        |
+        {_NAME_TOKEN}
+        \s+
+        {_SURNAME_LIKE_TOKEN}
+    )
+    (?![\w\-\u00ad\u2010\u2011\u2012\u2013\u2014])
+    """,
+    re.VERBOSE,
 )
 
 
@@ -140,6 +232,7 @@ class FileWorkflowResult:
 
     output_path: Path
     report_path: Path
+    checklist_path: Path
     counters: dict[str, int]
     audit_result: dict[str, object]
     ocr_result: dict[str, object]
@@ -167,6 +260,7 @@ class BatchResult:
     llm_review_risk_level_counts: dict[str, int] = field(default_factory=dict)
     llm_review_category_counters: dict[str, int] = field(default_factory=dict)
     pdf_redaction_status_counts: dict[str, int] = field(default_factory=dict)
+    review_checklist_path: Path | None = None
 
 _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
@@ -182,9 +276,9 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
             r"""
             (?<![\w+])
             (?:
-                (?:\+48|0048)[ -]?\d{3}[ -]?\d{3}[ -]?\d{3}
+                (?:\+48|0048)[\s-]?\d{3}[\s-]?\d{3}[\s-]?\d{3}
                 |
-                \d{3}[- ]\d{3}[- ]\d{3}
+                \d{9}
             )
             (?!\w)
             """,
@@ -208,18 +302,7 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ),
     (
         "PERSON_NAME_TYPO",
-        re.compile(
-            r"""
-            (?<![\w-])
-            [A-Z][A-Za-z]{2,}
-            -
-            (?P<surname>[A-Z][A-Za-z]{2,})
-            \s+
-            (?P=surname)
-            (?![\w-])
-            """,
-            re.VERBOSE,
-        ),
+        PERSON_NAME_TYPO_PATTERN,
     ),
 )
 
@@ -283,26 +366,309 @@ def _apply_dictionary_and_regex(
         anonymized, count = pattern.subn(f"[{label}]", anonymized)
         if count:
             counters[label] = counters.get(label, 0) + count
+    anonymized, weak_phone_count = _replace_contextual_weak_phone_numbers(
+        anonymized
+    )
+    if weak_phone_count:
+        counters["TELEFON"] = counters.get("TELEFON", 0) + weak_phone_count
 
     return anonymized, counters, dictionary_counters
+
+
+def _has_phone_context(text: str, start: int) -> bool:
+    left_context = text[max(0, start - 32):start]
+    return bool(PHONE_CONTEXT_PATTERN.search(left_context))
+
+
+def _replace_contextual_weak_phone_numbers(text: str) -> tuple[str, int]:
+    parts: list[str] = []
+    cursor = 0
+    count = 0
+    for match in WEAK_GROUPED_PHONE_PATTERN.finditer(text):
+        if not _has_phone_context(text, match.start()):
+            continue
+        parts.append(text[cursor:match.start()])
+        parts.append("[TELEFON]")
+        cursor = match.end()
+        count += 1
+    if not count:
+        return text, 0
+    parts.append(text[cursor:])
+    return "".join(parts), count
+
+
+def _weak_phone_like_without_context_count(text: str) -> int:
+    return sum(
+        1
+        for match in WEAK_GROUPED_PHONE_PATTERN.finditer(text)
+        if not _has_phone_context(text, match.start())
+    )
 
 
 def _pdf_ner_redaction_terms(
     pre_ner_text: str,
     ner_context,
+    *,
+    allowed_labels: Iterable[str] = PDF_DEFAULT_NER_REDACTION_LABELS,
 ) -> list[tuple[str, str]]:
-    """Return exact NER text spans for internal PDF redaction only."""
+    """Return exact NER spans allowed by the default safe PDF scope."""
+    allowed = {str(label) for label in allowed_labels}
+    if not allowed:
+        return []
+
     try:
         entities, _ = detect_entities(pre_ner_text, ner_context)
     except Exception:
         return []
 
     redaction_terms: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
     for entity in entities:
+        if entity.label not in allowed:
+            continue
         value = pre_ner_text[entity.start:entity.end].strip()
-        if value and "[" not in value and "]" not in value:
+        key = (entity.label, value)
+        if (
+            len(value) >= PDF_NER_REDACTION_MIN_TEXT_LENGTH
+            and "[" not in value
+            and "]" not in value
+            and any(character.isalnum() for character in value)
+            and key not in seen
+        ):
+            seen.add(key)
             redaction_terms.append((entity.label, value))
     return redaction_terms
+
+
+def _ner_redaction_word_count(value: str) -> int:
+    return len(re.findall(r"\w+", value, flags=re.UNICODE))
+
+
+def _is_safe_pdf_ner_redaction_value(label: str, value: str) -> bool:
+    if len(value) < PDF_NER_REDACTION_MIN_TEXT_LENGTH:
+        return False
+    if "[" in value or "]" in value:
+        return False
+    if not any(character.isalnum() for character in value):
+        return False
+    if label == "NER_PERSON":
+        return _ner_redaction_word_count(value) >= PDF_NER_PERSON_MIN_WORDS
+    return True
+
+
+def _pdf_ner_redaction_plan(
+    pre_ner_text: str,
+    ner_context,
+    *,
+    allowed_labels: Iterable[str],
+) -> tuple[list[tuple[str, str]], dict[str, int]]:
+    """Return safe NER PDF redaction terms plus label-only skipped counters."""
+    allowed = {str(label) for label in allowed_labels}
+    if not allowed:
+        return [], {}
+
+    try:
+        entities, _, _, _ = detect_entities_with_details(pre_ner_text, ner_context)
+    except Exception:
+        return [], {}
+
+    redaction_terms: list[tuple[str, str]] = []
+    skipped_counters: dict[str, int] = {}
+    seen: set[tuple[str, str]] = set()
+    for entity in entities:
+        if entity.label not in allowed:
+            continue
+        value = pre_ner_text[entity.start:entity.end].strip()
+        if not _is_safe_pdf_ner_redaction_value(entity.label, value):
+            skipped_counters[entity.label] = skipped_counters.get(entity.label, 0) + 1
+            continue
+        key = (entity.label, value)
+        if key in seen:
+            continue
+        seen.add(key)
+        redaction_terms.append(key)
+    return redaction_terms, skipped_counters
+
+
+def _normalize_pdf_redaction_scope(scope: str) -> str:
+    value = str(scope or "").strip().lower()
+    if value in PDF_REDACTION_SCOPES:
+        return value
+    return PDF_REDACTION_SCOPE_SAFE
+
+
+def _normalize_pdf_output_mode(mode: str) -> str:
+    value = str(mode or "").strip().lower()
+    if value in PDF_OUTPUT_MODES:
+        return value
+    return PDF_OUTPUT_MODE_VISUAL
+
+
+def _split_anonymized_pdf_pages(anonymized_text: str, page_count: int) -> list[str]:
+    if page_count <= 0:
+        return [anonymized_text]
+    pages = anonymized_text.split(PDF_PAGE_SEPARATOR)
+    if len(pages) == page_count:
+        return pages
+    return [anonymized_text]
+
+
+def _pdf_ner_allowed_labels_for_scope(scope: str) -> tuple[str, ...]:
+    normalized = _normalize_pdf_redaction_scope(scope)
+    if normalized == PDF_REDACTION_SCOPE_STRICT:
+        return PDF_STRICT_NER_REDACTION_LABELS
+    return PDF_DEFAULT_NER_REDACTION_LABELS
+
+
+def _ranges_overlap(first: tuple[int, int], second: tuple[int, int]) -> bool:
+    return first[0] < second[1] and second[0] < first[1]
+
+
+def _span_overlaps_existing(
+    start: int,
+    end: int,
+    occupied_ranges: list[tuple[int, int]],
+) -> bool:
+    return any(_ranges_overlap((start, end), existing) for existing in occupied_ranges)
+
+
+def _add_pdf_span(
+    spans: list[PdfRedactionSpan],
+    occupied_ranges: list[tuple[int, int]],
+    *,
+    label: str,
+    page_number: int,
+    start: int,
+    end: int,
+    source: str,
+) -> None:
+    if start >= end:
+        return
+    if _span_overlaps_existing(start, end, occupied_ranges):
+        return
+    spans.append(
+        PdfRedactionSpan(
+            label=label,
+            page_number=page_number,
+            start_offset=start,
+            end_offset=end,
+            replacement_label=f"[{label}]",
+            source=source,
+        )
+    )
+    occupied_ranges.append((start, end))
+
+
+def _regex_pdf_spans_for_page(
+    page_text: str,
+    page_number: int,
+    occupied_ranges: list[tuple[int, int]],
+) -> list[PdfRedactionSpan]:
+    spans: list[PdfRedactionSpan] = []
+    for label, pattern in _PATTERNS:
+        for match in pattern.finditer(page_text):
+            _add_pdf_span(
+                spans,
+                occupied_ranges,
+                label=label,
+                page_number=page_number,
+                start=match.start(),
+                end=match.end(),
+                source="regex",
+            )
+    for match in WEAK_GROUPED_PHONE_PATTERN.finditer(page_text):
+        if not _has_phone_context(page_text, match.start()):
+            continue
+        _add_pdf_span(
+            spans,
+            occupied_ranges,
+            label="TELEFON",
+            page_number=page_number,
+            start=match.start(),
+            end=match.end(),
+            source="regex",
+        )
+    return spans
+
+
+def _dictionary_pdf_spans_for_page(
+    page_text: str,
+    page_number: int,
+    occupied_ranges: list[tuple[int, int]],
+    sensitive_terms: Iterable[SensitiveTerm] | None,
+) -> list[PdfRedactionSpan]:
+    spans: list[PdfRedactionSpan] = []
+    for label, start, end in iter_sensitive_term_spans(page_text, sensitive_terms):
+        _add_pdf_span(
+            spans,
+            occupied_ranges,
+            label=label,
+            page_number=page_number,
+            start=start,
+            end=end,
+            source="dictionary",
+        )
+    return spans
+
+
+def _ner_pdf_spans_for_page(
+    page_text: str,
+    page_number: int,
+    occupied_ranges: list[tuple[int, int]],
+    ner_context,
+) -> list[PdfRedactionSpan]:
+    if ner_context is None or not getattr(ner_context, "enabled", False):
+        return []
+    try:
+        entities, _, _, _ = detect_entities_with_details(page_text, ner_context)
+    except Exception:
+        return []
+
+    spans: list[PdfRedactionSpan] = []
+    for entity in entities:
+        if entity.label not in PDF_VISUAL_NER_REDACTION_LABELS:
+            continue
+        _add_pdf_span(
+            spans,
+            occupied_ranges,
+            label=entity.label,
+            page_number=page_number,
+            start=entity.start,
+            end=entity.end,
+            source="ner",
+        )
+    return spans
+
+
+def _pdf_detection_spans_for_word_pages(
+    word_pages,
+    *,
+    sensitive_terms: Iterable[SensitiveTerm] | None,
+    ner_context,
+) -> list[PdfRedactionSpan]:
+    spans: list[PdfRedactionSpan] = []
+    for page in word_pages:
+        occupied_ranges: list[tuple[int, int]] = []
+        spans.extend(
+            _dictionary_pdf_spans_for_page(
+                page.text,
+                page.page_number,
+                occupied_ranges,
+                sensitive_terms,
+            )
+        )
+        spans.extend(
+            _regex_pdf_spans_for_page(page.text, page.page_number, occupied_ranges)
+        )
+        spans.extend(
+            _ner_pdf_spans_for_page(
+                page.text,
+                page.page_number,
+                occupied_ranges,
+                ner_context,
+            )
+        )
+    return spans
 
 
 def _positive_counts(source: object) -> dict[str, int]:
@@ -334,8 +700,11 @@ def _attach_pdf_coverage_metadata(
     counters: dict[str, int],
     audit_result: dict[str, object],
     ner_result: dict[str, object],
+    pdf_redaction_scope: str = PDF_REDACTION_SCOPE_SAFE,
+    ner_pdf_redaction_skipped_categories: dict[str, int] | None = None,
 ) -> dict[str, object]:
     metadata = dict(pdf_redaction_result)
+    scope = _normalize_pdf_redaction_scope(pdf_redaction_scope)
     detected = _build_pdf_detected_categories(counters, audit_result, ner_result)
     txt_anonymized = _positive_counts(counters)
     pdf_redacted = _positive_counts(metadata.get("counters"))
@@ -344,17 +713,55 @@ def _attach_pdf_coverage_metadata(
         for label, count in detected.items()
         if pdf_redacted.get(label, 0) <= 0
     }
+    default_pdf_labels = (
+        PDF_VISUAL_NER_REDACTION_LABELS
+        if metadata.get("visual_redaction_mode") == "word_coordinates"
+        else PDF_DEFAULT_NER_REDACTION_LABELS
+    )
+    ner_safe_scope_skipped = {
+        label: count
+        for label, count in _positive_counts(ner_result.get("counters")).items()
+        if (
+            label in PDF_SAFE_SCOPE_NER_LABELS
+            and (
+                label not in default_pdf_labels
+                or pdf_redacted.get(label, 0) <= 0
+            )
+        )
+    }
+    _merge_counters(
+        ner_safe_scope_skipped,
+        _positive_counts(ner_pdf_redaction_skipped_categories),
+    )
 
     metadata["detected_categories"] = detected
     metadata["txt_anonymized_categories"] = txt_anonymized
     metadata["pdf_redacted_categories"] = pdf_redacted
     metadata["detected_not_pdf_redacted_categories"] = not_redacted
+    metadata["scope"] = scope
+    if ner_safe_scope_skipped and scope == PDF_REDACTION_SCOPE_SAFE:
+        metadata["ner_safe_scope_skipped_categories"] = ner_safe_scope_skipped
+        metadata["safe_scope_note"] = PDF_SAFE_SCOPE_NOTE
+    if scope == PDF_REDACTION_SCOPE_STRICT:
+        metadata["strict_scope_warning"] = PDF_STRICT_SCOPE_WARNING
     if not_redacted:
         metadata["warning"] = PDF_COVERAGE_WARNING
         if metadata.get("status") in ("completed", "no_matches"):
             metadata["status"] = "completed_with_warnings"
             metadata["used"] = True
-            metadata["true_redaction"] = bool(metadata.get("output_name"))
+            metadata["true_redaction"] = bool(metadata.get("redaction_count", 0))
+    return metadata
+
+
+def _attach_auxiliary_review_pdf_metadata(
+    pdf_redaction_result: dict[str, object],
+    review_pdf_result: dict[str, object],
+) -> dict[str, object]:
+    metadata = dict(pdf_redaction_result)
+    for key in ("review_pdf_created", "review_pdf_name", "review_pdf_type"):
+        metadata[key] = review_pdf_result.get(key, metadata.get(key))
+    if not metadata.get("text_extraction"):
+        metadata["text_extraction"] = review_pdf_result.get("text_extraction", "")
     return metadata
 
 
@@ -540,6 +947,19 @@ def _anonymize_txt_file_result(
     )
     audit_result = _attach_ner_result(audit_result, ner_result)
     ocr_result = build_ocr_not_used_metadata(OCR_INPUT_TYPE_NONE)
+    report_path = _build_anonymization_report_path(source_path, output_dir=output_dir)
+    checklist_path = _save_review_checklist(
+        source_path,
+        output_path,
+        report_path,
+        counters,
+        audit_result,
+        ocr_result,
+        ner_result,
+        llm_review_result,
+        anonymized,
+        output_dir=output_dir,
+    )
     report_path = _save_anonymization_report(
         source_path,
         output_path,
@@ -550,10 +970,13 @@ def _anonymize_txt_file_result(
         ner_result,
         llm_review_result,
         output_dir=output_dir,
+        report_path=report_path,
+        checklist_result={"created": True, "output_name": checklist_path.name},
     )
     return FileWorkflowResult(
         output_path,
         report_path,
+        checklist_path,
         counters,
         audit_result,
         ocr_result,
@@ -698,6 +1121,21 @@ def _anonymize_docx_file_result(
     )
     audit_result = _attach_ner_result(audit_result, ner_result)
     ocr_result = build_ocr_not_used_metadata(OCR_INPUT_TYPE_NONE)
+    report_path = _build_anonymization_report_path(source_path, output_dir=output_dir)
+    checklist_path = _save_review_checklist(
+        source_path,
+        output_path,
+        report_path,
+        counters,
+        audit_result,
+        ocr_result,
+        ner_result,
+        llm_review_result,
+        anonymized_text,
+        sections=anonymized_text.splitlines(),
+        section_label="Paragraph",
+        output_dir=output_dir,
+    )
     report_path = _save_anonymization_report(
         source_path,
         output_path,
@@ -708,10 +1146,13 @@ def _anonymize_docx_file_result(
         ner_result,
         llm_review_result,
         output_dir=output_dir,
+        report_path=report_path,
+        checklist_result={"created": True, "output_name": checklist_path.name},
     )
     return FileWorkflowResult(
         output_path,
         report_path,
+        checklist_path,
         counters,
         audit_result,
         ocr_result,
@@ -730,6 +1171,8 @@ def anonymize_pdf_file(
     ner_model_name: str = DEFAULT_NER_MODEL,
     use_llm_review: bool = False,
     llm_model_name: str = "",
+    pdf_redaction_scope: str = PDF_REDACTION_SCOPE_SAFE,
+    pdf_output_mode: str = PDF_OUTPUT_MODE_VISUAL,
 ) -> tuple[Path, dict[str, int]]:
     """Anonymize text from a PDF and save TXT output plus a safe report."""
     output_path, counters, _ = anonymize_pdf_file_with_audit(
@@ -741,6 +1184,8 @@ def anonymize_pdf_file(
         ner_model_name=ner_model_name,
         use_llm_review=use_llm_review,
         llm_model_name=llm_model_name,
+        pdf_redaction_scope=pdf_redaction_scope,
+        pdf_output_mode=pdf_output_mode,
     )
     return output_path, counters
 
@@ -755,6 +1200,8 @@ def anonymize_pdf_file_with_audit(
     ner_model_name: str = DEFAULT_NER_MODEL,
     use_llm_review: bool = False,
     llm_model_name: str = "",
+    pdf_redaction_scope: str = PDF_REDACTION_SCOPE_SAFE,
+    pdf_output_mode: str = PDF_OUTPUT_MODE_VISUAL,
 ) -> tuple[Path, dict[str, int], dict[str, object]]:
     """Anonymize text from a PDF and return safe audit metadata."""
     result = _anonymize_pdf_file_result(
@@ -766,6 +1213,8 @@ def anonymize_pdf_file_with_audit(
         ner_model_name=ner_model_name,
         use_llm_review=use_llm_review,
         llm_model_name=llm_model_name,
+        pdf_redaction_scope=pdf_redaction_scope,
+        pdf_output_mode=pdf_output_mode,
     )
     return result.output_path, result.counters, result.audit_result
 
@@ -780,6 +1229,8 @@ def _anonymize_pdf_file_result(
     ner_model_name: str = DEFAULT_NER_MODEL,
     use_llm_review: bool = False,
     llm_model_name: str = "",
+    pdf_redaction_scope: str = PDF_REDACTION_SCOPE_SAFE,
+    pdf_output_mode: str = PDF_OUTPUT_MODE_VISUAL,
 ) -> FileWorkflowResult:
     """Anonymize a PDF file and return paths needed by batch processing."""
     terms, dictionary_status = _prepare_workflow_dictionary(
@@ -787,8 +1238,13 @@ def _anonymize_pdf_file_result(
     )
     ner_context = prepare_ner_context(enabled=use_ner, model_name=ner_model_name)
     text_based_pdf = False
+    word_pages = []
     try:
-        text = read_pdf_file(source_path)
+        word_pages = extract_pdf_word_pages(source_path)
+        source_page_texts = read_pdf_file_pages(source_path)
+        if not any(page_text.strip() for page_text in source_page_texts):
+            raise ValueError("PDF has no extractable text")
+        text = PDF_PAGE_SEPARATOR.join(source_page_texts)
         ocr_result = build_ocr_not_used_metadata(OCR_INPUT_TYPE_PDF)
         text_based_pdf = True
     except ValueError as error:
@@ -796,13 +1252,33 @@ def _anonymize_pdf_file_result(
             raise
         extraction = extract_text_with_ocr(source_path)
         text = extraction.text
+        source_page_texts = []
         ocr_result = extraction.metadata
         pdf_redaction_result = build_pdf_redaction_skipped_ocr_metadata()
+    pdf_detection_spans = (
+        _pdf_detection_spans_for_word_pages(
+            word_pages,
+            sensitive_terms=terms,
+            ner_context=ner_context,
+        )
+        if text_based_pdf
+        else []
+    )
+    weak_phone_like_skipped_count = (
+        sum(_weak_phone_like_without_context_count(page.text) for page in word_pages)
+        if text_based_pdf
+        else 0
+    )
     pre_ner_text, counters, dictionary_counters = _apply_dictionary_and_regex(
         text,
         sensitive_terms=terms,
     )
-    pdf_ner_redaction_terms = _pdf_ner_redaction_terms(pre_ner_text, ner_context)
+    normalized_pdf_scope = _normalize_pdf_redaction_scope(pdf_redaction_scope)
+    pdf_ner_redaction_terms, pdf_ner_skipped_categories = _pdf_ner_redaction_plan(
+        pre_ner_text,
+        ner_context,
+        allowed_labels=_pdf_ner_allowed_labels_for_scope(normalized_pdf_scope),
+    )
     if ner_context is None:
         anonymized = pre_ner_text
         ner_result = build_ner_metadata(
@@ -818,7 +1294,53 @@ def _anonymize_pdf_file_result(
         )
         _merge_counters(counters, ner_counters)
 
-    if text_based_pdf:
+    normalized_pdf_output_mode = _normalize_pdf_output_mode(pdf_output_mode)
+    anonymized_pages = _split_anonymized_pdf_pages(
+        anonymized,
+        len(source_page_texts) if text_based_pdf else 0,
+    )
+    anonymized_output_text = "\n\n".join(anonymized_pages)
+
+    if normalized_pdf_output_mode == PDF_OUTPUT_MODE_VISUAL and text_based_pdf:
+        try:
+            pdf_redaction_result = save_word_coordinate_redacted_pdf_copy(
+                source_path,
+                word_pages=word_pages,
+                spans=pdf_detection_spans,
+                output_dir=output_dir,
+            )
+        except RuntimeError:
+            pdf_redaction_result = build_pdf_redaction_metadata(status="unavailable")
+            pdf_redaction_result["text_extraction"] = "text_layer"
+        try:
+            review_pdf_result = save_rebuilt_review_pdf_from_text(
+                source_path,
+                anonymized_output_text,
+                page_texts=anonymized_pages,
+                output_dir=output_dir,
+                text_extraction="text_layer",
+            )
+            pdf_redaction_result = _attach_auxiliary_review_pdf_metadata(
+                pdf_redaction_result,
+                review_pdf_result,
+            )
+        except RuntimeError:
+            pass
+    elif normalized_pdf_output_mode == PDF_OUTPUT_MODE_REBUILT_REVIEW:
+        try:
+            pdf_redaction_result = save_rebuilt_review_pdf_from_text(
+                source_path,
+                anonymized_output_text,
+                page_texts=anonymized_pages if text_based_pdf else None,
+                output_dir=output_dir,
+                text_extraction="text_layer" if text_based_pdf else "ocr_fallback",
+            )
+        except RuntimeError:
+            pdf_redaction_result = build_pdf_redaction_metadata(status="unavailable")
+            pdf_redaction_result["text_extraction"] = (
+                "text_layer" if text_based_pdf else "ocr_fallback"
+            )
+    elif text_based_pdf:
         try:
             pdf_redaction_result = save_redacted_pdf_copy(
                 source_path,
@@ -830,11 +1352,30 @@ def _anonymize_pdf_file_result(
             pdf_redaction_result = build_pdf_redaction_metadata(status="unavailable")
     else:
         pdf_redaction_result = build_pdf_redaction_skipped_ocr_metadata()
+        if normalized_pdf_output_mode == PDF_OUTPUT_MODE_VISUAL:
+            try:
+                review_pdf_result = save_rebuilt_review_pdf_from_text(
+                    source_path,
+                    anonymized_output_text,
+                    page_texts=None,
+                    output_dir=output_dir,
+                    text_extraction="ocr_fallback",
+                )
+                pdf_redaction_result = _attach_auxiliary_review_pdf_metadata(
+                    pdf_redaction_result,
+                    review_pdf_result,
+                )
+            except RuntimeError:
+                pass
+    if weak_phone_like_skipped_count:
+        pdf_redaction_result["weak_phone_like_skipped"] = (
+            weak_phone_like_skipped_count
+        )
     output_path = save_anonymized_pdf_txt_copy(
-        source_path, anonymized, output_dir=output_dir
+        source_path, anonymized_output_text, output_dir=output_dir
     )
     llm_review_result = _run_optional_llm_review(
-        anonymized,
+        anonymized_output_text,
         use_llm_review=use_llm_review,
         llm_model_name=llm_model_name,
     )
@@ -844,7 +1385,7 @@ def _anonymize_pdf_file_result(
         label_counters=dictionary_counters,
     )
     audit_result = _attach_dictionary_result(
-        audit_text(anonymized, sensitive_terms=terms),
+        audit_text(anonymized_output_text, sensitive_terms=terms),
         dictionary_result,
     )
     audit_result = _attach_ner_result(audit_result, ner_result)
@@ -853,6 +1394,24 @@ def _anonymize_pdf_file_result(
         counters=counters,
         audit_result=audit_result,
         ner_result=ner_result,
+        pdf_redaction_scope=normalized_pdf_scope,
+        ner_pdf_redaction_skipped_categories=pdf_ner_skipped_categories,
+    )
+    report_path = _build_anonymization_report_path(source_path, output_dir=output_dir)
+    checklist_path = _save_review_checklist(
+        source_path,
+        output_path,
+        report_path,
+        counters,
+        audit_result,
+        ocr_result,
+        ner_result,
+        llm_review_result,
+        anonymized_output_text,
+        sections=anonymized_pages if text_based_pdf else None,
+        section_label="Source page",
+        pdf_redaction_result=pdf_redaction_result,
+        output_dir=output_dir,
     )
     report_path = _save_anonymization_report(
         source_path,
@@ -865,10 +1424,13 @@ def _anonymize_pdf_file_result(
         llm_review_result,
         pdf_redaction_result,
         output_dir=output_dir,
+        report_path=report_path,
+        checklist_result={"created": True, "output_name": checklist_path.name},
     )
     return FileWorkflowResult(
         output_path,
         report_path,
+        checklist_path,
         counters,
         audit_result,
         ocr_result,
@@ -970,6 +1532,19 @@ def _anonymize_image_file_result(
         dictionary_result,
     )
     audit_result = _attach_ner_result(audit_result, ner_result)
+    report_path = _build_anonymization_report_path(source_path, output_dir=output_dir)
+    checklist_path = _save_review_checklist(
+        source_path,
+        output_path,
+        report_path,
+        counters,
+        audit_result,
+        extraction.metadata,
+        ner_result,
+        llm_review_result,
+        anonymized,
+        output_dir=output_dir,
+    )
     report_path = _save_anonymization_report(
         source_path,
         output_path,
@@ -980,15 +1555,84 @@ def _anonymize_image_file_result(
         ner_result,
         llm_review_result,
         output_dir=output_dir,
+        report_path=report_path,
+        checklist_result={"created": True, "output_name": checklist_path.name},
     )
     return FileWorkflowResult(
         output_path,
         report_path,
+        checklist_path,
         counters,
         audit_result,
         extraction.metadata,
         ner_result,
         llm_review_result,
+    )
+
+
+def _build_anonymization_report_path(
+    source_path: str | Path,
+    *,
+    output_dir: str | Path | None = None,
+) -> Path:
+    return build_collision_safe_path(
+        build_report_path(source_path, output_dir=output_dir)
+    )
+
+
+def _output_names_for_checklist(
+    output_path: str | Path,
+    pdf_redaction_result: dict[str, object] | None = None,
+) -> list[str]:
+    output_names = [Path(output_path).name]
+    if pdf_redaction_result is None:
+        return output_names
+
+    visual_name = str(pdf_redaction_result.get("visual_pdf_name", "")).strip()
+    if visual_name and visual_name not in output_names:
+        output_names.append(Path(visual_name).name)
+    for key in ("review_pdf_name", "output_name"):
+        name = str(pdf_redaction_result.get(key, "")).strip()
+        if name and name not in output_names:
+            output_names.append(Path(name).name)
+    return output_names
+
+
+def _save_review_checklist(
+    source_path: str | Path,
+    output_path: str | Path,
+    report_path: str | Path,
+    counters: dict[str, int],
+    audit_result: dict[str, object],
+    ocr_result: dict[str, object],
+    ner_result: dict[str, object],
+    llm_review_result: dict[str, object],
+    anonymized_text: str,
+    *,
+    sections: list[str] | None = None,
+    section_label: str = "Line",
+    pdf_redaction_result: dict[str, object] | None = None,
+    output_dir: str | Path | None = None,
+) -> Path:
+    checklist_text = build_review_checklist_text(
+        source_name=Path(source_path).name,
+        input_extension=Path(source_path).suffix,
+        output_names=_output_names_for_checklist(output_path, pdf_redaction_result),
+        report_name=Path(report_path).name,
+        counters=counters,
+        audit_result=audit_result,
+        ocr_result=ocr_result,
+        ner_result=ner_result,
+        llm_review_result=llm_review_result,
+        anonymized_text=anonymized_text,
+        sections=sections,
+        section_label=section_label,
+        pdf_redaction_result=pdf_redaction_result,
+    )
+    return save_review_checklist_file(
+        source_path,
+        output_dir=output_dir,
+        text=checklist_text,
     )
 
 
@@ -1003,14 +1647,18 @@ def _save_anonymization_report(
     llm_review_result: dict[str, object],
     pdf_redaction_result: dict[str, object] | None = None,
     output_dir: str | Path | None = None,
+    report_path: str | Path | None = None,
+    checklist_result: dict[str, object] | None = None,
 ) -> Path:
     source = Path(source_path)
     output = Path(output_path)
-    report_path = build_collision_safe_path(
-        build_report_path(source, output_dir=output_dir)
+    final_report_path = (
+        Path(report_path)
+        if report_path is not None
+        else _build_anonymization_report_path(source, output_dir=output_dir)
     )
     return save_report_file(
-        report_path,
+        final_report_path,
         counters=counters,
         input_extension=source.suffix,
         output_extension=output.suffix,
@@ -1022,6 +1670,7 @@ def _save_anonymization_report(
         ner_result=ner_result,
         llm_review_result=llm_review_result,
         pdf_redaction_result=pdf_redaction_result,
+        checklist_result=checklist_result,
     )
 
 
@@ -1035,6 +1684,8 @@ def anonymize_file(
     ner_model_name: str = DEFAULT_NER_MODEL,
     use_llm_review: bool = False,
     llm_model_name: str = "",
+    pdf_redaction_scope: str = PDF_REDACTION_SCOPE_SAFE,
+    pdf_output_mode: str = PDF_OUTPUT_MODE_VISUAL,
 ) -> tuple[Path, dict[str, int]]:
     """Anonymize one supported application file using existing workflows."""
     output_path, counters, _ = anonymize_file_with_audit(
@@ -1046,6 +1697,8 @@ def anonymize_file(
         ner_model_name=ner_model_name,
         use_llm_review=use_llm_review,
         llm_model_name=llm_model_name,
+        pdf_redaction_scope=pdf_redaction_scope,
+        pdf_output_mode=pdf_output_mode,
     )
     return output_path, counters
 
@@ -1060,6 +1713,8 @@ def anonymize_file_with_audit(
     ner_model_name: str = DEFAULT_NER_MODEL,
     use_llm_review: bool = False,
     llm_model_name: str = "",
+    pdf_redaction_scope: str = PDF_REDACTION_SCOPE_SAFE,
+    pdf_output_mode: str = PDF_OUTPUT_MODE_VISUAL,
 ) -> tuple[Path, dict[str, int], dict[str, object]]:
     """Anonymize one supported file and return safe audit metadata."""
     result = _anonymize_file_result(
@@ -1071,6 +1726,8 @@ def anonymize_file_with_audit(
         ner_model_name=ner_model_name,
         use_llm_review=use_llm_review,
         llm_model_name=llm_model_name,
+        pdf_redaction_scope=pdf_redaction_scope,
+        pdf_output_mode=pdf_output_mode,
     )
     return result.output_path, result.counters, result.audit_result
 
@@ -1085,6 +1742,8 @@ def _anonymize_file_result(
     ner_model_name: str = DEFAULT_NER_MODEL,
     use_llm_review: bool = False,
     llm_model_name: str = "",
+    pdf_redaction_scope: str = PDF_REDACTION_SCOPE_SAFE,
+    pdf_output_mode: str = PDF_OUTPUT_MODE_VISUAL,
 ) -> FileWorkflowResult:
     """Anonymize one supported file and return paths needed by batch processing."""
     path = Path(source_path)
@@ -1121,6 +1780,8 @@ def _anonymize_file_result(
             ner_model_name=ner_model_name,
             use_llm_review=use_llm_review,
             llm_model_name=llm_model_name,
+            pdf_redaction_scope=pdf_redaction_scope,
+            pdf_output_mode=pdf_output_mode,
         )
     if path.suffix.lower() in IMAGE_EXTENSIONS:
         return _anonymize_image_file_result(
@@ -1203,6 +1864,9 @@ def anonymize_batch(
     ner_model_name: str = DEFAULT_NER_MODEL,
     use_llm_review: bool = False,
     llm_model_name: str = "",
+    pdf_redaction_scope: str = PDF_REDACTION_SCOPE_SAFE,
+    pdf_output_mode: str = PDF_OUTPUT_MODE_VISUAL,
+    progress_callback: Callable[[int, int, Path], None] | None = None,
 ) -> BatchResult:
     """Anonymize supported files sequentially into one output workspace."""
     if sensitive_terms is not None and sensitive_terms_path is not None:
@@ -1226,7 +1890,11 @@ def anonymize_batch(
     success_count = 0
     error_count = 0
 
-    for path in paths:
+    total_paths = len(paths)
+    for index, path in enumerate(paths, start=1):
+        if progress_callback is not None:
+            progress_callback(index, total_paths, path)
+
         if path.suffix.lower() not in SUPPORTED_EXTENSIONS:
             error_count += 1
             audit_status_counts["not run"] += 1
@@ -1249,6 +1917,8 @@ def anonymize_batch(
                 ner_model_name=ner_model_name,
                 use_llm_review=use_llm_review,
                 llm_model_name=llm_model_name,
+                pdf_redaction_scope=pdf_redaction_scope,
+                pdf_output_mode=pdf_output_mode,
             )
         except Exception as error:
             error_count += 1
@@ -1322,6 +1992,7 @@ def anonymize_batch(
             "status": "success",
             "output_name": result.output_path.name,
             "report_name": result.report_path.name,
+            "checklist_name": result.checklist_path.name,
             "audit_status": result.audit_result.get("status", "unknown"),
             "risk_level": result.audit_result.get("risk_level", "unknown"),
             "dictionary_status": dictionary_status,
@@ -1352,6 +2023,17 @@ def anonymize_batch(
             )
         results.append(success_result)
 
+    batch_review_checklist_text = build_batch_review_checklist_text(
+        input_count=len(paths),
+        success_count=success_count,
+        error_count=error_count,
+        counters=aggregate_counters,
+        results=results,
+    )
+    batch_review_checklist_path = save_batch_review_checklist_file(
+        output_dir,
+        text=batch_review_checklist_text,
+    )
     summary_path = build_collision_safe_path(build_batch_summary_path(output_dir))
     save_batch_summary_file(
         summary_path,
@@ -1372,6 +2054,7 @@ def anonymize_batch(
         category_order=REPORT_CATEGORY_ORDER,
         audit_category_order=AUDIT_CATEGORY_ORDER,
         manual_review_required=True,
+        batch_review_checklist_name=batch_review_checklist_path.name,
     )
 
     return BatchResult(
@@ -1390,4 +2073,5 @@ def anonymize_batch(
         llm_review_risk_level_counts=llm_review_risk_level_counts,
         llm_review_category_counters=llm_review_category_counters,
         pdf_redaction_status_counts=pdf_redaction_status_counts,
+        review_checklist_path=batch_review_checklist_path,
     )

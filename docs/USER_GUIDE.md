@@ -78,17 +78,21 @@ document.docx -> document_RAPORT.txt
 
 Original TXT and DOCX files are not modified.
 
-Text-based PDF files are read locally and the extracted text is anonymized into
-a TXT file. The app also creates a true-redacted visual PDF companion for
-manual review:
+PDF files are read locally and the extracted text is anonymized into a TXT
+file. For text-based PDFs, the app also creates a true-redacted visual review
+PDF and an auxiliary rebuilt review PDF from anonymized text:
 
 ```text
-document.pdf -> document_ANON.pdf
+document.pdf -> document_ANON_VISUAL.pdf
+document.pdf -> document_ANON_REVIEW.pdf
 document.pdf -> document_ANON.txt
+document.pdf -> document_REVIEW_CHECKLIST.txt
 document.pdf -> document_RAPORT.txt
 ```
 
-Original PDF files are not modified. Scanned-PDF visual redaction is not
+Legacy experimental original-layout redaction can be selected separately and
+writes `document_ORIGINAL_REDACTED.pdf`. Original PDF files are not modified.
+Scanned-PDF visual redaction is not
 implemented; scanned PDFs still depend on OCR text fallback.
 
 If a PDF has no extractable text layer, the application can attempt local OCR
@@ -517,14 +521,18 @@ Manual review is required before using the result.
 ## 16. Where Output Files Are Saved
 
 The application saves anonymized TXT and DOCX copies in the output folder
-selected by the user with the `_ANON` suffix. Text-based PDF input creates
-`_ANON.pdf`, `_ANON.txt`, and `_RAPORT.txt`. The `_ANON.pdf` file is a
-true-redacted visual companion for manual review. The `_ANON.txt` file remains
-the text source for approved workspace export and the Knowledge Assistant. A
-safe report is saved in the same output folder with the `_RAPORT.txt` suffix.
-A batch summary is saved as `_BATCH_SUMMARY.txt`. Original files must not be
+selected by the user with the `_ANON` suffix. PDF input creates
+`_ANON_VISUAL.pdf`, `_ANON_REVIEW.pdf`, `_ANON.txt`,
+`_REVIEW_CHECKLIST.txt`, and `_RAPORT.txt` by default for text-based PDFs. The
+`_ANON_VISUAL.pdf` file is the main original-layout visual review artifact.
+The `_ANON_REVIEW.pdf` file is rebuilt from anonymized text and is auxiliary,
+not layout-preserving. The `_ANON.txt` file remains the text source for
+approved workspace export and the Knowledge Assistant. Legacy experimental
+original-layout redaction can additionally create `_ORIGINAL_REDACTED.pdf`. A
+safe report is saved in the same output folder with the `_RAPORT.txt` suffix. A
+batch summary is saved as `_BATCH_SUMMARY.txt`. Original files must not be
 modified. Scanned PDFs still do not get advanced OCR bounding-box visual
-redaction in Stage 23.
+redaction.
 
 The application does not silently overwrite existing generated files. If a
 target name already exists, the next numbered name is used:
@@ -552,8 +560,10 @@ approved workspace unless a custom CLI path is provided.
 ## 17. What Is Not Implemented Yet
 
 The current MVP includes plain string anonymization, TXT file input/output,
-basic DOCX file input/output, text-based PDF input with TXT output and a
-text-based `_ANON.pdf` true-redaction companion, optional local OCR foundation
+basic DOCX file input/output, PDF input with TXT output, a primary
+`_ANON_VISUAL.pdf` review companion, an auxiliary rebuilt `_ANON_REVIEW.pdf`
+review companion, optional legacy experimental original-layout
+`_ORIGINAL_REDACTED.pdf` redaction, optional local OCR foundation
 for image inputs and scanned-PDF fallback, optional local spaCy NER, optional
 local Ollama review, a simple Tkinter GUI, batch processing, an output folder
 workflow, collision-safe output names, safe reports, optional private
@@ -566,4 +576,4 @@ preview, broad PDF editing, scanned/OCR visual PDF redaction, editing
 workflow, Knowledge Assistant GUI, chat history, embeddings, vector database,
 document rewriting, automatic approval, rejected/needs-review folder routing,
 and edited image output are not implemented. Manual review is still required,
-including for text-based `_ANON.pdf` outputs.
+including for PDF review outputs.

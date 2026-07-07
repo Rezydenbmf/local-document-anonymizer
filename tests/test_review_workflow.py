@@ -37,6 +37,9 @@ class ReviewWorkflowTests(unittest.TestCase):
             (output_dir / "document_RAPORT.txt").write_text(
                 "Synthetic report.", encoding="utf-8"
             )
+            (output_dir / "document_REVIEW_CHECKLIST.txt").write_text(
+                "Synthetic checklist.", encoding="utf-8"
+            )
             (output_dir / "letter_ANON.docx").write_bytes(b"synthetic docx")
             (output_dir / "scan_ANON_2.txt").write_text(
                 "Synthetic PDF text output.", encoding="utf-8"
@@ -44,8 +47,14 @@ class ReviewWorkflowTests(unittest.TestCase):
             (output_dir / "scan_RAPORT_2.txt").write_text(
                 "Synthetic report.", encoding="utf-8"
             )
+            (output_dir / "scan_REVIEW_CHECKLIST_2.txt").write_text(
+                "Synthetic checklist.", encoding="utf-8"
+            )
             (output_dir / "_BATCH_SUMMARY.txt").write_text(
                 "Synthetic batch summary.", encoding="utf-8"
+            )
+            (output_dir / "_BATCH_REVIEW_CHECKLIST.txt").write_text(
+                "Synthetic batch checklist.", encoding="utf-8"
             )
             (output_dir / "_REVIEW_SUMMARY.txt").write_text(
                 "Old review summary.", encoding="utf-8"
@@ -62,9 +71,21 @@ class ReviewWorkflowTests(unittest.TestCase):
                 items["document_ANON.txt"].report_name,
                 "document_RAPORT.txt",
             )
+            self.assertEqual(
+                items["document_ANON.txt"].checklist_name,
+                "document_REVIEW_CHECKLIST.txt",
+            )
             self.assertIsNone(items["letter_ANON.docx"].report_name)
+            self.assertIsNone(items["letter_ANON.docx"].checklist_name)
             self.assertEqual(items["scan_ANON_2.txt"].report_name, "scan_RAPORT_2.txt")
-            self.assertEqual(workspace.batch_summary_names, ["_BATCH_SUMMARY.txt"])
+            self.assertEqual(
+                items["scan_ANON_2.txt"].checklist_name,
+                "scan_REVIEW_CHECKLIST_2.txt",
+            )
+            self.assertEqual(
+                workspace.batch_summary_names,
+                ["_BATCH_SUMMARY.txt", "_BATCH_REVIEW_CHECKLIST.txt"],
+            )
 
     def test_supports_manual_review_statuses_and_saves_status_json(self) -> None:
         with workspace_temp_dir() as temp_dir:
@@ -173,6 +194,7 @@ class ReviewWorkflowTests(unittest.TestCase):
             self.assertIn("Approved means the user manually approved the file.", summary_text)
             self.assertIn("output: document_ANON.txt", summary_text)
             self.assertIn("report: document_RAPORT.txt", summary_text)
+            self.assertIn("checklist: missing", summary_text)
             self.assertIn("risk level: unknown", summary_text)
             self.assertIn("_BATCH_SUMMARY.txt", summary_text)
             for unsafe_text in (
@@ -231,8 +253,15 @@ class ReviewWorkflowTests(unittest.TestCase):
             self.assertEqual(len(workspace.items), 1)
             self.assertEqual(workspace.items[0].output_name, "document_ANON.txt")
             self.assertEqual(workspace.items[0].report_name, "document_RAPORT.txt")
+            self.assertEqual(
+                workspace.items[0].checklist_name,
+                "document_REVIEW_CHECKLIST.txt",
+            )
             self.assertEqual(workspace.items[0].risk_level, "warning")
-            self.assertEqual(workspace.batch_summary_names, ["_BATCH_SUMMARY.txt"])
+            self.assertEqual(
+                workspace.batch_summary_names,
+                ["_BATCH_SUMMARY.txt", "_BATCH_REVIEW_CHECKLIST.txt"],
+            )
             self.assertIn("Post-anonymization audit:", report_text)
             self.assertIn("Status: warning", report_text)
             self.assertIn("Risk level: warning", report_text)
@@ -243,9 +272,11 @@ class ReviewWorkflowTests(unittest.TestCase):
         with workspace_temp_dir() as temp_dir:
             output_dir = Path(temp_dir)
             txt_path = output_dir / "scan_ANON.txt"
-            pdf_path = output_dir / "scan_ANON.pdf"
+            visual_pdf_path = output_dir / "scan_ANON_VISUAL.pdf"
+            review_pdf_path = output_dir / "scan_ANON_REVIEW.pdf"
             txt_path.write_text("Synthetic anonymized text.", encoding="utf-8")
-            pdf_path.write_bytes(b"%PDF-1.4\n% synthetic companion\n")
+            visual_pdf_path.write_bytes(b"%PDF-1.4\n% synthetic visual\n")
+            review_pdf_path.write_bytes(b"%PDF-1.4\n% synthetic companion\n")
 
             workspace = detect_review_workspace(output_dir)
 
@@ -253,7 +284,7 @@ class ReviewWorkflowTests(unittest.TestCase):
             self.assertEqual(workspace.items[0].output_name, "scan_ANON.txt")
             self.assertEqual(
                 preferred_review_output_path(output_dir, "scan_ANON.txt"),
-                pdf_path,
+                visual_pdf_path,
             )
 
     def test_exports_only_approved_anonymized_outputs_and_matching_reports(self) -> None:
