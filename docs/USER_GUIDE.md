@@ -25,8 +25,8 @@ The current MVP workflow is:
 4. Optionally select a private sensitive terms file.
 5. Leave `Use local NER if available` checked when you want the optional local
    spaCy NER layer to run, or uncheck it for dictionary/regex-only processing.
-6. Optionally enable `Use local LLM review if available` and enter the name of
-   a local Ollama model that you installed manually.
+6. Optionally enable `Use local LLM review if available` and select a locally
+   installed Ollama model from the GUI selector.
 7. If `Anonymize batch` is disabled, read the readiness hint beside the button.
 8. Click `Anonymize batch`.
 9. Check the status, dictionary status, category counters, aggregate audit

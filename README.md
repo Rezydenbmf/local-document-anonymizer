@@ -2,7 +2,7 @@
 
 A local-first Python/Tkinter desktop tool for anonymizing text documents (TXT, DOCX, PDF, and images via OCR) entirely on the user's own machine — no cloud APIs, no external services, no databases.
 
-**Status:** MVP / in development (Stage 24 pilot corrections in progress)
+**Status:** Working local MVP; Stage 24 PDF visual review cleanup completed.
 
 ![Batch anonymization result screen](screenshots/screenshot-anonymizer-result.png)
 
@@ -16,7 +16,7 @@ Manually redacting personal data (names, PESEL numbers, emails, phone numbers, a
 
 - **Language:** Python
 - **GUI:** Tkinter
-- **Document I/O:** `python-docx` (DOCX), `pypdf` / `PyMuPDF` (PDF text extraction, rebuilt review PDFs, optional experimental visual redaction)
+- **Document I/O:** `python-docx` (DOCX), `pypdf` / `PyMuPDF` (PDF text extraction, true-redacted `_ANON_VISUAL.pdf` review artifacts, rebuilt review PDFs)
 - **Optional OCR:** `pytesseract` + Pillow, backed by a locally installed Tesseract engine
 - **Optional NER:** spaCy with a locally installed Polish model (`pl_core_news_sm`)
 - **Optional LLM review:** local Ollama (no cloud calls, no bundled/auto-downloaded models)

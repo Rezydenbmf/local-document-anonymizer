@@ -283,12 +283,12 @@ The GUI is a simple workflow shell. It does not preview document content, edit
 output, display dictionary contents, display audit snippets, provide a PDF
 editor, provide split-screen PDF review, or generate detailed audit reports
 beyond safe counters, risk metadata, the safe batch summary, and the safe
-manual review summary. Stage 23 can create text-based redacted PDF companion
-files through the normal workflow, but the GUI does not inspect those files or
-add an in-app PDF viewer. Stage 15 can ask the operating system to open a
-selected generated output or matching report. Stage 17 can export approved
-files, but it still delegates the file rules to the review workflow and does
-not parse source files inside the GUI layer.
+manual review summary. Stage 24 creates `_ANON_VISUAL.pdf` as the main
+text-based PDF review artifact through the normal workflow, but the GUI does
+not inspect that file or add an in-app PDF viewer. Stage 15 can ask the
+operating system to open a selected generated output or matching report. Stage
+17 can export approved files, but it still delegates the file rules to the
+review workflow and does not parse source files inside the GUI layer.
 
 ## Private Dictionary Limitations
 

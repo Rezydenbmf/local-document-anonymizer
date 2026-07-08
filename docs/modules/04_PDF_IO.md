@@ -32,7 +32,7 @@ original-layout workflow remains available only as explicit experimental
 
 ## Runtime dependency
 
-Stage 4 adds one runtime dependency and Stage 23 uses the existing PyMuPDF
+Stage 4 adds one runtime dependency and Stage 24 uses the existing PyMuPDF
 dependency:
 
 ```text
@@ -42,7 +42,7 @@ PyMuPDF
 
 `pypdf` is used locally to read extractable text from PDF files. PyMuPDF is
 used locally for true redaction of text-based PDF output. Stage 19 can
-optionally use local OCR dependencies for scanned PDFs, but Stage 23 does not
+optionally use local OCR dependencies for scanned PDFs, but Stage 24 does not
 add scanned-PDF bounding-box redaction, internet calls, APIs, cloud services,
 AI, local LLMs, databases, or broad PDF editor behavior.
 

@@ -2,16 +2,17 @@
 
 ## Current Status
 
-The project is in Stage 24 pilot corrections after Stage 23. Stage 23 was
-committed and pushed as `179033f Implement Stage 23 PDF redaction MVP` after
-final synthetic text-based PDF smoke verification. Stage 24 changes the default
-PDF review workflow after pilot feedback: PDF input now creates anonymized TXT,
-a privacy-safe per-file manual review checklist, a safe report, and a rebuilt
-review PDF from anonymized text, while original-layout redaction is kept only
-as an explicit experimental mode. Stage 24 also narrows PDF redaction quality,
-improves a typo-shaped person-name pattern, adds a visible GUI processing
-status, and replaces manual LLM model-name typing with a local Ollama model
-selector.
+The project has a working local MVP. Stage 24 was completed, tested, committed,
+and pushed as `52a62aa Implement Stage 24 layout-preserving PDF review`.
+Stage 24 completed the public PDF review cleanup after Stage 23 by making
+`_ANON_VISUAL.pdf` the main original-layout manual review artifact for
+text-based PDFs. PDF input now creates anonymized TXT, `_ANON_VISUAL.pdf`, an
+auxiliary `_ANON_REVIEW.pdf`, a privacy-safe per-file manual review checklist,
+and a safe report by default. The legacy original-layout redaction output
+remains available only as an explicit experimental mode. Stage 24 also narrowed
+PDF redaction quality, improved a typo-shaped person-name pattern, added a
+visible GUI processing status, and replaced manual LLM model-name typing with a
+local Ollama model selector.
 
 The Stage 0-13 MVP implementation contains a narrow regex-based engine that
 accepts a Python string and returns anonymized text plus category counters. It
@@ -518,8 +519,9 @@ python -m unittest discover -s tests
 - TXT outputs are written to the selected output folder with an `_ANON` suffix.
 - DOCX outputs are written to the selected output folder with an `_ANON` suffix.
 - PDF input is extracted as text and saved as `_ANON.txt`; the default manual
-  review package also includes `_REVIEW_CHECKLIST.txt` and auxiliary
-  `_ANON_REVIEW.pdf`, rebuilt from anonymized text.
+  review package also includes `_ANON_VISUAL.pdf` as the main original-layout
+  review artifact, `_ANON_REVIEW.pdf` as an auxiliary rebuilt-text review PDF,
+  and `_REVIEW_CHECKLIST.txt`.
 - Experimental original-layout text-based PDF redaction can create
   `_ORIGINAL_REDACTED.pdf` when explicitly selected and when PyMuPDF can locate
   supported matches.
@@ -593,21 +595,16 @@ python -m unittest discover -s tests
 
 ## Last Completed Committed Stage
 
-Stage 23: Layout-preserving PDF redaction MVP.
+Stage 24: Layout-preserving PDF review.
 
 ```text
-179033f Implement Stage 23 PDF redaction MVP
+52a62aa Implement Stage 24 layout-preserving PDF review
 ```
 
 ## Next Logical Step
 
-Run a focused synthetic or user-approved pilot review of the Stage 24 corrected
-PDF outputs and checklist workflow in the normal GUI workflow, or choose the
-next explicitly approved stage. The Stage 24 correction makes `_ANON.txt`,
-`_REVIEW_CHECKLIST.txt`, `_ANON_REVIEW.pdf`, and `_RAPORT.txt` the default PDF
-workflow, keeps experimental
-`_ORIGINAL_REDACTED.pdf` true redaction available only by explicit selection,
-and reports the difference clearly. Potential future work requires an
+Use the completed Stage 24 workflow in real local pilot/use and make future
+improvements only from observed needs. Potential future work requires an
 explicit project decision, especially OCR quality improvements, NER candidate
 export, installer work, AI/API integration, broader LLM features, databases,
 broad NLP/entity detection, packaging, release automation, embedding retrieval
