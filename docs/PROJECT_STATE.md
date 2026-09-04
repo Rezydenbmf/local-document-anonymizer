@@ -253,6 +253,42 @@ da42c88 Fix PDF visual redaction over-wiping benign label words
 a8fadfe Skip non-person NER entities that only exist via line-break bridging
 ```
 
+Stage 24.2 extends the deterministic anonymization engine with several
+identifier categories observed as gaps during the Stage 24.1 pilot, plus one
+more NER exclusion. `pesel`, `nip`, and `regon` join the local NER
+false-positive exclusion list so the model no longer occasionally mistakes
+these label words for an organization or location when a number does not
+follow them. The `DATA` pattern now also matches dash-separated
+(`dd-mm-yyyy`) and slash-separated (`dd/mm/yyyy`) numeric dates and
+written-month-name dates (`4 września 2026`), the most common date-of-birth
+format in Polish formal documents. A new `POSTAL_CODE` category (`dd-ddd`)
+promotes the pattern already used audit-only in `audit.py` into the actual
+anonymization engine, kept under the same name for consistency. A new
+`MIEJSCOWOSC` category detects a town/city name immediately after a postal
+code, including compound names. A new `ULICA` category detects a street name
+after `ul./al./pl.` (with or without a period, either case) or the inflected
+full words `ulica/ulicy/aleja/alei/aleje/plac/placu`, with an optional
+building/apartment number, adapted from `audit.py`'s audit-only
+`ADDRESS_LIKE`/`STREET_LIKE` patterns. New `NIP` and `REGON` categories
+detect the actual identifier number, gated on the literal keyword
+immediately before it, the same keyword-context convention `audit.py`'s
+`ID_LIKE_NUMBER` pattern already uses; previously only the label word was
+excluded from NER false positives, the number itself was not detected.
+Every new category ships with regression tests confirmed to fail against
+the pre-change code and pass after; two pre-existing tests whose fixtures
+happened to rely on addresses/postal codes not being detected yet were
+updated to keep testing their original intent instead of a gap this change
+closes. Full suite: 240 tests.
+
+The anonymization engine's regex patterns are still duplicated across three
+places (`anonymizer.py`'s `_PATTERNS`, `pdf_redaction.py`'s
+`PDF_REDACTION_PATTERNS`, and `audit.py`'s audit-only `_AUDIT_PATTERNS`);
+Stage 24.2 kept new patterns consistent by hand across all three but did not
+unify them into one shared source. A local database matching general
+town/city names without postal-code context, a national ID card number
+category, and an IBAN/bank account number category remain deliberately
+deferred; see Roadmap.
+
 ## What Exists
 
 - Repository structure.
@@ -624,11 +660,10 @@ python -m unittest discover -s tests
 
 ## Last Completed Committed Stage
 
-Stage 24.1: PDF/NER pilot bug fixes.
+Stage 24.2: Postal code, city, street, NIP/REGON detection.
 
 ```text
-da42c88 Fix PDF visual redaction over-wiping benign label words
-a8fadfe Skip non-person NER entities that only exist via line-break bridging
+37a8aef Add PESEL/NIP/REGON word exclusion, wider dates, address detection
 ```
 
 ## Next Logical Step

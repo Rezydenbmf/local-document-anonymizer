@@ -167,7 +167,7 @@ class Stage18EndToEndWorkflowTests(unittest.TestCase):
                 "Synthetic case reference ABC/123/2026 remains.", encoding="utf-8"
             )
             high_path.write_text(
-                "Synthetic address ul. Testowa 12 remains.", encoding="utf-8"
+                "Synthetic long number 123456789012 remains.", encoding="utf-8"
             )
 
             batch_result = anonymize_batch(
@@ -205,7 +205,7 @@ class Stage18EndToEndWorkflowTests(unittest.TestCase):
                 ["high_ANON.txt", "warning_ANON.txt", "low_ANON.txt"],
             )
             self.assertIn("* CASE_REFERENCE: 1", summary_text)
-            self.assertIn("* ADDRESS_LIKE: 1", summary_text)
+            self.assertIn("* LONG_NUMBER_SEQUENCE: 1", summary_text)
             self.assertEqual(export_result.copied_output_names, ["low_ANON.txt"])
             self.assertTrue((output_dir / "approved" / "low_ANON.txt").exists())
             self.assertFalse((output_dir / "approved" / "warning_ANON.txt").exists())

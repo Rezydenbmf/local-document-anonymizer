@@ -54,6 +54,11 @@ PDF_REDACTION_COLORS = {
     "NER_LOCATION": (0.25, 0.55, 0.35),
     "NER_MISC": (0.50, 0.42, 0.70),
     "DATA": (0.45, 0.45, 0.45),
+    "POSTAL_CODE": (0.85, 0.12, 0.12),
+    "MIEJSCOWOSC": (0.25, 0.55, 0.35),
+    "ULICA": (0.25, 0.55, 0.35),
+    "NIP": (0.85, 0.12, 0.12),
+    "REGON": (0.85, 0.12, 0.12),
 }
 _SAFE_WORD_PADDING = set(".,;:!?()[]{}<>\"'")
 _UPPER_LETTERS = "A-ZĄĆĘŁŃÓŚŹŻ"
@@ -137,6 +142,36 @@ PDF_REDACTION_PATTERNS: tuple[PdfRedactionPattern, ...] = (
     ),
     PdfRedactionPattern("PESEL", re.compile(r"(?<!\w)\d{11}(?!\w)")),
     PdfRedactionPattern(
+        "NIP",
+        re.compile(
+            r"""
+            (?<!\w)
+            NIP
+            \s*[:.-]?\s*
+            \d(?:[\s-]?\d){9}
+            (?!\w)
+            """,
+            re.VERBOSE | re.IGNORECASE,
+        ),
+    ),
+    PdfRedactionPattern(
+        "REGON",
+        re.compile(
+            r"""
+            (?<!\w)
+            REGON
+            \s*[:.-]?\s*
+            (?:
+                \d(?:[\s-]?\d){13}
+                |
+                \d(?:[\s-]?\d){8}
+            )
+            (?!\w)
+            """,
+            re.VERBOSE | re.IGNORECASE,
+        ),
+    ),
+    PdfRedactionPattern(
         "TELEFON",
         re.compile(
             r"""
@@ -160,11 +195,49 @@ PDF_REDACTION_PATTERNS: tuple[PdfRedactionPattern, ...] = (
                 \d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])
                 |
                 (?:0[1-9]|[12]\d|3[01])\.(?:0[1-9]|1[0-2])\.\d{4}
+                |
+                (?:0[1-9]|[12]\d|3[01])-(?:0[1-9]|1[0-2])-\d{4}
+                |
+                (?:0[1-9]|[12]\d|3[01])/(?:0[1-9]|1[0-2])/\d{4}
+                |
+                (?:0?[1-9]|[12]\d|3[01])\s+(?:stycznia|lutego|marca|kwietnia|maja|
+                czerwca|lipca|sierpnia|września|października|listopada|
+                grudnia)\s+\d{4}
             )
+            (?!\w)
+            """,
+            re.VERBOSE | re.IGNORECASE,
+        ),
+    ),
+    PdfRedactionPattern(
+        "ULICA",
+        re.compile(
+            rf"""
+            (?<!\w)
+            (?i:ul\.?|al\.?|pl\.?|ulic[ayę]|aleja|alei|aleję|plac(?:u)?)\s+
+            {_NAME_TOKEN}
+            (?:\s+{_NAME_TOKEN}){{0,2}}
+            (?:\s+\d+[A-Za-z]?(?:/\d+)?)?
             (?!\w)
             """,
             re.VERBOSE,
         ),
+    ),
+    PdfRedactionPattern(
+        "MIEJSCOWOSC",
+        re.compile(
+            rf"""
+            (?<=\d{{2}}-\d{{3}}\s)
+            {_NAME_TOKEN}
+            (?:{_NAME_HYPHEN}{_NAME_TOKEN})?
+            (?:\s{_NAME_TOKEN})?
+            """,
+            re.VERBOSE,
+        ),
+    ),
+    PdfRedactionPattern(
+        "POSTAL_CODE",
+        re.compile(r"(?<!\w)\d{2}-\d{3}(?!\w)"),
     ),
     PdfRedactionPattern(
         "PERSON_NAME_TYPO",

@@ -138,12 +138,16 @@ PDF_REDACTION_SCOPES = ("safe", "strict")
 PDF_REVIEW_TYPES = ("rebuilt_from_anonymized_text", "none")
 PDF_TEXT_EXTRACTION_TYPES = ("text_layer", "ocr_fallback", "ocr_forced", "")
 PDF_REDACTION_COLOR_LEGEND = (
-    ("red", "PESEL and strong numeric identifiers"),
+    ("red", "PESEL, NIP, REGON, postal codes, and strong numeric identifiers"),
     ("orange", "phone numbers and conservative person-name typo matches"),
     ("blue", "email and electronic identifiers"),
     ("gray", "dates"),
     ("purple", "organizations"),
-    ("green", "locations"),
+    (
+        "green",
+        "locations, including a town/city name next to a postal code and a "
+        "street name after ul./al./pl.",
+    ),
 )
 
 

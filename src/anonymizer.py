@@ -157,7 +157,18 @@ except ImportError:
     )
 
 
-SUPPORTED_LABELS = ("PESEL", "EMAIL", "TELEFON", "DATA", "PERSON_NAME_TYPO")
+SUPPORTED_LABELS = (
+    "PESEL",
+    "EMAIL",
+    "TELEFON",
+    "DATA",
+    "PERSON_NAME_TYPO",
+    "ULICA",
+    "MIEJSCOWOSC",
+    "POSTAL_CODE",
+    "NIP",
+    "REGON",
+)
 REPORT_CATEGORY_ORDER = (*SUPPORTED_LABELS, *NER_LABELS)
 PDF_COVERAGE_WARNING = (
     "PDF redaction may be partial; some detected categories were not PDF-redacted"
@@ -271,6 +282,36 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ),
     ("PESEL", re.compile(r"(?<!\w)\d{11}(?!\w)")),
     (
+        "NIP",
+        re.compile(
+            r"""
+            (?<!\w)
+            NIP
+            \s*[:.-]?\s*
+            \d(?:[\s-]?\d){9}
+            (?!\w)
+            """,
+            re.VERBOSE | re.IGNORECASE,
+        ),
+    ),
+    (
+        "REGON",
+        re.compile(
+            r"""
+            (?<!\w)
+            REGON
+            \s*[:.-]?\s*
+            (?:
+                \d(?:[\s-]?\d){13}
+                |
+                \d(?:[\s-]?\d){8}
+            )
+            (?!\w)
+            """,
+            re.VERBOSE | re.IGNORECASE,
+        ),
+    ),
+    (
         "TELEFON",
         re.compile(
             r"""
@@ -294,11 +335,53 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
                 \d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])
                 |
                 (?:0[1-9]|[12]\d|3[01])\.(?:0[1-9]|1[0-2])\.\d{4}
+                |
+                (?:0[1-9]|[12]\d|3[01])-(?:0[1-9]|1[0-2])-\d{4}
+                |
+                (?:0[1-9]|[12]\d|3[01])/(?:0[1-9]|1[0-2])/\d{4}
+                |
+                (?:0?[1-9]|[12]\d|3[01])\s+(?:stycznia|lutego|marca|kwietnia|maja|
+                czerwca|lipca|sierpnia|września|października|listopada|
+                grudnia)\s+\d{4}
             )
+            (?!\w)
+            """,
+            re.VERBOSE | re.IGNORECASE,
+        ),
+    ),
+    (
+        "ULICA",
+        re.compile(
+            rf"""
+            (?<!\w)
+            (?i:ul\.?|al\.?|pl\.?|ulic[ayę]|aleja|alei|aleję|plac(?:u)?)\s+
+            {_NAME_TOKEN}
+            (?:\s+{_NAME_TOKEN}){{0,2}}
+            (?:\s+\d+[A-Za-z]?(?:/\d+)?)?
             (?!\w)
             """,
             re.VERBOSE,
         ),
+    ),
+    (
+        # Must run before "POSTAL_CODE" below: this pattern's lookbehind
+        # needs the raw "dd-ddd " postal code digits still present in the
+        # text, and _apply_dictionary_and_regex applies _PATTERNS in order,
+        # replacing matches as it goes.
+        "MIEJSCOWOSC",
+        re.compile(
+            rf"""
+            (?<=\d{{2}}-\d{{3}}\s)
+            {_NAME_TOKEN}
+            (?:{_NAME_HYPHEN}{_NAME_TOKEN})?
+            (?:\s{_NAME_TOKEN})?
+            """,
+            re.VERBOSE,
+        ),
+    ),
+    (
+        "POSTAL_CODE",
+        re.compile(r"(?<!\w)\d{2}-\d{3}(?!\w)"),
     ),
     (
         "PERSON_NAME_TYPO",

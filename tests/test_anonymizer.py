@@ -20,6 +20,32 @@ class AnonymizerEngineTests(unittest.TestCase):
         self.assertEqual(anonymized, "Synthetic PESEL: [PESEL].")
         self.assertEqual(report, {"PESEL": 1})
 
+    def test_replaces_nip_number(self) -> None:
+        text = "NIP: 123-456-32-18."
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(anonymized, "[NIP].")
+        self.assertEqual(report, {"NIP": 1})
+
+    def test_replaces_regon_number_short_and_long_form(self) -> None:
+        text = "REGON: 123456785. REGON: 12345678512347."
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(anonymized, "[REGON]. [REGON].")
+        self.assertEqual(report, {"REGON": 2})
+
+    def test_does_not_replace_short_nip_like_number_without_keyword_context(
+        self,
+    ) -> None:
+        text = "Sprawa numer 12345 dotyczy zamowienia."
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(anonymized, text)
+        self.assertEqual(report, {})
+
     def test_replaces_email(self) -> None:
         text = "Contact: tester@example.test."
 
@@ -59,6 +85,91 @@ class AnonymizerEngineTests(unittest.TestCase):
 
         self.assertEqual(anonymized, "Date: [DATA].")
         self.assertEqual(report, {"DATA": 1})
+
+    def test_replaces_data_in_dash_slash_and_written_month_formats(self) -> None:
+        text = (
+            "Zawarta dnia 04-09-2026. Termin do 04/09/2026. "
+            "Data urodzenia: 4 września 2026, drugi zapis: 04 września 2026."
+        )
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(
+            anonymized,
+            "Zawarta dnia [DATA]. Termin do [DATA]. "
+            "Data urodzenia: [DATA], drugi zapis: [DATA].",
+        )
+        self.assertEqual(report, {"DATA": 4})
+
+    def test_does_not_replace_invalid_dash_or_written_month_date(self) -> None:
+        text = "Kod referencyjny 45-67-8901. Notatka: 13 miasto 2026."
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(anonymized, text)
+        self.assertEqual(report, {})
+
+    def test_replaces_postal_code(self) -> None:
+        text = "Adres: ul. Testowa 12, 00-950 Warszawa."
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(anonymized, "Adres: [ULICA], [POSTAL_CODE] [MIEJSCOWOSC].")
+        self.assertEqual(report, {"ULICA": 1, "POSTAL_CODE": 1, "MIEJSCOWOSC": 1})
+
+    def test_replaces_street_name_with_and_without_period_prefix(self) -> None:
+        text = "UL. Testowa 5. Ul Testowa 5. al. Niepodległości 10a. Plac Zamkowy 1."
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(
+            anonymized,
+            "[ULICA]. [ULICA]. [ULICA]. [ULICA].",
+        )
+        self.assertEqual(report, {"ULICA": 4})
+
+    def test_replaces_street_name_without_building_number(self) -> None:
+        text = "Zamieszkały przy ulicy Kwiatowej."
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(anonymized, "Zamieszkały przy [ULICA].")
+        self.assertEqual(report, {"ULICA": 1})
+
+    def test_does_not_replace_bare_street_abbreviation_without_name(self) -> None:
+        text = "Kolega ulubiony ul lubi kawę. Prosze o pl. wplat na koncie."
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(anonymized, text)
+        self.assertEqual(report, {})
+
+    def test_replaces_compound_city_name_after_postal_code(self) -> None:
+        text = "62-800 Ostrów Wielkopolski. 43-300 Bielsko-Biała."
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(
+            anonymized,
+            "[POSTAL_CODE] [MIEJSCOWOSC]. [POSTAL_CODE] [MIEJSCOWOSC].",
+        )
+        self.assertEqual(report, {"POSTAL_CODE": 2, "MIEJSCOWOSC": 2})
+
+    def test_does_not_replace_city_name_without_preceding_postal_code(self) -> None:
+        text = "Miasto Warszawa jest stolica Polski."
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(anonymized, text)
+        self.assertEqual(report, {})
+
+    def test_replaces_postal_code_without_following_city_name(self) -> None:
+        text = "Kod pocztowy: 00-950."
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(anonymized, "Kod pocztowy: [POSTAL_CODE].")
+        self.assertEqual(report, {"POSTAL_CODE": 1})
 
     def test_replaces_conservative_person_name_typo_pattern(self) -> None:
         text = "Reviewer Jan-Kowalski Kowalski signed."
@@ -173,7 +284,18 @@ class AnonymizerEngineTests(unittest.TestCase):
     def test_supported_labels_are_limited_to_current_regex_categories(self) -> None:
         self.assertEqual(
             SUPPORTED_LABELS,
-            ("PESEL", "EMAIL", "TELEFON", "DATA", "PERSON_NAME_TYPO"),
+            (
+                "PESEL",
+                "EMAIL",
+                "TELEFON",
+                "DATA",
+                "PERSON_NAME_TYPO",
+                "ULICA",
+                "MIEJSCOWOSC",
+                "POSTAL_CODE",
+                "NIP",
+                "REGON",
+            ),
         )
 
 
