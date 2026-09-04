@@ -309,12 +309,25 @@ def extract_pdf_word_pages(source_path: str | Path) -> list[PdfWordPage]:
             text_parts: list[str] = []
             words: list[PdfWord] = []
             offset = 0
+            previous_block_line: tuple[int, int] | None = None
             for raw_word in sorted_words:
                 token = str(raw_word[4])
                 if not token:
                     continue
+                block_no = int(raw_word[5])
+                line_no = int(raw_word[6])
+                current_block_line = (block_no, line_no)
                 if text_parts:
-                    text_parts.append(" ")
+                    # Keep a line break between PDF text lines instead of
+                    # flattening the whole page into one run-on line. A
+                    # single joined line loses the sentence/line context
+                    # that NER needs and can make short standalone label
+                    # words (for example "PESEL" or "Data") look like part
+                    # of a longer proper-noun phrase to the NER model.
+                    separator = (
+                        "\n" if current_block_line != previous_block_line else " "
+                    )
+                    text_parts.append(separator)
                     offset += 1
                 start = offset
                 text_parts.append(token)
@@ -325,11 +338,12 @@ def extract_pdf_word_pages(source_path: str | Path) -> list[PdfWordPage]:
                         rect=fitz.Rect(raw_word[:4]),
                         start_offset=start,
                         end_offset=offset,
-                        block_no=int(raw_word[5]),
-                        line_no=int(raw_word[6]),
+                        block_no=block_no,
+                        line_no=line_no,
                         word_no=int(raw_word[7]),
                     )
                 )
+                previous_block_line = current_block_line
             pages.append(
                 PdfWordPage(
                     page_number=page_index,
