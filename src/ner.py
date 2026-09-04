@@ -109,6 +109,9 @@ _ORDINARY_WORD_PHRASES = {
     "publicznej",
     "wiotkie",
     "\u017cywno\u015bci\u0105",
+    "pesel",
+    "nip",
+    "regon",
 }
 _PUBLIC_INSTITUTION_PHRASES.update(
     {

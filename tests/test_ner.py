@@ -152,6 +152,9 @@ class NerFoundationTests(unittest.TestCase):
             "\u017bYWNO\u015aCI\u0104",
             "PUBLICZNEJ",
             "wiotkie",
+            "PESEL",
+            "NIP",
+            "REGON",
         ]
         public_terms = [
             "Pa\u0144stwow\u0105 Inspekcj\u0119 Sanitarn\u0105",

@@ -845,7 +845,8 @@ class PdfIoTests(unittest.TestCase):
                     "Phone +48 123 456 789",
                     "PESEL 00000000000",
                     "Date 2026-06-01",
-                    "Address: Testowa 12, 00-001 Warszawa",
+                    "Address: Testowa 12. Postal code 00-001.",
+                    "City: Warszawa",
                     "Organization: Example Test Clinic",
                 ],
             )
