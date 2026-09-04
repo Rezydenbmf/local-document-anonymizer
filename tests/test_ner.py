@@ -15,6 +15,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 from anonymizer import anonymize_batch, anonymize_docx_file, anonymize_file
 from ner import (
     DEFAULT_NER_MODEL,
+    NER_EXCLUSION_LINEBREAK_NON_PERSON,
     NER_STATUS_DEPENDENCY_MISSING,
     NER_STATUS_DISABLED,
     NER_STATUS_MODEL_MISSING,
@@ -356,6 +357,33 @@ class NerFoundationTests(unittest.TestCase):
 
         self.assertEqual(entities, [])
         self.assertEqual(counters["NER_PERSON"], 0)
+        self.assertEqual(linebreak_count, 0)
+
+    def test_ner_skips_non_person_entity_that_only_exists_via_line_break_bridging(
+        self,
+    ) -> None:
+        """Regression test for a pilot finding: the soft line-break bridging
+        built for split person names (see
+        test_ner_detects_person_across_soft_line_break) does not know in
+        advance what an entity will turn out to be, so it can also bridge
+        two unrelated capitalized words from separate lines - for example
+        two section headers - into what the model reports as a single
+        organization. Such a non-person entity must be skipped rather than
+        redacted, while a genuine split person name must still work."""
+        model = FakeNerModel([("Rozdzial Pierwszy Podsumowanie", "orgName")])
+
+        with patch("ner._spacy_module", return_value=FakeSpacy(model=model)):
+            context = prepare_ner_context(enabled=True)
+            entities, counters, exclusions, linebreak_count = (
+                detect_entities_with_details(
+                    "Rozdzial Pierwszy\nPodsumowanie wynikow badania.",
+                    context,
+                )
+            )
+
+        self.assertEqual(entities, [])
+        self.assertEqual(counters["NER_ORG"], 0)
+        self.assertEqual(exclusions[NER_EXCLUSION_LINEBREAK_NON_PERSON], 1)
         self.assertEqual(linebreak_count, 0)
 
     def test_person_left_expansion_masks_simple_capitalized_previous_token(self) -> None:

@@ -27,7 +27,7 @@ from file_writers import (
     save_anonymized_copy,
     save_anonymized_pdf_txt_copy,
 )
-from pdf_redaction import PdfWordPage, save_redacted_pdf_copy
+from pdf_redaction import PdfWordPage, extract_pdf_word_pages, save_redacted_pdf_copy
 
 
 class FakeEntity:
@@ -1065,6 +1065,70 @@ class PdfIoTests(unittest.TestCase):
                 ("Jan", "Kowalski"),
             )
             self.assert_pdf_exposes_text(visual_pdf_path, ("Footer",))
+
+    def test_word_page_text_keeps_line_breaks_between_separate_pdf_lines(self) -> None:
+        """extract_pdf_word_pages must not flatten separate PDF lines into
+        one run-on line with plain spaces. Losing real line breaks removes
+        context that NER relies on and can make a short standalone label
+        word on its own line (for example "PESEL" or "Data") look like part
+        of a longer phrase to the NER model."""
+        with workspace_temp_dir() as temp_dir:
+            source_path = Path(temp_dir) / "word_page_lines.pdf"
+            write_fitz_text_pdf(
+                source_path,
+                [
+                    "Telefon: 600123456",
+                    "PESEL: 12345678901",
+                    "Data: 2026-09-04",
+                ],
+            )
+
+            word_pages = extract_pdf_word_pages(source_path)
+
+            self.assertEqual(len(word_pages), 1)
+            page = word_pages[0]
+            self.assertIn("Telefon: 600123456\nPESEL: 12345678901\nData:", page.text)
+            self.assertNotIn("12345678901 Data", page.text)
+            for word in page.words:
+                self.assertEqual(
+                    page.text[word.start_offset : word.end_offset], word.text
+                )
+
+    def test_visual_redaction_does_not_merge_separate_pdf_lines_for_ner(self) -> None:
+        """Regression test for a pilot finding: with page text flattened by
+        plain spaces, a NER match spanning what were two separate,
+        otherwise unrelated PDF lines could redact both of them as one
+        phantom entity in the visual review PDF, even though neither line
+        contains anything detected at the TXT-report level. With real line
+        breaks preserved, such a cross-line match must not happen. The line
+        boundary here ends in a digit (not a capitalized word) so it is not
+        eligible for the separate line-break person-name bridging behavior
+        covered by test_default_visual_redaction_handles_person_name_split_across_lines."""
+        with workspace_temp_dir() as temp_dir:
+            source_path = Path(temp_dir) / "no_cross_line_merge.pdf"
+            write_fitz_text_pdf(
+                source_path,
+                [
+                    "Kwota: 100",
+                    "Wystawca: firma",
+                    "Email safe@example.test",
+                ],
+            )
+            # This literal phrase only exists if the two lines above get
+            # flattened into one run-on line with a plain space; it is not
+            # a real cross-line phrase in the source document.
+            model = FakeNerModel([("100 Wystawca", "orgName")])
+
+            with patch("ner._spacy_module", return_value=FakeSpacy(model)):
+                _output_path, counters = anonymize_pdf_file(
+                    source_path,
+                    use_ner=True,
+                    pdf_output_mode=PDF_OUTPUT_MODE_VISUAL,
+                )
+
+            self.assertEqual(counters.get("NER_ORG", 0), 0)
+            visual_pdf_path = Path(temp_dir) / "no_cross_line_merge_ANON_VISUAL.pdf"
+            self.assert_pdf_exposes_text(visual_pdf_path, ("Kwota: 100", "Wystawca:"))
 
     def test_strict_pdf_redaction_scope_includes_selected_ner_terms(self) -> None:
         with workspace_temp_dir() as temp_dir:
