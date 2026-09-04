@@ -39,12 +39,14 @@ NER_EXCLUSION_VERSION_LIKE = "VERSION_LIKE"
 NER_EXCLUSION_SCIENTIFIC_NAME = "SCIENTIFIC_NAME"
 NER_EXCLUSION_ORDINARY_WORD = "ORDINARY_WORD"
 NER_EXCLUSION_SINGLE_TOKEN_PERSON = "SINGLE_TOKEN_PERSON_SKIPPED"
+NER_EXCLUSION_LINEBREAK_NON_PERSON = "LINEBREAK_NON_PERSON_SKIPPED"
 NER_EXCLUSION_CATEGORIES = (
     NER_EXCLUSION_PUBLIC_INSTITUTION,
     NER_EXCLUSION_VERSION_LIKE,
     NER_EXCLUSION_SCIENTIFIC_NAME,
     NER_EXCLUSION_ORDINARY_WORD,
     NER_EXCLUSION_SINGLE_TOKEN_PERSON,
+    NER_EXCLUSION_LINEBREAK_NON_PERSON,
 )
 
 _MODEL_LABELS = {
@@ -577,8 +579,22 @@ def detect_entities_with_details(
             continue
         if _overlaps_any(start, end, accepted_ranges):
             continue
-        if label == NER_LABEL_PERSON and "\n" in text[start:end]:
-            linebreak_person_candidates += 1
+        crosses_bridged_linebreak = "\n" in text[start:end]
+        if label == NER_LABEL_PERSON:
+            if crosses_bridged_linebreak:
+                linebreak_person_candidates += 1
+        elif crosses_bridged_linebreak:
+            # The line-break bridging above exists only to let a person
+            # name split across a PDF/document line still be detected as
+            # one name. It does not know in advance what an entity will
+            # turn out to be, so it also bridges two unrelated capitalized
+            # words from separate lines (for example two section headers).
+            # A non-person entity that only exists because of that
+            # bridging is far more likely to be such an accidental merge
+            # than a genuine multi-line organization/location name, so it
+            # is skipped here rather than redacted.
+            exclusion_counters[NER_EXCLUSION_LINEBREAK_NON_PERSON] += 1
+            continue
         accepted_ranges.append((start, end))
         entities.append(NerEntity(start=start, end=end, label=label))
         counters[label] += 1
