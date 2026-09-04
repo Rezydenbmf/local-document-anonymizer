@@ -59,6 +59,8 @@ PDF_REDACTION_COLORS = {
     "ULICA": (0.25, 0.55, 0.35),
     "NIP": (0.85, 0.12, 0.12),
     "REGON": (0.85, 0.12, 0.12),
+    "DOWOD_OSOBISTY": (0.85, 0.12, 0.12),
+    "IBAN": (0.85, 0.12, 0.12),
 }
 _SAFE_WORD_PADDING = set(".,;:!?()[]{}<>\"'")
 _UPPER_LETTERS = "A-ZĄĆĘŁŃÓŚŹŻ"
@@ -141,6 +143,17 @@ PDF_REDACTION_PATTERNS: tuple[PdfRedactionPattern, ...] = (
         ),
     ),
     PdfRedactionPattern("PESEL", re.compile(r"(?<!\w)\d{11}(?!\w)")),
+    PdfRedactionPattern(
+        "DOWOD_OSOBISTY",
+        re.compile(r"(?<!\w)[A-Z]{3}\d{6}(?!\w)"),
+    ),
+    PdfRedactionPattern(
+        "IBAN",
+        re.compile(
+            r"(?<!\w)PL\s?\d{2}(?:\s?\d{4}){6}(?!\w)",
+            re.IGNORECASE,
+        ),
+    ),
     PdfRedactionPattern(
         "NIP",
         re.compile(

@@ -46,6 +46,41 @@ class AnonymizerEngineTests(unittest.TestCase):
         self.assertEqual(anonymized, text)
         self.assertEqual(report, {})
 
+    def test_replaces_dowod_osobisty_number(self) -> None:
+        text = "Numer dowodu: ABC123456."
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(anonymized, "Numer dowodu: [DOWOD_OSOBISTY].")
+        self.assertEqual(report, {"DOWOD_OSOBISTY": 1})
+
+    def test_does_not_replace_lowercase_or_wrong_length_dowod_like_code(self) -> None:
+        text = "Kod produktu abc123456 lub AB123456 lub ABCD123456."
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(anonymized, text)
+        self.assertEqual(report, {})
+
+    def test_replaces_iban_with_and_without_spaces(self) -> None:
+        text = (
+            "Konto: PL61 1090 1014 0000 0712 1981 2874. "
+            "IBAN PL61109010140000071219812874."
+        )
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(anonymized, "Konto: [IBAN]. IBAN [IBAN].")
+        self.assertEqual(report, {"IBAN": 2})
+
+    def test_does_not_replace_malformed_iban_grouping(self) -> None:
+        text = "PL6 1109 0101 4000 0071 2198 1287 4"
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(anonymized, text)
+        self.assertEqual(report, {})
+
     def test_replaces_email(self) -> None:
         text = "Contact: tester@example.test."
 
@@ -295,6 +330,8 @@ class AnonymizerEngineTests(unittest.TestCase):
                 "POSTAL_CODE",
                 "NIP",
                 "REGON",
+                "DOWOD_OSOBISTY",
+                "IBAN",
             ),
         )
 
