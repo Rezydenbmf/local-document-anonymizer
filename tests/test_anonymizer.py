@@ -136,6 +136,19 @@ class AnonymizerEngineTests(unittest.TestCase):
         )
         self.assertEqual(report, {"DATA": 4})
 
+    def test_replaces_written_month_date_without_polish_diacritics(self) -> None:
+        text = (
+            "Spotkanie 15 wrzesnia 2026 roku. Kolejne 3 pazdziernika 2026 roku."
+        )
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(
+            anonymized,
+            "Spotkanie [DATA] roku. Kolejne [DATA] roku.",
+        )
+        self.assertEqual(report, {"DATA": 2})
+
     def test_does_not_replace_invalid_dash_or_written_month_date(self) -> None:
         text = "Kod referencyjny 45-67-8901. Notatka: 13 miasto 2026."
 

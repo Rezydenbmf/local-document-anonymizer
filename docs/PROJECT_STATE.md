@@ -300,6 +300,18 @@ tests, including their negative cases (wrong case/length ID-like code,
 malformed IBAN grouping), confirmed to fail before and pass after the
 change. Full suite: 244 tests.
 
+Stage 24.4 fixes a written-month date gap found live while testing a
+fictional 5-person meeting transcript with sensitive data embedded in
+natural conversation rather than labeled fields: dates like "15 wrzesnia
+2026" (missing the Polish diacritics in "wrzesnia"/"pazdziernika") were not
+detected at all, while the correctly-accented spelling already was. Text
+without Polish diacritics is common in real automatic speech-to-text
+transcripts and some OCR output, so this was a real coverage gap. The
+`DATA` pattern's written-month alternative now matches both the accented
+and unaccented spelling of the two affected month names (the other ten
+Polish month names used in dates are already plain ASCII). Full suite: 245
+tests.
+
 ## What Exists
 
 - Repository structure.
@@ -671,10 +683,10 @@ python -m unittest discover -s tests
 
 ## Last Completed Committed Stage
 
-Stage 24.3: ID card number and IBAN detection.
+Stage 24.4: Written-month date diacritics fix.
 
 ```text
-4d0320e Add Polish ID card number and IBAN detection
+209a2eb Match written-month dates without Polish diacritics
 ```
 
 ## Next Logical Step

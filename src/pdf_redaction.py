@@ -214,7 +214,7 @@ PDF_REDACTION_PATTERNS: tuple[PdfRedactionPattern, ...] = (
                 (?:0[1-9]|[12]\d|3[01])/(?:0[1-9]|1[0-2])/\d{4}
                 |
                 (?:0?[1-9]|[12]\d|3[01])\s+(?:stycznia|lutego|marca|kwietnia|maja|
-                czerwca|lipca|sierpnia|września|października|listopada|
+                czerwca|lipca|sierpnia|wrze[śs]nia|pa[źz]dziernika|listopada|
                 grudnia)\s+\d{4}
             )
             (?!\w)
