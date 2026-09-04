@@ -168,6 +168,8 @@ SUPPORTED_LABELS = (
     "POSTAL_CODE",
     "NIP",
     "REGON",
+    "DOWOD_OSOBISTY",
+    "IBAN",
 )
 REPORT_CATEGORY_ORDER = (*SUPPORTED_LABELS, *NER_LABELS)
 PDF_COVERAGE_WARNING = (
@@ -281,6 +283,17 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
         ),
     ),
     ("PESEL", re.compile(r"(?<!\w)\d{11}(?!\w)")),
+    (
+        "DOWOD_OSOBISTY",
+        re.compile(r"(?<!\w)[A-Z]{3}\d{6}(?!\w)"),
+    ),
+    (
+        "IBAN",
+        re.compile(
+            r"(?<!\w)PL\s?\d{2}(?:\s?\d{4}){6}(?!\w)",
+            re.IGNORECASE,
+        ),
+    ),
     (
         "NIP",
         re.compile(

@@ -285,9 +285,20 @@ places (`anonymizer.py`'s `_PATTERNS`, `pdf_redaction.py`'s
 `PDF_REDACTION_PATTERNS`, and `audit.py`'s audit-only `_AUDIT_PATTERNS`);
 Stage 24.2 kept new patterns consistent by hand across all three but did not
 unify them into one shared source. A local database matching general
-town/city names without postal-code context, a national ID card number
-category, and an IBAN/bank account number category remain deliberately
-deferred; see Roadmap.
+town/city names without postal-code context remains deliberately deferred;
+see Roadmap.
+
+Stage 24.3 adds two more deterministic categories. `DOWOD_OSOBISTY` detects
+a Polish ID card number by its official shape alone (3 uppercase letters
+immediately followed by 6 digits, no separator), with no keyword context
+required, the same shape-only approach already used for `PESEL`. `IBAN`
+detects a Polish IBAN (`PL` plus 26 digits), matched whether written as one
+continuous run or grouped in 4s with spaces; a bare 26-digit domestic
+account number without the `PL` prefix stays out of scope as too ambiguous
+to redact safely without a country-code anchor. Both ship with regression
+tests, including their negative cases (wrong case/length ID-like code,
+malformed IBAN grouping), confirmed to fail before and pass after the
+change. Full suite: 244 tests.
 
 ## What Exists
 
@@ -660,10 +671,10 @@ python -m unittest discover -s tests
 
 ## Last Completed Committed Stage
 
-Stage 24.2: Postal code, city, street, NIP/REGON detection.
+Stage 24.3: ID card number and IBAN detection.
 
 ```text
-37a8aef Add PESEL/NIP/REGON word exclusion, wider dates, address detection
+4d0320e Add Polish ID card number and IBAN detection
 ```
 
 ## Next Logical Step
