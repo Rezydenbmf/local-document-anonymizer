@@ -224,6 +224,35 @@ tall main window. Stage 24 does not add scanned-PDF/OCR bounding-box redaction,
 a PDF editor, split-screen review, drag and drop, vector databases, or broader
 LLM features.
 
+Stage 24.1 fixes two related bugs found during a real-use pilot of the
+completed Stage 24 workflow, both caused by short PDF page text losing line
+context before local NER analysis. First, `extract_pdf_word_pages` joined
+every PDF word on a page with a plain space instead of a real line break,
+which could make a short standalone label word on its own PDF line (for
+example `PESEL` or `Data`) look like part of an organization name to the
+local NER model; the word-coordinate visual redaction pass then wiped the
+label word out of `_ANON_VISUAL.pdf` even though it was never flagged in the
+TXT-level report. The fix inserts a real line break between PDF words when
+the source line changes, matching how normal PDF text extraction already
+behaves for the `_ANON.txt` output. Second, the existing NER line-break
+bridging built to detect a person name split across a line (for example
+`Jan` / `Kowalski`) does not know in advance what an entity will turn out to
+be, so it could also bridge two unrelated capitalized words from separate
+lines, such as two section headers, into a false organization or location
+match; a synthetic two-line snippet reproduced this live with the real local
+`pl_core_news_sm` model. The fix skips a detected entity when its label is
+not `NER_PERSON` and its span only exists because of that line-break
+bridging, reported under a new `LINEBREAK_NON_PERSON_SKIPPED` NER exclusion
+category; the existing person line-break bridging behavior is unchanged and
+still detects a genuine split person name. Both fixes ship with regression
+tests confirmed to fail against the pre-fix code and pass after the fix; the
+full test suite remains green (228 tests).
+
+```text
+da42c88 Fix PDF visual redaction over-wiping benign label words
+a8fadfe Skip non-person NER entities that only exist via line-break bridging
+```
+
 ## What Exists
 
 - Repository structure.
@@ -595,10 +624,11 @@ python -m unittest discover -s tests
 
 ## Last Completed Committed Stage
 
-Stage 24: Layout-preserving PDF review.
+Stage 24.1: PDF/NER pilot bug fixes.
 
 ```text
-52a62aa Implement Stage 24 layout-preserving PDF review
+da42c88 Fix PDF visual redaction over-wiping benign label words
+a8fadfe Skip non-person NER entities that only exist via line-break bridging
 ```
 
 ## Next Logical Step
