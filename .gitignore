@@ -23,7 +23,12 @@ data/
 *.bak
 local_config.*
 *_ANON.*
+*_ANON_VISUAL*.pdf
+*_ANON_REVIEW*.pdf
+*_ORIGINAL_REDACTED*.pdf
 *_RAPORT.*
+*_REVIEW_CHECKLIST*.txt
+_BATCH_REVIEW_CHECKLIST*.txt
 *_BATCH_SUMMARY*.txt
 _REVIEW_STATUS*.json
 _REVIEW_SUMMARY*.txt

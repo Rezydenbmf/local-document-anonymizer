@@ -312,6 +312,50 @@ and unaccented spelling of the two affected month names (the other ten
 Polish month names used in dates are already plain ASCII). Full suite: 245
 tests.
 
+Stage 25 replaces the single dense Tkinter/ttk main window with a guided,
+modern `CustomTkinter` interface (new dependencies: `customtkinter`,
+`tkinterdnd2`), designed from mockups the user approved beforehand and then
+refined against feedback from hands-on testing of the real app. Only the
+presentation layer in `src/gui.py` changed; every anonymization/review
+backend module is untouched. The app is now four screens instead of one
+scrolling form: a drag-and-drop start screen (native OS drag-and-drop, a
+click-to-pick fallback, file cards, and an output folder pre-filled with a
+created-on-first-launch default under `~/Documents`), a separate settings
+modal for NER/LLM/dictionary/PDF-mode options that used to always be
+visible, a processing screen with a live progress bar, and a card-based
+review screen. Review cards use icon-only status buttons (preview/approve/
+needs-review/reject) with real hover tooltips and autosave the status on
+each click instead of requiring a separate save step; a distinct color
+(not the risk-warning amber) is used for the needs-review action so it is
+not confused with the risk badge. A new "Szczegoly" dialog parses the
+existing safe `_RAPORT.txt` (via `parse_report_summary`) into a short,
+human-readable risk badge plus colored category chips instead of asking
+the user to read a plain-text log; the raw report/checklist stay reachable
+through small developer-labeled links inside that dialog. A color legend
+matching the existing `PDF_REDACTION_COLORS` scheme is shown on the review
+screen. A new `ComparisonWindow` renders the original file and the
+preferred anonymized review artifact side by side (PDF pages via PyMuPDF,
+TXT/DOCX as text, images directly) for visual verification; it only knows
+the original path for files processed in the current session (via the
+batch's own `input_name`/`output_name` pairing) and shows a clear
+"original not available" message otherwise, consistent with the review
+workspace's existing design of not persisting source paths. This
+comparison view is deliberately read-only for now - interactive manual
+redaction ("magic pen": click to add or undo a redaction and regenerate
+the file) was explicitly scoped out as a separate, later stage together
+with the user, since it is substantially more work (page-to-canvas
+rendering, click-to-region hit-testing, span remapping, output
+regeneration) than a visual redesign. All existing pure formatting
+functions and their tests are unchanged; the new screens use new
+Polish-language equivalents instead of putting the old English strings on
+screen. Full suite: 261 tests.
+
+While preparing this stage's commit, found and fixed a `.gitignore` gap:
+several newer generated file types (`_ANON_VISUAL*.pdf`, `_ANON_REVIEW*.pdf`,
+`_ORIGINAL_REDACTED*.pdf`, `_REVIEW_CHECKLIST*.txt`,
+`_BATCH_REVIEW_CHECKLIST*.txt`) were never added, so a real manual-test
+output folder was one `git add -A` away from being committed by accident.
+
 ## What Exists
 
 - Repository structure.
@@ -683,20 +727,24 @@ python -m unittest discover -s tests
 
 ## Last Completed Committed Stage
 
-Stage 24.4: Written-month date diacritics fix.
+Stage 25: CustomTkinter GUI redesign with side-by-side comparison view.
 
 ```text
-209a2eb Match written-month dates without Polish diacritics
+3142ad3 Redesign GUI with CustomTkinter: drag&drop, cards, comparison view
 ```
 
 ## Next Logical Step
 
-Use the completed Stage 24 workflow in real local pilot/use and make future
-improvements only from observed needs. Potential future work requires an
-explicit project decision, especially OCR quality improvements, NER candidate
+Use the completed Stage 25 GUI in real local pilot/use and make future
+improvements only from observed needs. The explicitly agreed next GUI
+candidate is an interactive "magic pen" manual redaction editor inside
+`ComparisonWindow` (click to add a missed redaction or undo an incorrect
+one, then regenerate the file) - deliberately scoped out of Stage 25 as its
+own later stage. Other potential future work still requires an explicit
+project decision, especially OCR quality improvements, NER candidate
 export, installer work, AI/API integration, broader LLM features, databases,
 broad NLP/entity detection, packaging, release automation, embedding retrieval
-with `bge-m3`, or GUI/chat knowledge-base work.
+with `bge-m3`, or a general town/city name database.
 
 ## Warning
 
