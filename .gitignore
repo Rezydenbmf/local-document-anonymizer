@@ -38,3 +38,6 @@ examples/before/*
 examples/after/*
 !examples/before/.gitkeep
 !examples/after/.gitkeep
+
+# GUI redesign mockups - local design reference only, not project artifacts.
+docs/mockups/
