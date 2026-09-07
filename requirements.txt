@@ -8,3 +8,7 @@ PyMuPDF
 
 # Optional local NER/NLP foundation; Polish spaCy models are installed separately.
 spacy
+
+# GUI: modern flat theming and native drag-and-drop for the desktop app.
+customtkinter
+tkinterdnd2

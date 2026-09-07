@@ -19,20 +19,36 @@ from gui import (
     PDF_OUTPUT_LABEL_REBUILT_REVIEW,
     PDF_OUTPUT_LABEL_ORIGINAL_SAFE,
     PDF_OUTPUT_LABEL_ORIGINAL_STRICT,
+    PDF_OUTPUT_SHORT_LABELS,
+    REVIEW_STATUS_APPROVED,
+    REVIEW_STATUS_NEEDS_REVIEW,
+    REVIEW_STATUS_REJECTED,
+    category_label_pl,
+    default_output_directory,
+    file_type_badge,
+    filter_supported_paths,
     format_anonymize_readiness,
     format_audit_result,
     format_approved_export_status,
     format_batch_audit_result,
     format_batch_status,
     format_dictionary_result,
+    format_drop_result,
     format_llm_model_selector_state,
     format_processing_status,
+    format_readiness_pl,
+    format_review_summary_line,
     format_selected_file_count,
+    format_short_path,
     mousewheel_scroll_units,
     open_path_with_default_app,
+    parse_dropped_file_paths,
+    parse_report_summary,
     pdf_output_mode_from_gui_label,
     pdf_redaction_scope_from_gui_label,
     remove_paths_by_indexes,
+    review_status_label_pl,
+    risk_style_key,
 )
 from anonymizer import (
     PDF_OUTPUT_MODE_ORIGINAL_REDACTION,
@@ -323,6 +339,164 @@ class GuiWorkflowTests(unittest.TestCase):
 
             with self.assertRaises(FileNotFoundError):
                 open_path_with_default_app(missing_path)
+
+    def test_gui_parses_dropped_file_paths_with_and_without_spaces(self) -> None:
+        data = "{C:/My Docs/a file.pdf} C:/b.pdf {C:/c d/e.txt}"
+
+        paths = parse_dropped_file_paths(data)
+
+        self.assertEqual(
+            paths,
+            [
+                Path("C:/My Docs/a file.pdf"),
+                Path("C:/b.pdf"),
+                Path("C:/c d/e.txt"),
+            ],
+        )
+
+    def test_gui_parses_empty_drop_data_as_no_paths(self) -> None:
+        self.assertEqual(parse_dropped_file_paths(""), [])
+
+    def test_gui_filters_supported_and_unsupported_dropped_paths(self) -> None:
+        paths = [
+            Path("a.pdf"),
+            Path("b.docx"),
+            Path("c.exe"),
+            Path("d.txt"),
+        ]
+
+        supported, unsupported = filter_supported_paths(paths)
+
+        self.assertEqual(supported, [Path("a.pdf"), Path("b.docx"), Path("d.txt")])
+        self.assertEqual(unsupported, [Path("c.exe")])
+
+    def test_gui_formats_drop_result_variants(self) -> None:
+        self.assertEqual(format_drop_result(1, 0), "Dodano 1 plik.")
+        self.assertEqual(format_drop_result(2, 0), "Dodano 2 pliki.")
+        self.assertEqual(format_drop_result(5, 0), "Dodano 5 plików.")
+        self.assertIn("Pominięto", format_drop_result(2, 1))
+        self.assertIn("Nie dodano plików", format_drop_result(0, 1))
+        self.assertEqual(format_drop_result(0, 0), "Wybrane pliki były już na liście.")
+
+    def test_gui_formats_polish_readiness_hint(self) -> None:
+        self.assertEqual(
+            format_readiness_pl(0, False),
+            "Dodaj co najmniej jeden plik i wybierz folder wynikowy.",
+        )
+        self.assertEqual(
+            format_readiness_pl(0, True), "Dodaj co najmniej jeden plik."
+        )
+        self.assertEqual(format_readiness_pl(3, False), "Wybierz folder wynikowy.")
+        self.assertEqual(
+            format_readiness_pl(1, True), "Gotowe do anonimizacji: 1 plik."
+        )
+        self.assertEqual(
+            format_readiness_pl(3, True), "Gotowe do anonimizacji: 3 pliki."
+        )
+        self.assertEqual(
+            format_readiness_pl(5, True), "Gotowe do anonimizacji: 5 plików."
+        )
+
+        with self.assertRaises(ValueError):
+            format_readiness_pl(-1, False)
+
+    def test_gui_formats_short_path_keeps_full_short_paths(self) -> None:
+        self.assertEqual(format_short_path(Path("C:/Wyniki")), "C:\\Wyniki")
+
+    def test_gui_formats_short_path_truncates_long_paths_to_readable_tail(
+        self,
+    ) -> None:
+        long_path = Path(
+            "C:/Users/example/AppData/Local/Temp/some-very-long-session-id"
+            "/scratchpad/gui_shots/output"
+        )
+
+        result = format_short_path(long_path, max_length=48)
+
+        self.assertLessEqual(len(result), 48)
+        self.assertTrue(result.startswith("..."))
+        self.assertTrue(result.endswith("output"))
+
+    def test_gui_file_type_badge_recognizes_known_extensions(self) -> None:
+        self.assertEqual(file_type_badge(Path("a.pdf")), "PDF")
+        self.assertEqual(file_type_badge(Path("a.DOCX")), "DOCX")
+        self.assertEqual(file_type_badge(Path("a.jpeg")), "JPG")
+        self.assertEqual(file_type_badge(Path("a.xyz")), "XYZ")
+        self.assertEqual(file_type_badge(Path("noext")), "FILE")
+
+    def test_gui_risk_style_key_falls_back_to_unknown(self) -> None:
+        self.assertEqual(risk_style_key("ok"), "ok")
+        self.assertEqual(risk_style_key("warning"), "warning")
+        self.assertEqual(risk_style_key("high_risk"), "high_risk")
+        self.assertEqual(risk_style_key(None), "unknown")
+        self.assertEqual(risk_style_key("something_else"), "unknown")
+
+    def test_gui_formats_review_summary_line(self) -> None:
+        self.assertEqual(format_review_summary_line(2, 4), "Zatwierdzono: 2/4")
+
+    def test_gui_pdf_output_short_labels_cover_every_mode(self) -> None:
+        for label in (
+            PDF_OUTPUT_LABEL_VISUAL_REDACTION,
+            PDF_OUTPUT_LABEL_REBUILT_REVIEW,
+            PDF_OUTPUT_LABEL_ORIGINAL_SAFE,
+            PDF_OUTPUT_LABEL_ORIGINAL_STRICT,
+        ):
+            self.assertIn(label, PDF_OUTPUT_SHORT_LABELS)
+            self.assertTrue(PDF_OUTPUT_SHORT_LABELS[label])
+
+    def test_gui_default_output_directory_is_under_documents(self) -> None:
+        result = default_output_directory()
+
+        self.assertEqual(result.parent.name, "Documents")
+        self.assertEqual(result.name, "Anonimizer - wyniki")
+
+    def test_gui_review_status_label_pl_covers_every_status(self) -> None:
+        self.assertEqual(review_status_label_pl(REVIEW_STATUS_APPROVED), "zatwierdzony")
+        self.assertEqual(review_status_label_pl(REVIEW_STATUS_REJECTED), "odrzucony")
+        self.assertEqual(
+            review_status_label_pl(REVIEW_STATUS_NEEDS_REVIEW), "wymaga przeglądu"
+        )
+
+    def test_gui_category_label_pl_falls_back_to_raw_label(self) -> None:
+        self.assertEqual(category_label_pl("PESEL"), "PESEL")
+        self.assertEqual(category_label_pl("EMAIL"), "E-mail")
+        self.assertEqual(category_label_pl("UNKNOWN_FUTURE_LABEL"), "UNKNOWN_FUTURE_LABEL")
+
+    def test_gui_parses_report_summary_categories_and_risk(self) -> None:
+        report_text = (
+            "Anonymization report\n\n"
+            "Status: completed\n\n"
+            "Detected categories:\n"
+            "* PESEL: 0\n"
+            "* EMAIL: 1\n"
+            "* NIP: 2\n\n"
+            "Dictionary:\n"
+            "Dictionary used: no\n\n"
+            "Post-anonymization audit:\n"
+            "Status: warning\n"
+            "Risk level: warning\n\n"
+            "Manual review required: yes\n"
+        )
+
+        summary = parse_report_summary(report_text)
+
+        self.assertEqual(summary["categories"], [("EMAIL", 1), ("NIP", 2)])
+        self.assertEqual(summary["risk_level"], "warning")
+        self.assertTrue(summary["manual_review_required"])
+
+    def test_gui_parses_report_summary_with_no_detected_categories(self) -> None:
+        report_text = (
+            "Detected categories:\n"
+            "* PESEL: 0\n"
+            "* EMAIL: 0\n\n"
+            "Risk level: ok\n"
+            "Manual review required: yes\n"
+        )
+
+        summary = parse_report_summary(report_text)
+
+        self.assertEqual(summary["categories"], [])
+        self.assertEqual(summary["risk_level"], "ok")
 
 
 if __name__ == "__main__":
