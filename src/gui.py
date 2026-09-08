@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import time
 import tkinter as tk
 from tkinter import filedialog
 
@@ -724,6 +725,27 @@ def format_review_summary_line(approved_count: int, total_count: int) -> str:
     return f"Zatwierdzono: {approved_count}/{total_count}"
 
 
+def restrict_review_items_to_batch(
+    review_items: list[ReviewItem],
+    batch_results: list[dict[str, object]],
+) -> list[ReviewItem]:
+    """Keep only review items produced by the batch just run.
+
+    The output folder may already contain older generated files from a
+    previous session (collision-safe naming never overwrites them, so they
+    linger on disk). A full-folder scan is correct when the user
+    deliberately opens a folder for review later, but right after
+    processing a fresh batch, mixing in unrelated old files would be
+    confusing and needlessly resurfaces old output.
+    """
+    fresh_output_names = {
+        str(result.get("output_name"))
+        for result in batch_results
+        if result.get("status") == "success" and result.get("output_name")
+    }
+    return [item for item in review_items if item.output_name in fresh_output_names]
+
+
 # ---------------------------------------------------------------------------
 # Visual design tokens
 # ---------------------------------------------------------------------------
@@ -851,6 +873,7 @@ class AnonymizerApp:
         self.review_batch_summary_names: list[str] = []
         self.last_batch_result: BatchResult | None = None
         self.original_path_by_output_name: dict[str, Path] = {}
+        self._last_drop_time: float = 0.0
 
         self.file_card_frame: ctk.CTkFrame | None = None
         self.drop_hint_label: ctk.CTkLabel | None = None
@@ -1078,6 +1101,11 @@ class AnonymizerApp:
         IconTooltip(remove_button, "Usu\u0144 z listy")
 
     def pick_files(self) -> None:
+        # A drop on the same zone ends with a mouse-up that Tk also reports
+        # as a <Button-1> click; skip opening a redundant file dialog right
+        # after a real drop was just handled.
+        if time.monotonic() - self._last_drop_time < 0.6:
+            return
         file_paths = filedialog.askopenfilenames(
             title="Wybierz pliki",
             filetypes=[
@@ -1090,6 +1118,7 @@ class AnonymizerApp:
         self._add_paths([Path(value) for value in file_paths])
 
     def _on_files_dropped(self, event: object) -> None:
+        self._last_drop_time = time.monotonic()
         paths = parse_dropped_file_paths(getattr(event, "data", ""))
         self._add_paths(paths)
 
@@ -1246,6 +1275,9 @@ class AnonymizerApp:
         )
         self.review_dir = self.output_dir
         self._load_review_folder()
+        self.review_items = restrict_review_items_to_batch(
+            self.review_items, batch_result.results
+        )
         self.show_review_screen()
 
     def _build_original_path_map(
