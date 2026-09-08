@@ -514,6 +514,70 @@ padlock states, the hint fires on a first-ever open and is confirmed
 suppressed on a second, separate window instance once already recorded as
 seen) and visually via screenshot. Full suite: 312 tests.
 
+A batch of hands-on-testing feedback (7 items) covering both `ComparisonWindow`
+polish and two bigger topics: (1) a new preview window opened behind the
+one already on screen - `ComparisonWindow` now calls `.lift()`/
+`.focus_force()` once fully built, and the "Zamknij" button plus the
+native close (X) now route through one `_close()` that also brings
+`app.root` back to front, via a new shared `_bring_window_to_front()`
+helper also applied to `SettingsDialog`/`SummaryDialog` for consistency.
+(2) A fixed 50/50 split between the two panes - replaced with a real
+`tk.PanedWindow` (draggable sash) so one pane can be resized at the
+other's expense, like a normal split view; `_build_pane_header`/
+`_build_magic_pen_toolbar` were unchanged internally (they just return a
+frame) and only their call sites moved from `.grid()` to `.pack()` inside
+the paned window's two container frames. (3) The magic pen's ➕/➖ mode
+buttons were confusing (had to switch modes before you could act) -
+replaced with a modeless interaction: left mouse button always draws a
+new redaction, right mouse button always toggles the rectangle under the
+cursor, no mode to pick first; the toolbar now shows a static "✏ LPM /
+🧹 PPM" legend instead of clickable mode buttons, and `self.mode`/
+`_mode_buttons`/`_set_mode` were removed entirely rather than left dead.
+(4) (same fix as item 1's `_close()`). (5) The color legend was barely
+readable (small muted-gray text on transparent background) - rebuilt as
+a bordered card with a bold "Legenda kolorów:" label, larger dots, and
+full-contrast text, shared by both the review screen and the comparison
+window. (6a) Confirmed with the user: the "leftover original PDF" they
+were seeing is `_ANON_REVIEW.pdf`, a rebuilt-from-text fallback PDF
+generated *in addition to* the true `_ANON_VISUAL.pdf` whenever visual
+mode is used (`anonymizer.py` around `save_rebuilt_review_pdf_from_text`) -
+now redundant given the interactive comparison view; not yet removed/
+relocated (see below). Also added, well-scoped and requested outright:
+auto-opening the finished output in the OS default application right
+after a batch completes - a new `auto_open_mode` Settings choice
+(`AUTO_OPEN_MODE_FIRST`/`_LAST`/`_ALL`/`_NONE`, default `_LAST`) drives a
+new pure `auto_open_output_names()` (batch order in,
+capped at `AUTO_OPEN_ALL_MAX = 10` for `_ALL`) called from
+`start_anonymize()` via `_auto_open_batch_results()`, resolving each
+chosen item's real file through the existing `preferred_review_output_path()`.
+Verified functionally (PanedWindow with 2 panes exists; a plain LMB drag
+adds a pending rect and a plain RMB click toggles a removal with no mode
+ever set; `_close()` destroys the window without raising;
+`_auto_open_batch_results` resolves and would open the correct file).
+Full suite: 318 tests.
+
+Two items from that same feedback batch are deliberately NOT done yet and
+need their own planning pass before touching code, given their size and
+the number of existing files they would touch (mirroring how the magic
+pen itself was planned before implementation): (6b) splitting each
+output folder into a small set of user-facing deliverables versus
+internal/diagnostic artifacts (report, checklist, rebuilt review PDF,
+`_MANUAL_EDITS.json`, review status/summary json) that only the app (and
+the user's own future re-opens) need - the user's own preference leans
+toward a separate location outside the output folder entirely (e.g.
+`%APPDATA%`), while the recommendation offered back was a same-folder
+hidden subfolder (far less invasive - `review.py`'s folder scanning,
+`gui.py`'s report/checklist open paths, and the History/approved-export
+flows would all need updating either way, but a hidden subfolder needs
+less of them to change) plus a "debug/developer mode" toggle in Settings
+that reveals both that subfolder and the existing "(deweloperskie)" raw
+report/checklist links (currently always shown) - not yet decided between
+the two locations. (7) User/IP protection is intentionally deferred
+almost entirely: packaging as a compiled `.exe` once the feature work is
+mostly done, and hiding the "(deweloperskie)" links for non-debug users
+(folds into the same debug-mode toggle as 6b) are the only concrete asks
+so far; the rest was flagged by the user as "a signal, not a spec yet."
+
 ## What Exists
 
 - Repository structure.
@@ -892,19 +956,35 @@ python -m unittest discover -s tests
 Stage 26: magic pen manual PDF redaction editor, a same-day self-review
 fixing a toggle bug/unsafe overwrite/stale cursor, a fix for a `fitz`
 deprecation warning the earlier Stage 25.1 fix missed, a resizable/
-maximizable comparison window with independent or linked per-pane zoom,
-and a follow-up fixing the maximize button itself plus a padlock-based,
-tooltip-and-hint-backed redesign of the zoom-link icon.
+maximizable comparison window with independent or linked per-pane zoom, a
+follow-up fixing the maximize button itself plus a padlock-based,
+tooltip-and-hint-backed redesign of the zoom-link icon, and a further
+round of hands-on-testing feedback: window focus in/out, a draggable pane
+splitter, modeless LMB/RMB magic pen interaction, a more visible legend,
+and a new auto-open-result Settings option.
 
 ```text
-e872c00 Fix comparison window maximize and make the zoom-link icon intuitive
+32eced3 Comparison window UX polish + auto-open setting
 ```
 
 ## Next Logical Step
 
+The immediate next planned stage, awaiting the user's decision between the
+two folder-location options already offered (same-folder hidden subfolder
+vs. a separate location like `%APPDATA%`): split each output folder into
+user-facing deliverables versus internal/diagnostic files (report,
+checklist, rebuilt review PDF, `_MANUAL_EDITS.json`, review status/summary
+json), paired with a "debug/developer mode" Settings toggle that reveals
+both that location and the existing always-on "(deweloperskie)" raw
+report/checklist links. Needs its own planning pass first (like the magic
+pen got) given how many existing files it touches: `anonymizer.py`'s
+per-artifact output-path construction, `review.py`'s folder scanning,
+`gui.py`'s report/checklist/summary open paths, and the History/approved-
+export flows.
+
 Use the completed Stage 26 GUI (including the magic pen) in real local
-pilot/use and make future improvements only from observed needs. A
-possible later stage is extending manual redaction editing to DOCX/TXT
+pilot/use and make future improvements only from observed needs otherwise.
+A possible later stage is extending manual redaction editing to DOCX/TXT
 outputs, which have no word coordinates and would need a different,
 text-selection-based mechanism - deliberately left out of Stage 26.
 
