@@ -1033,6 +1033,18 @@ still-open user/IP-protection topic (packaging as a compiled `.exe` once
 feature work is mostly done; hiding the dev links folds into (b); the
 rest was flagged by the user as "a signal, not a spec yet").
 
+Two more product-direction signals from the user, also not yet scoped or
+started: a planned two-tier release - a free version limited by anonymized
+character count (the exact limit not yet decided) and an unlimited
+business/paid version; and, once a compiled `.exe` build exists, it must
+run windowed (no visible console/terminal window - the standard PyInstaller
+`--windowed`/`--noconsole` flag, or the `pythonw.exe` equivalent, once a
+packaging step is actually set up - none exists in the repo yet). Both
+fold into the same future packaging/licensing pass as the `.exe` topic
+above; needs its own planning pass when picked up (tier enforcement
+mechanism, exact free-tier limit, how/whether it's checked locally without
+a server).
+
 Use the completed Stage 26 GUI (including the magic pen) in real local
 pilot/use and make future improvements only from observed needs otherwise.
 A possible later stage is extending manual redaction editing to DOCX/TXT
