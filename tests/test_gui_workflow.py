@@ -30,6 +30,7 @@ from gui import (
     REVIEW_STATUS_NEEDS_REVIEW,
     REVIEW_STATUS_REJECTED,
     ReviewItem,
+    auto_open_output_names,
     canvas_point_to_pdf_point,
     category_label_pl,
     clamp_zoom_level,
@@ -721,6 +722,32 @@ class GuiWorkflowTests(unittest.TestCase):
             save_seen_hints(path, {"zoom_link_toggle", "another_hint"})
 
             self.assertEqual(load_seen_hints(path), {"zoom_link_toggle", "another_hint"})
+
+    def test_auto_open_output_names_first(self) -> None:
+        names = ["a.pdf", "b.pdf", "c.pdf"]
+        self.assertEqual(auto_open_output_names(names, "first"), ["a.pdf"])
+
+    def test_auto_open_output_names_last(self) -> None:
+        names = ["a.pdf", "b.pdf", "c.pdf"]
+        self.assertEqual(auto_open_output_names(names, "last"), ["c.pdf"])
+
+    def test_auto_open_output_names_all_caps_at_max(self) -> None:
+        names = [f"{i}.pdf" for i in range(15)]
+        result = auto_open_output_names(names, "all", max_all=10)
+        self.assertEqual(len(result), 10)
+        self.assertEqual(result, names[:10])
+
+    def test_auto_open_output_names_none_returns_empty(self) -> None:
+        names = ["a.pdf", "b.pdf"]
+        self.assertEqual(auto_open_output_names(names, "none"), [])
+
+    def test_auto_open_output_names_empty_list_is_always_empty(self) -> None:
+        self.assertEqual(auto_open_output_names([], "all"), [])
+        self.assertEqual(auto_open_output_names([], "first"), [])
+
+    def test_auto_open_output_names_unknown_mode_falls_back_to_last(self) -> None:
+        names = ["a.pdf", "b.pdf"]
+        self.assertEqual(auto_open_output_names(names, "bogus"), ["b.pdf"])
 
 
 if __name__ == "__main__":
