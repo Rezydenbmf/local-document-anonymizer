@@ -810,8 +810,23 @@ Use the completed Stage 26 GUI (including the magic pen) in real local
 pilot/use and make future improvements only from observed needs. A
 possible later stage is extending manual redaction editing to DOCX/TXT
 outputs, which have no word coordinates and would need a different,
-text-selection-based mechanism - deliberately left out of Stage 26. Other
-potential future work still requires an explicit project decision,
+text-selection-based mechanism - deliberately left out of Stage 26.
+
+Idea proposed by the user, not yet scoped or started: a fully manual
+"start to finish" mode, where the user opens the original document and
+does all redaction with the magic pen from the start, instead of running
+automatic detection first. In that mode, NER/regex/dictionary detection
+would run only *after* the manual pass as an optional verification step,
+surfacing anything it thinks was missed as suggestions the user can accept
+or dismiss - never auto-redacting on its own in that mode. Also proposed:
+letting the scroll wheel cycle through the magic pen's category
+colors/labels (the same set shown in the legend) while adding a manual
+rectangle, instead of everything defaulting to one generic "RECZNE" label.
+Needs its own planning pass (interaction design, how a "start to finish"
+document's report/counters should look, whether per-category manual labels
+change the existing single-`RECZNE`-label design) before implementation.
+
+Other potential future work still requires an explicit project decision,
 especially OCR quality improvements, NER candidate export, installer work,
 AI/API integration, broader LLM features, databases, broad NLP/entity
 detection, packaging, release automation, embedding retrieval with
