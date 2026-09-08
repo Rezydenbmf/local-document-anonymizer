@@ -949,6 +949,17 @@ class IconTooltip:
             self._tip_window.destroy()
             self._tip_window = None
 
+    def set_text(self, text: str) -> None:
+        """Update the tooltip text shown on the next hover/flash."""
+        self.text = text
+
+    def flash(self, duration_ms: int = 3500) -> None:
+        """Show the tooltip immediately, without waiting for a hover, then
+        auto-hide it - used for a one-time first-use hint."""
+        self._cancel()
+        self._show()
+        self.widget.after(duration_ms, self._hide)
+
 
 class AnonymizerApp:
     """CustomTkinter application: drop files -> anonymize -> review."""
@@ -2121,6 +2132,7 @@ ZOOM_MIN = 0.5
 ZOOM_MAX = 3.0
 ZOOM_STEP = 0.1
 ZOOM_DEFAULT = 1.0
+ZOOM_LINK_HINT_ID = "zoom_link_toggle"
 
 
 def clamp_zoom_level(
@@ -2148,6 +2160,60 @@ def zoom_step_from_scroll_event(event: object) -> int:
     if delta < 0:
         return -1
     return 0
+
+
+def zoom_link_glyph(linked: bool) -> str:
+    """Return the padlock glyph for the zoom-link toggle's current state.
+
+    A closed padlock ("locked together") for linked zoom and an open
+    padlock ("free to move independently") for unlinked - the glyph itself
+    should suggest the meaning without requiring a hover or prior
+    knowledge of the convention.
+    """
+    return "🔒" if linked else "🔓"
+
+
+def zoom_link_tooltip_text(linked: bool) -> str:
+    """Return hover-tooltip text describing the zoom-link toggle's state
+    and what clicking it will do next."""
+    if linked:
+        return (
+            "🔒 Powiększenie połączone: oba podglądy skalują się razem. "
+            "Kliknij, aby ustawiać każdy osobno."
+        )
+    return (
+        "🔓 Powiększenie niezależne: każdy podgląd osobno. "
+        "Kliknij, aby połączyć oba."
+    )
+
+
+def ui_hints_config_path() -> Path:
+    """Return the local file that remembers which one-time UI hints (for
+    example the zoom-link toggle) the user has already seen.
+
+    Stores hint ids only - never document content, folder paths, or
+    anything else about what the user processed.
+    """
+    return Path.home() / ".anonimizer" / "ui_hints_seen.json"
+
+
+def load_seen_hints(config_path: Path) -> set[str]:
+    """Load the set of already-seen hint ids, tolerating a missing/corrupt file."""
+    try:
+        raw = json.loads(config_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return set()
+    if not isinstance(raw, list):
+        return set()
+    return {str(item) for item in raw if isinstance(item, str)}
+
+
+def save_seen_hints(config_path: Path, hint_ids: set[str]) -> None:
+    """Persist the seen-hints set, creating the config folder if needed."""
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(
+        json.dumps(sorted(hint_ids), ensure_ascii=False, indent=2), encoding="utf-8"
+    )
 
 
 def find_rect_at_point(
@@ -2291,6 +2357,7 @@ class ComparisonWindow:
         self.original_zoom_label: ctk.CTkLabel | None = None
         self.result_zoom_label: ctk.CTkLabel | None = None
         self._link_buttons: list[ctk.CTkButton] = []
+        self._link_tooltips: list[IconTooltip] = []
 
         self.magic_pen_available = bool(
             original_path is not None
@@ -2306,7 +2373,11 @@ class ComparisonWindow:
         window.minsize(760, 520)
         window.resizable(True, True)
         window.configure(fg_color=COLOR_BG)
-        window.transient(app.root)
+        # Deliberately NOT window.transient(app.root): on Windows, a
+        # transient window is treated as a dialog of its parent and loses
+        # the native maximize button even with resizable(True, True) set -
+        # this window needs to behave like a normal, fully maximizable
+        # window so the magic pen has room to work precisely.
         window.bind("<Control-MouseWheel>", self._on_ctrl_scroll)
         window.bind("<Control-Button-4>", self._on_ctrl_scroll)
         window.bind("<Control-Button-5>", self._on_ctrl_scroll)
@@ -2369,6 +2440,8 @@ class ComparisonWindow:
             command=window.destroy,
         ).pack(pady=(0, 16))
 
+        window.after(700, self._maybe_show_zoom_link_hint)
+
     # -- zoom: independent or linked, like a dual-zone climate control ------
 
     def _build_pane_header(
@@ -2418,23 +2491,21 @@ class ComparisonWindow:
         ).pack(side="left", padx=(2, 6))
         link_button = ctk.CTkButton(
             zoom_row,
-            text="🔗",
+            text=zoom_link_glyph(self.zoom_linked),
             width=26,
             height=22,
             corner_radius=6,
             fg_color=COLOR_ACCENT,
             hover_color=COLOR_ACCENT_HOVER,
             text_color="#FFFFFF",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             command=self._toggle_zoom_link,
         )
         link_button.pack(side="left")
-        IconTooltip(
-            link_button,
-            "Synchronizuj powiększenie obu podglądów (jak klimatyzacja "
-            "dwustrefowa - włącz/wyłącz, by ustawiać osobno)",
-        )
         self._link_buttons.append(link_button)
+        self._link_tooltips.append(
+            IconTooltip(link_button, zoom_link_tooltip_text(self.zoom_linked))
+        )
         if side == "original":
             self.original_zoom_label = zoom_label
         else:
@@ -2494,11 +2565,32 @@ class ComparisonWindow:
             self.original_zoom_label.configure(text=zoom_percent_label(self.original_zoom))
         if self.result_zoom_label is not None:
             self.result_zoom_label.configure(text=zoom_percent_label(self.result_zoom))
-        for button in self._link_buttons:
+        glyph = zoom_link_glyph(self.zoom_linked)
+        tooltip_text = zoom_link_tooltip_text(self.zoom_linked)
+        for button, tooltip in zip(self._link_buttons, self._link_tooltips):
             button.configure(
+                text=glyph,
                 fg_color=COLOR_ACCENT if self.zoom_linked else COLOR_ICON_IDLE,
                 text_color="#FFFFFF" if self.zoom_linked else COLOR_TEXT_MUTED,
             )
+            tooltip.set_text(tooltip_text)
+
+    def _maybe_show_zoom_link_hint(self) -> None:
+        """Auto-show the link-toggle tooltip once, the first time this
+        window is ever opened, instead of relying only on discovering it
+        by hovering - a lightweight, one-time onboarding hint."""
+        if not self._link_tooltips:
+            return
+        config_path = ui_hints_config_path()
+        seen = load_seen_hints(config_path)
+        if ZOOM_LINK_HINT_ID in seen:
+            return
+        self._link_tooltips[-1].flash(4500)
+        seen.add(ZOOM_LINK_HINT_ID)
+        try:
+            save_seen_hints(config_path, seen)
+        except OSError:
+            pass
 
     def _rebuild_original_pane(self) -> None:
         if self.left_frame is None:
