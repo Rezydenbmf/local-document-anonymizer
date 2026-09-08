@@ -1,6 +1,8 @@
 """CustomTkinter GUI for batch anonymization."""
 
 from collections.abc import Mapping
+from datetime import datetime, timezone
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -133,6 +135,69 @@ DEFAULT_OUTPUT_SUBDIR_NAME = "Anonimizer - wyniki"
 def default_output_directory() -> Path:
     """Return the default output folder under the user's Documents folder."""
     return Path.home() / "Documents" / DEFAULT_OUTPUT_SUBDIR_NAME
+
+
+RECENT_FOLDERS_MAX = 15
+
+
+def history_config_path() -> Path:
+    """Return the local file that remembers recently used output folders.
+
+    Stores folder paths and timestamps only - never document content, and
+    never anything from inside a folder. This is a plain local file the
+    user can delete at any time; it is not a database of anonymized data.
+    """
+    return Path.home() / ".anonimizer" / "recent_folders.json"
+
+
+def load_recent_folders(config_path: Path) -> list[dict[str, str]]:
+    """Load the recent-folders list, tolerating a missing/corrupt file."""
+    try:
+        raw = json.loads(config_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    if not isinstance(raw, list):
+        return []
+    entries: list[dict[str, str]] = []
+    for item in raw:
+        if isinstance(item, dict) and isinstance(item.get("path"), str):
+            entries.append(
+                {
+                    "path": item["path"],
+                    "last_used": str(item.get("last_used", "")),
+                }
+            )
+    return entries
+
+
+def save_recent_folders(config_path: Path, entries: list[dict[str, str]]) -> None:
+    """Persist the recent-folders list, creating the config folder if needed."""
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(
+        json.dumps(entries, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+
+def record_recent_folder(
+    entries: list[dict[str, str]],
+    folder_path: Path,
+    timestamp: str,
+) -> list[dict[str, str]]:
+    """Return entries with folder_path moved to the front with a fresh
+    timestamp, de-duplicated, and capped at RECENT_FOLDERS_MAX."""
+    normalized = str(folder_path)
+    remaining = [entry for entry in entries if entry.get("path") != normalized]
+    updated = [{"path": normalized, "last_used": timestamp}, *remaining]
+    return updated[:RECENT_FOLDERS_MAX]
+
+
+def format_recent_folder_timestamp(timestamp: str) -> str:
+    """Format a stored ISO timestamp for display, tolerating bad input."""
+    try:
+        parsed = datetime.fromisoformat(timestamp)
+    except ValueError:
+        return "nieznana data"
+    return parsed.strftime("%d.%m.%Y, %H:%M")
 
 
 def _file_word(count: int) -> str:
@@ -874,6 +939,10 @@ class AnonymizerApp:
         self.last_batch_result: BatchResult | None = None
         self.original_path_by_output_name: dict[str, Path] = {}
         self._last_drop_time: float = 0.0
+        self.history_config_path = history_config_path()
+        self.recent_folders: list[dict[str, str]] = load_recent_folders(
+            self.history_config_path
+        )
 
         self.file_card_frame: ctk.CTkFrame | None = None
         self.drop_hint_label: ctk.CTkLabel | None = None
@@ -936,6 +1005,21 @@ class AnonymizerApp:
         )
         settings_button.pack(side="right")
         IconTooltip(settings_button, "Ustawienia")
+
+        history_button = ctk.CTkButton(
+            topbar,
+            text="\U0001f553 Historia",
+            width=100,
+            height=34,
+            corner_radius=8,
+            fg_color="transparent",
+            hover_color=COLOR_ICON_IDLE,
+            text_color=COLOR_TEXT_MUTED,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            command=self.show_history_screen,
+        )
+        history_button.pack(side="right", padx=(0, 8))
+        IconTooltip(history_button, "Wcześniej przetworzone foldery")
 
         self.content = ctk.CTkFrame(self.root, fg_color="transparent")
         self.content.pack(fill="both", expand=True, padx=20, pady=16)
@@ -1178,6 +1262,117 @@ class AnonymizerApp:
                 )
 
     # ------------------------------------------------------------------
+    # History screen
+    # ------------------------------------------------------------------
+
+    def show_history_screen(self) -> None:
+        self._clear_content()
+        self.recent_folders = load_recent_folders(self.history_config_path)
+
+        header = ctk.CTkFrame(self.content, fg_color="transparent")
+        header.pack(fill="x", pady=(0, 10))
+        ctk.CTkButton(
+            header,
+            text="⬅ Wróć",
+            width=90,
+            height=28,
+            corner_radius=8,
+            fg_color="transparent",
+            hover_color=COLOR_ICON_IDLE,
+            text_color=COLOR_TEXT_MUTED,
+            command=self.show_start_screen,
+        ).pack(side="left")
+        ctk.CTkLabel(
+            header,
+            text="Historia",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=15, weight="bold"),
+            text_color=COLOR_TEXT,
+        ).pack(side="left", padx=(12, 0))
+
+        ctk.CTkLabel(
+            self.content,
+            text=(
+                "Lista wcześniej użytych folderów wynikowych - same ścieżki, "
+                "bez treści dokumentów. Kliknij, aby otworzyć przegląd danego folderu."
+            ),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLOR_TEXT_MUTED,
+            wraplength=700,
+            justify="left",
+        ).pack(fill="x", pady=(0, 10))
+
+        scroll = ctk.CTkScrollableFrame(
+            self.content, fg_color="transparent", label_text=""
+        )
+        scroll.pack(fill="both", expand=True)
+
+        if not self.recent_folders:
+            ctk.CTkLabel(
+                scroll,
+                text="Brak historii - żaden folder nie został jeszcze użyty.",
+                font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+                text_color=COLOR_TEXT_MUTED,
+            ).pack(pady=30)
+            return
+
+        for entry in self.recent_folders:
+            self._build_history_card(scroll, entry)
+
+    def _build_history_card(
+        self, parent: ctk.CTkFrame, entry: dict[str, str]
+    ) -> None:
+        folder_path = entry.get("path", "")
+        exists = Path(folder_path).is_dir()
+
+        card = ctk.CTkFrame(
+            parent,
+            corner_radius=10,
+            fg_color=COLOR_CARD,
+            border_width=1,
+            border_color=COLOR_BORDER,
+        )
+        card.pack(fill="x", pady=4)
+        row = ctk.CTkFrame(card, fg_color="transparent")
+        row.pack(fill="x", padx=14, pady=10)
+
+        text_col = ctk.CTkFrame(row, fg_color="transparent")
+        text_col.pack(side="left", fill="x", expand=True)
+        ctk.CTkLabel(
+            text_col,
+            text=Path(folder_path).name or folder_path,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+            text_color=COLOR_TEXT if exists else COLOR_TEXT_MUTED,
+            anchor="w",
+        ).pack(fill="x")
+        ctk.CTkLabel(
+            text_col,
+            text=format_recent_folder_timestamp(entry.get("last_used", "")),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+            text_color=COLOR_TEXT_MUTED,
+            anchor="w",
+        ).pack(fill="x")
+
+        if exists:
+            ctk.CTkButton(
+                row,
+                text="Otwórz",
+                width=90,
+                height=30,
+                corner_radius=8,
+                fg_color=COLOR_ACCENT,
+                hover_color=COLOR_ACCENT_HOVER,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=11, weight="bold"),
+                command=lambda p=folder_path: self.open_history_folder(p),
+            ).pack(side="right")
+        else:
+            ctk.CTkLabel(
+                row,
+                text="folder nie istnieje",
+                font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+                text_color=COLOR_HIGH_RISK,
+            ).pack(side="right")
+
+    # ------------------------------------------------------------------
     # Settings modal
     # ------------------------------------------------------------------
 
@@ -1278,7 +1473,18 @@ class AnonymizerApp:
         self.review_items = restrict_review_items_to_batch(
             self.review_items, batch_result.results
         )
+        self._remember_recent_folder(self.output_dir)
         self.show_review_screen()
+
+    def _remember_recent_folder(self, folder: Path) -> None:
+        timestamp = datetime.now(timezone.utc).isoformat()
+        self.recent_folders = record_recent_folder(
+            self.recent_folders, folder, timestamp
+        )
+        try:
+            save_recent_folders(self.history_config_path, self.recent_folders)
+        except OSError:
+            pass
 
     def _build_original_path_map(
         self, batch_result: BatchResult
@@ -1408,6 +1614,16 @@ class AnonymizerApp:
             return
         self.review_dir = Path(folder_path)
         self._load_review_folder()
+        self._remember_recent_folder(self.review_dir)
+        self.show_review_screen()
+
+    def open_history_folder(self, folder_path: str) -> None:
+        folder = Path(folder_path)
+        if not folder.is_dir():
+            return
+        self.review_dir = folder
+        self._load_review_folder()
+        self._remember_recent_folder(folder)
         self.show_review_screen()
 
     def _review_summary_text(self) -> str:
