@@ -2116,6 +2116,40 @@ def is_degenerate_drag_rect(
     return (x1 - x0) < min_size or (y1 - y0) < min_size
 
 
+BASE_PREVIEW_WIDTH = 460
+ZOOM_MIN = 0.5
+ZOOM_MAX = 3.0
+ZOOM_STEP = 0.1
+ZOOM_DEFAULT = 1.0
+
+
+def clamp_zoom_level(
+    value: float, minimum: float = ZOOM_MIN, maximum: float = ZOOM_MAX
+) -> float:
+    """Clamp a preview zoom multiplier to a sane, always-legible range."""
+    return round(min(max(value, minimum), maximum), 2)
+
+
+def zoom_percent_label(value: float) -> str:
+    """Format a zoom multiplier as a whole-percent label, e.g. 1.2 -> '120%'."""
+    return f"{round(value * 100)}%"
+
+
+def zoom_step_from_scroll_event(event: object) -> int:
+    """Return -1/0/+1 zoom-out/none/zoom-in for one Ctrl+scroll event."""
+    event_num = getattr(event, "num", None)
+    if event_num == 4:
+        return 1
+    if event_num == 5:
+        return -1
+    delta = int(getattr(event, "delta", 0) or 0)
+    if delta > 0:
+        return 1
+    if delta < 0:
+        return -1
+    return 0
+
+
 def find_rect_at_point(
     rects: Sequence[Mapping[str, object]], page_number: int, x: float, y: float
 ) -> Mapping[str, object] | None:
@@ -2131,15 +2165,15 @@ def find_rect_at_point(
     return None
 
 
-def _render_text_block(parent: ctk.CTkBaseClass, text: str) -> None:
+def _render_text_block(parent: ctk.CTkBaseClass, text: str, zoom: float = 1.0) -> None:
     box = ctk.CTkTextbox(
         parent,
-        width=440,
-        height=600,
+        width=int(440 * zoom),
+        height=int(600 * zoom),
         wrap="word",
         fg_color=COLOR_CARD,
         text_color=COLOR_TEXT,
-        font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+        font=ctk.CTkFont(family=FONT_FAMILY, size=max(1, round(11 * zoom))),
     )
     box.pack(fill="both", expand=True, padx=4, pady=4)
     box.insert("1.0", text)
@@ -2147,9 +2181,13 @@ def _render_text_block(parent: ctk.CTkBaseClass, text: str) -> None:
 
 
 def render_document_preview(
-    parent: ctk.CTkBaseClass, path: Path, target_width: int = 460
+    parent: ctk.CTkBaseClass, path: Path, target_width: int = BASE_PREVIEW_WIDTH
 ) -> list["ctk.CTkImage"]:
     """Render a document's pages/content into the given scrollable frame.
+
+    ``target_width`` also scales DOCX/TXT text-block previews (relative to
+    ``BASE_PREVIEW_WIDTH``), so the same zoom control works for every
+    supported preview type.
 
     Returns the CTkImage objects created so the caller can keep a strong
     reference alive for the window's lifetime (Tk drops images that are
@@ -2157,6 +2195,7 @@ def render_document_preview(
     """
     images: list[ctk.CTkImage] = []
     suffix = path.suffix.lower()
+    text_zoom = target_width / BASE_PREVIEW_WIDTH
     try:
         if suffix == ".pdf":
             import pymupdf as fitz
@@ -2184,9 +2223,9 @@ def render_document_preview(
             images.append(ctk_image)
             ctk.CTkLabel(parent, image=ctk_image, text="").pack(pady=6)
         elif suffix == ".docx":
-            _render_text_block(parent, read_docx_file(path))
+            _render_text_block(parent, read_docx_file(path), zoom=text_zoom)
         elif suffix == ".txt":
-            _render_text_block(parent, read_txt_file(path))
+            _render_text_block(parent, read_txt_file(path), zoom=text_zoom)
         else:
             ctk.CTkLabel(
                 parent,
@@ -2226,6 +2265,7 @@ class ComparisonWindow:
         self.app = app
         self.item = item
         self.source_path = original_path
+        self.original_path = original_path
         self.result_path = result_path
         self._images: list[ctk.CTkImage] = []
         self._tk_images: list[ImageTk.PhotoImage] = []
@@ -2243,7 +2283,14 @@ class ComparisonWindow:
         self.save_button: ctk.CTkButton | None = None
         self.cancel_button: ctk.CTkButton | None = None
         self.pen_status_label: ctk.CTkLabel | None = None
+        self.left_frame: ctk.CTkScrollableFrame | None = None
         self.right_frame: ctk.CTkScrollableFrame | None = None
+        self.original_zoom = ZOOM_DEFAULT
+        self.result_zoom = ZOOM_DEFAULT
+        self.zoom_linked = True
+        self.original_zoom_label: ctk.CTkLabel | None = None
+        self.result_zoom_label: ctk.CTkLabel | None = None
+        self._link_buttons: list[ctk.CTkButton] = []
 
         self.magic_pen_available = bool(
             original_path is not None
@@ -2256,8 +2303,13 @@ class ComparisonWindow:
         self.window = window
         window.title(f"Porównanie - {item.output_name}")
         window.geometry("1120x780")
+        window.minsize(760, 520)
+        window.resizable(True, True)
         window.configure(fg_color=COLOR_BG)
         window.transient(app.root)
+        window.bind("<Control-MouseWheel>", self._on_ctrl_scroll)
+        window.bind("<Control-Button-4>", self._on_ctrl_scroll)
+        window.bind("<Control-Button-5>", self._on_ctrl_scroll)
 
         ctk.CTkLabel(
             window,
@@ -2272,18 +2324,12 @@ class ComparisonWindow:
         panes.columnconfigure(1, weight=1)
         panes.rowconfigure(2, weight=1)
 
-        ctk.CTkLabel(
-            panes,
-            text="Oryginał",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
-            text_color=COLOR_TEXT_MUTED,
-        ).grid(row=0, column=0, sticky="w", pady=(0, 6))
-        ctk.CTkLabel(
-            panes,
-            text="Po anonimizacji",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
-            text_color=COLOR_TEXT_MUTED,
-        ).grid(row=0, column=1, sticky="w", padx=(16, 0), pady=(0, 6))
+        self._build_pane_header(panes, "Oryginał", "original").grid(
+            row=0, column=0, sticky="ew", pady=(0, 6)
+        )
+        self._build_pane_header(panes, "Po anonimizacji", "result").grid(
+            row=0, column=1, sticky="ew", padx=(16, 0), pady=(0, 6)
+        )
 
         if self.magic_pen_available:
             self._build_magic_pen_toolbar(panes).grid(
@@ -2294,38 +2340,21 @@ class ComparisonWindow:
             panes, fg_color=COLOR_CARD, corner_radius=10, label_text=""
         )
         left_frame.grid(row=2, column=0, sticky="nsew", padx=(0, 8))
+        self.left_frame = left_frame
         right_frame = ctk.CTkScrollableFrame(
             panes, fg_color=COLOR_CARD, corner_radius=10, label_text=""
         )
         right_frame.grid(row=2, column=1, sticky="nsew", padx=(8, 0))
         self.right_frame = right_frame
 
-        if original_path is not None and original_path.exists():
-            self._images.extend(render_document_preview(left_frame, original_path))
-        else:
-            ctk.CTkLabel(
-                left_frame,
-                text=(
-                    "Oryginał niedostępny - ten folder nie pochodzi z "
-                    "bieżącej sesji przetwarzania."
-                ),
-                text_color=COLOR_TEXT_MUTED,
-                wraplength=380,
-                justify="left",
-            ).pack(pady=30, padx=16)
+        self._rebuild_original_pane()
 
         if self.magic_pen_available:
             self.edits = load_manual_edits(manual_edits_path(result_path))
             self._reload_visible_rects()
             self._build_magic_pen_pane(right_frame)
-        elif result_path.exists():
-            self._images.extend(render_document_preview(right_frame, result_path))
         else:
-            ctk.CTkLabel(
-                right_frame,
-                text="Plik wynikowy nie został znaleziony.",
-                text_color=COLOR_TEXT_MUTED,
-            ).pack(pady=30)
+            self._rebuild_result_pane()
 
         app._build_legend_row(window)
 
@@ -2339,6 +2368,185 @@ class ComparisonWindow:
             hover_color=COLOR_ACCENT_HOVER,
             command=window.destroy,
         ).pack(pady=(0, 16))
+
+    # -- zoom: independent or linked, like a dual-zone climate control ------
+
+    def _build_pane_header(
+        self, parent: ctk.CTkFrame, title: str, side: str
+    ) -> ctk.CTkFrame:
+        header = ctk.CTkFrame(parent, fg_color="transparent")
+        ctk.CTkLabel(
+            header,
+            text=title,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
+            text_color=COLOR_TEXT_MUTED,
+        ).pack(side="left")
+
+        zoom_row = ctk.CTkFrame(header, fg_color="transparent")
+        zoom_row.pack(side="right")
+        ctk.CTkButton(
+            zoom_row,
+            text="－",
+            width=24,
+            height=22,
+            corner_radius=6,
+            fg_color=COLOR_ICON_IDLE,
+            hover_color=COLOR_ACCENT_HOVER,
+            text_color=COLOR_TEXT,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            command=lambda: self._adjust_zoom(side, -1),
+        ).pack(side="left", padx=(0, 2))
+        zoom_label = ctk.CTkLabel(
+            zoom_row,
+            text=zoom_percent_label(ZOOM_DEFAULT),
+            width=40,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLOR_TEXT_MUTED,
+        )
+        zoom_label.pack(side="left")
+        ctk.CTkButton(
+            zoom_row,
+            text="＋",
+            width=24,
+            height=22,
+            corner_radius=6,
+            fg_color=COLOR_ICON_IDLE,
+            hover_color=COLOR_ACCENT_HOVER,
+            text_color=COLOR_TEXT,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            command=lambda: self._adjust_zoom(side, 1),
+        ).pack(side="left", padx=(2, 6))
+        link_button = ctk.CTkButton(
+            zoom_row,
+            text="🔗",
+            width=26,
+            height=22,
+            corner_radius=6,
+            fg_color=COLOR_ACCENT,
+            hover_color=COLOR_ACCENT_HOVER,
+            text_color="#FFFFFF",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            command=self._toggle_zoom_link,
+        )
+        link_button.pack(side="left")
+        IconTooltip(
+            link_button,
+            "Synchronizuj powiększenie obu podglądów (jak klimatyzacja "
+            "dwustrefowa - włącz/wyłącz, by ustawiać osobno)",
+        )
+        self._link_buttons.append(link_button)
+        if side == "original":
+            self.original_zoom_label = zoom_label
+        else:
+            self.result_zoom_label = zoom_label
+        return header
+
+    def _on_ctrl_scroll(self, event: object) -> None:
+        widget = self.window.winfo_containing(event.x_root, event.y_root)
+        side = self._pane_side_for_widget(widget)
+        if side is None:
+            return
+        self._adjust_zoom(side, zoom_step_from_scroll_event(event))
+
+    def _pane_side_for_widget(self, widget: object) -> str | None:
+        node = widget
+        while node is not None:
+            if node is self.left_frame:
+                return "original"
+            if node is self.right_frame:
+                return "result"
+            node = getattr(node, "master", None)
+        return None
+
+    def _toggle_zoom_link(self) -> None:
+        self.zoom_linked = not self.zoom_linked
+        if self.zoom_linked and self.result_zoom != self.original_zoom:
+            self.result_zoom = self.original_zoom
+            self._rebuild_result_pane()
+        self._update_zoom_controls()
+
+    def _adjust_zoom(self, side: str, step: int) -> None:
+        if step == 0:
+            return
+        delta = step * ZOOM_STEP
+        if self.zoom_linked:
+            new_value = clamp_zoom_level(self.original_zoom + delta)
+            changed = new_value != self.original_zoom or new_value != self.result_zoom
+            self.original_zoom = new_value
+            self.result_zoom = new_value
+            if changed:
+                self._rebuild_original_pane()
+                self._rebuild_result_pane()
+        elif side == "original":
+            new_value = clamp_zoom_level(self.original_zoom + delta)
+            if new_value != self.original_zoom:
+                self.original_zoom = new_value
+                self._rebuild_original_pane()
+        else:
+            new_value = clamp_zoom_level(self.result_zoom + delta)
+            if new_value != self.result_zoom:
+                self.result_zoom = new_value
+                self._rebuild_result_pane()
+        self._update_zoom_controls()
+
+    def _update_zoom_controls(self) -> None:
+        if self.original_zoom_label is not None:
+            self.original_zoom_label.configure(text=zoom_percent_label(self.original_zoom))
+        if self.result_zoom_label is not None:
+            self.result_zoom_label.configure(text=zoom_percent_label(self.result_zoom))
+        for button in self._link_buttons:
+            button.configure(
+                fg_color=COLOR_ACCENT if self.zoom_linked else COLOR_ICON_IDLE,
+                text_color="#FFFFFF" if self.zoom_linked else COLOR_TEXT_MUTED,
+            )
+
+    def _rebuild_original_pane(self) -> None:
+        if self.left_frame is None:
+            return
+        for widget in self.left_frame.winfo_children():
+            widget.destroy()
+        if self.original_path is not None and self.original_path.exists():
+            self._images.extend(
+                render_document_preview(
+                    self.left_frame,
+                    self.original_path,
+                    target_width=int(BASE_PREVIEW_WIDTH * self.original_zoom),
+                )
+            )
+        else:
+            ctk.CTkLabel(
+                self.left_frame,
+                text=(
+                    "Oryginał niedostępny - ten folder nie pochodzi z "
+                    "bieżącej sesji przetwarzania."
+                ),
+                text_color=COLOR_TEXT_MUTED,
+                wraplength=380,
+                justify="left",
+            ).pack(pady=30, padx=16)
+
+    def _rebuild_result_pane(self) -> None:
+        if self.right_frame is None:
+            return
+        if self.magic_pen_available:
+            self._reload_pdf_pane()
+            return
+        for widget in self.right_frame.winfo_children():
+            widget.destroy()
+        if self.result_path.exists():
+            self._images.extend(
+                render_document_preview(
+                    self.right_frame,
+                    self.result_path,
+                    target_width=int(BASE_PREVIEW_WIDTH * self.result_zoom),
+                )
+            )
+        else:
+            ctk.CTkLabel(
+                self.right_frame,
+                text="Plik wynikowy nie został znaleziony.",
+                text_color=COLOR_TEXT_MUTED,
+            ).pack(pady=30)
 
     # -- magic pen: toolbar -------------------------------------------------
 
@@ -2430,7 +2638,8 @@ class ComparisonWindow:
         except (OSError, RuntimeError, ValueError):
             self.visible_rects = []
 
-    def _build_magic_pen_pane(self, parent: ctk.CTkBaseClass, target_width: int = 460) -> None:
+    def _build_magic_pen_pane(self, parent: ctk.CTkBaseClass) -> None:
+        target_width = int(BASE_PREVIEW_WIDTH * self.result_zoom)
         try:
             import pymupdf as fitz
 
@@ -2487,6 +2696,12 @@ class ComparisonWindow:
         self._overlay_ids = {}
         self._tk_images = []
         self._build_magic_pen_pane(self.right_frame)
+        # A rebuild also happens on a plain zoom change (not just after a
+        # save, which already cleared pending state) - repaint any
+        # still-pending overlay so an in-progress selection is not visually
+        # lost just because the page was rescaled and its canvas recreated.
+        for page_number in self._page_canvases:
+            self._redraw_overlay(page_number)
 
     # -- magic pen: interaction -------------------------------------------------
 
