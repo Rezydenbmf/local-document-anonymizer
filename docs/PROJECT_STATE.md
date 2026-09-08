@@ -447,6 +447,16 @@ mode like the original build does. Verified with a regression script that
 exercises the toggle-twice-cancels path and confirms no leftover staging
 file after save. Full suite: 301 tests.
 
+The Stage 25.1 `fitz`-deprecation fix above only covered static
+`import fitz` statements; the user reported still seeing the warning on
+every "Anonimizuj" click. `ocr.py`'s OCR-availability detection did a
+dynamic `import_module("fitz")` (missed by that earlier text search since
+it never appears as a literal `import fitz` line), which still loads
+PyMuPDF's deprecated compat shim and prints its warning on every
+`detect_ocr_support()` call for a PDF input - i.e. on every batch run, not
+just when OCR fallback actually runs. Fixed by importing `"pymupdf"`
+instead (identical API). Full suite: 301 tests.
+
 ## What Exists
 
 - Repository structure.
@@ -822,12 +832,12 @@ python -m unittest discover -s tests
 
 ## Last Completed Committed Stage
 
-Stage 26: magic pen manual PDF redaction editor, plus a same-day
-self-review fixing a toggle bug, an unsafe direct-overwrite save, and a
-stale cursor.
+Stage 26: magic pen manual PDF redaction editor, a same-day self-review
+fixing a toggle bug/unsafe overwrite/stale cursor, and a fix for a
+`fitz` deprecation warning the earlier Stage 25.1 fix missed.
 
 ```text
-40e17e1 Fix magic pen self-review findings: toggle, staged write, cursor
+a760afa Fix remaining fitz deprecation warning in OCR PDF fallback
 ```
 
 ## Next Logical Step
