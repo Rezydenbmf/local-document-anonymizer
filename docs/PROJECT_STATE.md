@@ -578,6 +578,58 @@ mostly done, and hiding the "(deweloperskie)" links for non-debug users
 (folds into the same debug-mode toggle as 6b) are the only concrete asks
 so far; the rest was flagged by the user as "a signal, not a spec yet."
 
+Item 6b above is now done: the user confirmed same-folder hidden subfolder
+over `%APPDATA%` (simpler, and the recommended tradeoff held: internal
+files stay physically with their output, no cross-session path mapping to
+maintain). A new `internal_artifacts_dir(output_dir)` in `file_writers.py`
+returns (creating and Windows-hiding on first use) `output_dir/_wewnetrzne`.
+Per-file/batch path *builders* were redirected there directly - `build_report_path`,
+`build_review_checklist_path`, `build_batch_summary_path`,
+`build_batch_review_checklist_path` in `file_writers.py`, and
+`build_review_status_path`/`build_review_summary_path` in `review.py` -
+which meant zero changes to `anonymizer.py`'s per-file/per-mode generation
+branching (the fragile, heavily-branched part of the pipeline was never
+touched). `manual_redaction.py`'s `manual_edits_path` was redirected the
+same way. On the read side, `review.py`'s `_report_names_by_stem`/
+`_checklist_names_by_stem`/`_detect_batch_summary_names`/
+`_detect_batch_review_checklist_names`/`_risk_level_from_report` and
+`export_approved_workspace`'s report-copy source now all resolve through
+that same internal folder; `gui.py` got a dedicated
+`_open_internal_review_file()` (report/checklist) kept separate from the
+existing `_open_review_file()` (the deliverable itself, unaffected, stays
+in the main folder), reused by `open_summary`/
+`_patch_report_with_manual_count`. Deliberately scoped down from the
+original mapping discussed: the `_ANON.txt` plain-text companion that
+PDF sources always also produce was *not* relocated, because it is the
+same file `detect_review_workspace` uses as its discovery anchor for
+PDF-derived review items (the whole review system currently only scans
+for `.txt`/`.docx` matching `_ANON(_N)?` in the main folder - PDF variants
+like `_ANON_VISUAL.pdf` are only resolved afterward, for display, via
+`preferred_review_output_path`); relocating it would have required
+redesigning that discovery mechanism, judged too risky for this pass.
+`_ANON_REVIEW.pdf` (the auxiliary rebuilt-PDF copy) was left visible for
+the same reason: whether it is a deliverable (`REBUILT_REVIEW` mode) or an
+auxiliary copy (`VISUAL` mode) depends on `anonymize_pdf_file`'s branching,
+and distinguishing the two cases safely needs its own pass. Fixed one
+concrete bug caught while updating tests: a pre-existing
+`test_manual_edits_path_is_named_after_visual_output` used a fabricated,
+never-created path (`C:/out/...`) as a stand-in for "some PDF path" -
+harmless before this change, but `manual_edits_path` now creates its
+parent internal folder as a side effect, so running that test had been
+silently creating a real `C:\out\_wewnetrzne\` folder outside the repo
+sandbox; found this by inspecting the disk after a test run, deleted the
+stray empty folder, and rewrote the test to use a real temp directory (plus
+a new test asserting the internal-subfolder location explicitly). Verified
+functionally end-to-end with a real batch run: main output folder holds
+only the deliverables (`_ANON.txt`, `_ANON_REVIEW.pdf`, `_ANON_VISUAL.pdf`),
+`_wewnetrzne` holds the report/checklist/batch files and is confirmed
+Windows-hidden via `GetFileAttributesW`, `open_summary()` reads correctly,
+the magic pen sidecar resolves into the internal folder, and approve+export
+still correctly copies the deliverable and report into `approved/`. All
+~50 existing tests that had hardcoded the old flat-folder assumption were
+updated to match, not reverted. Full suite: 321 tests, lint unchanged (84
+pre-existing errors, same before and after).
+
 ## What Exists
 
 - Repository structure.
@@ -958,29 +1010,28 @@ fixing a toggle bug/unsafe overwrite/stale cursor, a fix for a `fitz`
 deprecation warning the earlier Stage 25.1 fix missed, a resizable/
 maximizable comparison window with independent or linked per-pane zoom, a
 follow-up fixing the maximize button itself plus a padlock-based,
-tooltip-and-hint-backed redesign of the zoom-link icon, and a further
-round of hands-on-testing feedback: window focus in/out, a draggable pane
+tooltip-and-hint-backed redesign of the zoom-link icon, a further round
+of hands-on-testing feedback (window focus in/out, a draggable pane
 splitter, modeless LMB/RMB magic pen interaction, a more visible legend,
-and a new auto-open-result Settings option.
+a new auto-open-result Settings option), and moving internal/diagnostic
+output files into a hidden `_wewnetrzne` output subfolder.
 
 ```text
-32eced3 Comparison window UX polish + auto-open setting
+07f273b Move internal/diagnostic artifacts into a hidden output subfolder
 ```
 
 ## Next Logical Step
 
-The immediate next planned stage, awaiting the user's decision between the
-two folder-location options already offered (same-folder hidden subfolder
-vs. a separate location like `%APPDATA%`): split each output folder into
-user-facing deliverables versus internal/diagnostic files (report,
-checklist, rebuilt review PDF, `_MANUAL_EDITS.json`, review status/summary
-json), paired with a "debug/developer mode" Settings toggle that reveals
-both that location and the existing always-on "(deweloperskie)" raw
-report/checklist links. Needs its own planning pass first (like the magic
-pen got) given how many existing files it touches: `anonymizer.py`'s
-per-artifact output-path construction, `review.py`'s folder scanning,
-`gui.py`'s report/checklist/summary open paths, and the History/approved-
-export flows.
+The next candidates, not yet started: (a) relocating the PDF-derived
+`_ANON.txt` companion and `_ANON_REVIEW.pdf` into the internal folder too
+(deliberately left out of the pass above - see the narrative for why:
+review discovery currently anchors on `_ANON.txt`, and `_ANON_REVIEW.pdf`
+is sometimes a deliverable depending on PDF output mode); (b) a
+"debug/developer mode" Settings toggle revealing the internal folder and
+the existing always-on "(deweloperskie)" report/checklist links; (c) the
+still-open user/IP-protection topic (packaging as a compiled `.exe` once
+feature work is mostly done; hiding the dev links folds into (b); the
+rest was flagged by the user as "a signal, not a spec yet").
 
 Use the completed Stage 26 GUI (including the magic pen) in real local
 pilot/use and make future improvements only from observed needs otherwise.
