@@ -4,10 +4,6 @@ A local-first Python/Tkinter desktop tool for anonymizing text documents (TXT, D
 
 **Status:** Working local MVP; Stage 24 PDF visual review cleanup completed.
 
-![Batch anonymization result screen](screenshots/screenshot-anonymizer-result.png)
-
-*Batch run over 3 documents: category counters (PESEL, email, phone, dates, NER-detected names/orgs/locations), post-anonymization audit with risk levels (ok/warning/high_risk) and warning categories, and the manual review queue where each output must be approved before use. Filenames are redacted in this example.*
-
 ## Problem it solves
 
 Manually redacting personal data (names, PESEL numbers, emails, phone numbers, addresses) from documents before sharing or archiving them is slow and error-prone. This tool automates the first pass — deterministic regex + optional local NER — and produces a separate anonymized copy plus a safe report, while treating manual human review as mandatory rather than optional. It is explicitly **not** a claim of complete, production-grade anonymization.
