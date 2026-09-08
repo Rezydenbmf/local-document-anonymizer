@@ -1,14 +1,14 @@
 """CustomTkinter GUI for batch anonymization."""
 
-from collections.abc import Mapping, Sequence
-from datetime import datetime, timezone
 import json
 import os
-from pathlib import Path
 import subprocess
 import sys
 import time
 import tkinter as tk
+from collections.abc import Mapping, Sequence
+from datetime import datetime, timezone
+from pathlib import Path
 from tkinter import filedialog
 
 import customtkinter as ctk
@@ -16,9 +16,6 @@ from PIL import Image, ImageTk
 from tkinterdnd2 import DND_FILES, TkinterDnD
 
 try:
-    from .audit import AUDIT_CATEGORY_ORDER
-    from .file_readers import read_docx_file, read_txt_file
-    from .file_writers import internal_artifacts_dir
     from .anonymizer import (
         PDF_OUTPUT_MODE_ORIGINAL_REDACTION,
         PDF_OUTPUT_MODE_REBUILT_REVIEW,
@@ -29,6 +26,9 @@ try:
         BatchResult,
         anonymize_batch,
     )
+    from .audit import AUDIT_CATEGORY_ORDER
+    from .file_readers import read_docx_file, read_txt_file
+    from .file_writers import internal_artifacts_dir
     from .llm_review import LLM_STATUS_AVAILABLE, list_installed_models
     from .manual_redaction import (
         EMPTY_MANUAL_EDITS,
@@ -45,6 +45,14 @@ try:
         save_manual_edits,
     )
     from .report import (
+        BATCH_ERROR_EMPTY_TEXT_PDF,
+        BATCH_ERROR_FILE_IO,
+        BATCH_ERROR_MISSING_DEPENDENCY,
+        BATCH_ERROR_OCR_FAILED,
+        BATCH_ERROR_OCR_UNAVAILABLE,
+        BATCH_ERROR_PROCESSING_FAILED,
+        BATCH_ERROR_TEXT_DECODING,
+        BATCH_ERROR_UNSUPPORTED_FILE_TYPE,
         DICTIONARY_STATUS_INVALID,
         DICTIONARY_STATUS_LOADED,
         DICTIONARY_STATUS_NOT_SELECTED,
@@ -61,9 +69,6 @@ try:
         save_review_files,
     )
 except ImportError:
-    from audit import AUDIT_CATEGORY_ORDER
-    from file_readers import read_docx_file, read_txt_file
-    from file_writers import internal_artifacts_dir
     from anonymizer import (
         PDF_OUTPUT_MODE_ORIGINAL_REDACTION,
         PDF_OUTPUT_MODE_REBUILT_REVIEW,
@@ -74,6 +79,9 @@ except ImportError:
         BatchResult,
         anonymize_batch,
     )
+    from audit import AUDIT_CATEGORY_ORDER
+    from file_readers import read_docx_file, read_txt_file
+    from file_writers import internal_artifacts_dir
     from llm_review import LLM_STATUS_AVAILABLE, list_installed_models
     from manual_redaction import (
         EMPTY_MANUAL_EDITS,
@@ -90,6 +98,14 @@ except ImportError:
         save_manual_edits,
     )
     from report import (
+        BATCH_ERROR_EMPTY_TEXT_PDF,
+        BATCH_ERROR_FILE_IO,
+        BATCH_ERROR_MISSING_DEPENDENCY,
+        BATCH_ERROR_OCR_FAILED,
+        BATCH_ERROR_OCR_UNAVAILABLE,
+        BATCH_ERROR_PROCESSING_FAILED,
+        BATCH_ERROR_TEXT_DECODING,
+        BATCH_ERROR_UNSUPPORTED_FILE_TYPE,
         DICTIONARY_STATUS_INVALID,
         DICTIONARY_STATUS_LOADED,
         DICTIONARY_STATUS_NOT_SELECTED,
@@ -852,11 +868,41 @@ RISK_SUMMARY_TEXT_PL = {
     "high_risk": "Wysokie ryzyko - koniecznie sprawdź ręcznie.",
     "unknown": "Status ryzyka nieznany.",
 }
+BATCH_ERROR_LABELS_PL = {
+    BATCH_ERROR_UNSUPPORTED_FILE_TYPE: "nieobsługiwany typ pliku",
+    BATCH_ERROR_EMPTY_TEXT_PDF: (
+        "PDF to skan bez warstwy tekstowej - wymaga lokalnego OCR (Tesseract), "
+        "który nie jest zainstalowany lub nie wykrył tekstu"
+    ),
+    BATCH_ERROR_TEXT_DECODING: "pliku TXT nie udało się odczytać jako UTF-8",
+    BATCH_ERROR_FILE_IO: "nie udało się odczytać lub zapisać pliku",
+    BATCH_ERROR_MISSING_DEPENDENCY: "brakuje wymaganej lokalnej biblioteki",
+    BATCH_ERROR_OCR_UNAVAILABLE: (
+        "plik to skan/obraz i wymaga lokalnego OCR (Tesseract), "
+        "który nie jest zainstalowany na tym komputerze"
+    ),
+    BATCH_ERROR_OCR_FAILED: "lokalny OCR (Tesseract) nie poradził sobie z tym plikiem",
+    BATCH_ERROR_PROCESSING_FAILED: "przetwarzanie pliku nie powiodło się",
+}
 
 
 def category_label_pl(label: str) -> str:
     """Return a short Polish display label for a detected category code."""
     return CATEGORY_LABELS_PL.get(label, label)
+
+
+def batch_error_label_pl(error: str) -> str:
+    """Return a Polish explanation for a safe batch-processing error code."""
+    return BATCH_ERROR_LABELS_PL.get(error, error)
+
+
+def format_batch_error_items(batch_result: BatchResult) -> list[tuple[str, str]]:
+    """Return (input_name, polish_error_reason) for every failed batch item."""
+    return [
+        (str(result.get("input_name", "?")), batch_error_label_pl(str(result.get("error", ""))))
+        for result in batch_result.results
+        if result.get("status") != "success"
+    ]
 
 
 def format_review_summary_line(approved_count: int, total_count: int) -> str:
@@ -1630,7 +1676,7 @@ class AnonymizerApp:
         header.pack(fill="x", pady=(0, 10))
         ctk.CTkButton(
             header,
-            text="\u2b05 Nowy batch",
+            text="\u2b05 Nowe pliki",
             width=110,
             height=28,
             corner_radius=8,
@@ -1650,6 +1696,8 @@ class AnonymizerApp:
             text_color=COLOR_TEXT_MUTED,
             command=self.pick_review_folder,
         ).pack(side="right")
+
+        self._build_batch_errors_card(self.content)
 
         scroll = ctk.CTkScrollableFrame(
             self.content, fg_color="transparent", label_text=""
@@ -1692,6 +1740,48 @@ class AnonymizerApp:
         )
         warning.pack(pady=(8, 0), ipadx=10, ipady=6)
 
+    def _build_batch_errors_card(self, parent: ctk.CTkFrame) -> None:
+        """Show which files from the just-run batch failed and why.
+
+        Without this, a batch where every file errors out (e.g. a scanned
+        PDF and no local OCR installed) previously landed on a silent,
+        unexplained "Brak wykrytych wyników" empty review screen.
+        """
+        if self.last_batch_result is None:
+            return
+        failed_items = format_batch_error_items(self.last_batch_result)
+        if not failed_items:
+            return
+
+        card = ctk.CTkFrame(
+            parent,
+            fg_color=COLOR_HIGH_RISK_SOFT,
+            corner_radius=10,
+            border_width=1,
+            border_color=COLOR_HIGH_RISK,
+        )
+        card.pack(fill="x", pady=(0, 10))
+        inner = ctk.CTkFrame(card, fg_color="transparent")
+        inner.pack(fill="x", padx=14, pady=10)
+        file_word = "pliku" if len(failed_items) == 1 else "plików"
+        ctk.CTkLabel(
+            inner,
+            text=f"⚠ Nie udało się przetworzyć {len(failed_items)} {file_word}:",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
+            text_color=COLOR_HIGH_RISK,
+            anchor="w",
+        ).pack(fill="x")
+        for input_name, reason in failed_items:
+            ctk.CTkLabel(
+                inner,
+                text=f"•  {input_name} — {reason}",
+                font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                text_color=COLOR_TEXT,
+                anchor="w",
+                wraplength=640,
+                justify="left",
+            ).pack(fill="x", padx=(10, 0), pady=(4, 0))
+
     def _build_legend_row(self, parent: ctk.CTkFrame) -> None:
         legend_card = ctk.CTkFrame(
             parent,
@@ -1731,6 +1821,7 @@ class AnonymizerApp:
         if not folder_path:
             return
         self.review_dir = Path(folder_path)
+        self.last_batch_result = None
         self._load_review_folder()
         self._remember_recent_folder(self.review_dir)
         self.show_review_screen()
@@ -1740,6 +1831,7 @@ class AnonymizerApp:
         if not folder.is_dir():
             return
         self.review_dir = folder
+        self.last_batch_result = None
         self._load_review_folder()
         self._remember_recent_folder(folder)
         self.show_review_screen()

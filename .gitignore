@@ -22,12 +22,12 @@ data/
 *.tmp
 *.bak
 local_config.*
-*_ANON.*
+*_ANON*.*
 *_ANON_VISUAL*.pdf
 *_MANUAL_EDITS*.json
 *_ANON_REVIEW*.pdf
 *_ORIGINAL_REDACTED*.pdf
-*_RAPORT.*
+*_RAPORT*.*
 *_REVIEW_CHECKLIST*.txt
 _BATCH_REVIEW_CHECKLIST*.txt
 *_BATCH_SUMMARY*.txt
