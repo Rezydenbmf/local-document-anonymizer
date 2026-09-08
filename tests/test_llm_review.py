@@ -502,7 +502,7 @@ class LlmReviewTests(unittest.TestCase):
                 )
 
             output_exists = output_path.exists()
-            report_text = (Path(temp_dir) / "document_RAPORT.txt").read_text(
+            report_text = (Path(temp_dir) / "_wewnetrzne" / "document_RAPORT.txt").read_text(
                 encoding="utf-8"
             )
 
@@ -607,7 +607,7 @@ class LlmReviewTests(unittest.TestCase):
                     llm_model_name="local-model",
                 )
 
-            report_text = (output_dir / "document_RAPORT.txt").read_text(encoding="utf-8")
+            report_text = (output_dir / "_wewnetrzne" / "document_RAPORT.txt").read_text(encoding="utf-8")
             summary_text = batch_result.summary_path.read_text(encoding="utf-8")
             output_text = output_path.read_text(encoding="utf-8")
 

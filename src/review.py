@@ -12,10 +12,10 @@ import shutil
 
 try:
     from .audit import RISK_LEVEL_HIGH, RISK_LEVEL_OK, RISK_LEVEL_WARNING, RISK_LEVELS
-    from .file_writers import build_collision_safe_path
+    from .file_writers import build_collision_safe_path, internal_artifacts_dir
 except ImportError:
     from audit import RISK_LEVEL_HIGH, RISK_LEVEL_OK, RISK_LEVEL_WARNING, RISK_LEVELS
-    from file_writers import build_collision_safe_path
+    from file_writers import build_collision_safe_path, internal_artifacts_dir
 
 
 REVIEW_STATUS_APPROVED = "approved"
@@ -193,7 +193,7 @@ def _is_report_file(path: Path) -> bool:
 
 def _report_names_by_stem(output_dir: Path) -> set[str]:
     report_names: set[str] = set()
-    for path in output_dir.iterdir():
+    for path in internal_artifacts_dir(output_dir).iterdir():
         if path.is_file() and path.suffix.lower() == ".txt":
             if _REPORT_STEM_PATTERN.match(path.stem):
                 report_names.add(path.name)
@@ -202,7 +202,7 @@ def _report_names_by_stem(output_dir: Path) -> set[str]:
 
 def _checklist_names_by_stem(output_dir: Path) -> set[str]:
     checklist_names: set[str] = set()
-    for path in output_dir.iterdir():
+    for path in internal_artifacts_dir(output_dir).iterdir():
         if path.is_file() and path.suffix.lower() == ".txt":
             if _CHECKLIST_STEM_PATTERN.match(path.stem):
                 checklist_names.add(path.name)
@@ -304,7 +304,7 @@ def _risk_level_from_report(report_path: Path) -> str | None:
 def _detect_batch_summary_names(output_dir: Path) -> list[str]:
     return sorted(
         path.name
-        for path in output_dir.iterdir()
+        for path in internal_artifacts_dir(output_dir).iterdir()
         if path.is_file() and _BATCH_SUMMARY_PATTERN.match(path.name)
     )
 
@@ -312,19 +312,27 @@ def _detect_batch_summary_names(output_dir: Path) -> list[str]:
 def _detect_batch_review_checklist_names(output_dir: Path) -> list[str]:
     return sorted(
         path.name
-        for path in output_dir.iterdir()
+        for path in internal_artifacts_dir(output_dir).iterdir()
         if path.is_file() and _BATCH_REVIEW_CHECKLIST_PATTERN.match(path.name)
     )
 
 
 def build_review_status_path(output_dir: str | Path) -> Path:
-    """Return the fixed review manifest path for an output workspace."""
-    return Path(output_dir) / REVIEW_STATUS_FILENAME
+    """Return the fixed review manifest path for an output workspace.
+
+    Lives in the hidden internal-artifacts subfolder, not the main output
+    folder - app state, not a user-facing deliverable.
+    """
+    return internal_artifacts_dir(output_dir) / REVIEW_STATUS_FILENAME
 
 
 def build_review_summary_path(output_dir: str | Path) -> Path:
-    """Return the default manual review summary path."""
-    return Path(output_dir) / REVIEW_SUMMARY_FILENAME
+    """Return the default manual review summary path.
+
+    Lives in the hidden internal-artifacts subfolder; see
+    build_review_status_path.
+    """
+    return internal_artifacts_dir(output_dir) / REVIEW_SUMMARY_FILENAME
 
 
 def build_approved_workspace_path(output_dir: str | Path) -> Path:
@@ -350,7 +358,7 @@ def detect_review_workspace(output_dir: str | Path) -> ReviewWorkspace:
         report_name = _matching_report_name(path, report_names)
         checklist_name = _matching_checklist_name(path, checklist_names)
         risk_level = (
-            _risk_level_from_report(folder / report_name)
+            _risk_level_from_report(internal_artifacts_dir(folder) / report_name)
             if report_name is not None
             else None
         )
@@ -596,7 +604,7 @@ def export_approved_workspace(
             missing_report_names.append(output_destination.name)
             continue
 
-        source_report_path = folder / item.report_name
+        source_report_path = internal_artifacts_dir(folder) / item.report_name
         if not _is_report_file(source_report_path):
             missing_report_names.append(output_destination.name)
             continue

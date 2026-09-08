@@ -299,7 +299,7 @@ class NerFoundationTests(unittest.TestCase):
                 )
 
             output_text = output_path.read_text(encoding="utf-8")
-            report_text = (Path(temp_dir) / "document_RAPORT.txt").read_text(
+            report_text = (Path(temp_dir) / "_wewnetrzne" / "document_RAPORT.txt").read_text(
                 encoding="utf-8"
             )
 
@@ -405,7 +405,7 @@ class NerFoundationTests(unittest.TestCase):
                 output_path, counters = anonymize_file(source_path, use_ner=True)
 
             output_text = output_path.read_text(encoding="utf-8")
-            report_text = (Path(temp_dir) / "document_RAPORT.txt").read_text(
+            report_text = (Path(temp_dir) / "_wewnetrzne" / "document_RAPORT.txt").read_text(
                 encoding="utf-8"
             )
 
@@ -542,7 +542,7 @@ class NerFoundationTests(unittest.TestCase):
                 output_path, counters = anonymize_file(source_path, use_ner=True)
 
             output_text = output_path.read_text(encoding="utf-8")
-            report_text = (Path(temp_dir) / "document_RAPORT.txt").read_text(
+            report_text = (Path(temp_dir) / "_wewnetrzne" / "document_RAPORT.txt").read_text(
                 encoding="utf-8"
             )
 
@@ -580,7 +580,7 @@ class NerFoundationTests(unittest.TestCase):
             with patch("ner._spacy_module", return_value=FakeSpacy(model=model)):
                 output_path, counters = anonymize_file(source_path, use_ner=True)
 
-            report_text = (Path(temp_dir) / "document_RAPORT.txt").read_text(
+            report_text = (Path(temp_dir) / "_wewnetrzne" / "document_RAPORT.txt").read_text(
                 encoding="utf-8"
             )
             output_text = output_path.read_text(encoding="utf-8")
@@ -654,7 +654,7 @@ class NerFoundationTests(unittest.TestCase):
                 )
 
             output_text = output_path.read_text(encoding="utf-8")
-            report_text = (Path(temp_dir) / "document_RAPORT.txt").read_text(
+            report_text = (Path(temp_dir) / "_wewnetrzne" / "document_RAPORT.txt").read_text(
                 encoding="utf-8"
             )
 
@@ -705,7 +705,7 @@ class NerFoundationTests(unittest.TestCase):
                     use_ner=True,
                 )
 
-            report_text = (Path(temp_dir) / "document_RAPORT.txt").read_text(
+            report_text = (Path(temp_dir) / "_wewnetrzne" / "document_RAPORT.txt").read_text(
                 encoding="utf-8"
             )
 

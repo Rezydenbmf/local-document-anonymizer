@@ -22,6 +22,7 @@ from pathlib import Path
 
 try:
     from .anonymizer import compute_pdf_redaction_spans
+    from .file_writers import internal_artifacts_dir
     from .pdf_redaction import (
         MANUAL_REDACTION_LABEL,
         compute_redaction_rects,
@@ -31,6 +32,7 @@ try:
     from .sensitive_terms import SensitiveTerm
 except ImportError:
     from anonymizer import compute_pdf_redaction_spans
+    from file_writers import internal_artifacts_dir
     from pdf_redaction import (
         MANUAL_REDACTION_LABEL,
         compute_redaction_rects,
@@ -75,9 +77,15 @@ EMPTY_MANUAL_EDITS = ManualEdits()
 
 
 def manual_edits_path(output_pdf_path: str | Path) -> Path:
-    """Return the sidecar JSON path for one visual PDF output's manual edits."""
+    """Return the sidecar JSON path for one visual PDF output's manual edits.
+
+    Lives in the hidden internal-artifacts subfolder next to the output's
+    own folder - it is app state (geometry only, never document content),
+    not a user-facing deliverable.
+    """
     path = Path(output_pdf_path)
-    return path.with_name(f"{path.stem}{MANUAL_EDITS_SUFFIX}{MANUAL_EDITS_EXTENSION}")
+    internal_dir = internal_artifacts_dir(path.parent)
+    return internal_dir / f"{path.stem}{MANUAL_EDITS_SUFFIX}{MANUAL_EDITS_EXTENSION}"
 
 
 def load_manual_edits(path: str | Path) -> ManualEdits:

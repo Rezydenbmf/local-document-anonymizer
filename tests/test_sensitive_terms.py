@@ -114,7 +114,7 @@ class SensitiveTermsTests(unittest.TestCase):
                 source_path,
                 sensitive_terms_path=dictionary_path,
             )
-            report_text = (Path(temp_dir) / "document_RAPORT.txt").read_text(
+            report_text = (Path(temp_dir) / "_wewnetrzne" / "document_RAPORT.txt").read_text(
                 encoding="utf-8"
             )
 
@@ -267,7 +267,7 @@ class SensitiveTermsTests(unittest.TestCase):
             output_path, counters = anonymize_txt_file(
                 source_path, sensitive_terms=terms
             )
-            report_path = Path(temp_dir) / "document_RAPORT.txt"
+            report_path = Path(temp_dir) / "_wewnetrzne" / "document_RAPORT.txt"
             report_text = report_path.read_text(encoding="utf-8")
 
             self.assertEqual(
@@ -296,7 +296,7 @@ class SensitiveTermsTests(unittest.TestCase):
             output_path, counters = anonymize_txt_file(
                 source_path, sensitive_terms=terms
             )
-            report_text = (Path(temp_dir) / "document_RAPORT.txt").read_text(
+            report_text = (Path(temp_dir) / "_wewnetrzne" / "document_RAPORT.txt").read_text(
                 encoding="utf-8"
             )
 
@@ -328,7 +328,7 @@ class SensitiveTermsTests(unittest.TestCase):
                 source_path,
                 sensitive_terms_path=dictionary_path,
             )
-            report_text = (Path(temp_dir) / "document_RAPORT.txt").read_text(
+            report_text = (Path(temp_dir) / "_wewnetrzne" / "document_RAPORT.txt").read_text(
                 encoding="utf-8"
             )
 
@@ -369,7 +369,7 @@ class SensitiveTermsTests(unittest.TestCase):
                 source_path,
                 sensitive_terms_path=dictionary_path,
             )
-            report_text = (Path(temp_dir) / "document_RAPORT.txt").read_text(
+            report_text = (Path(temp_dir) / "_wewnetrzne" / "document_RAPORT.txt").read_text(
                 encoding="utf-8"
             )
 
@@ -406,7 +406,7 @@ class SensitiveTermsTests(unittest.TestCase):
                 source_path,
                 sensitive_terms_path=dictionary_path,
             )
-            report_text = (Path(temp_dir) / "document_RAPORT.txt").read_text(
+            report_text = (Path(temp_dir) / "_wewnetrzne" / "document_RAPORT.txt").read_text(
                 encoding="utf-8"
             )
 
@@ -434,7 +434,7 @@ class SensitiveTermsTests(unittest.TestCase):
             )
 
             _, counters, audit_result = anonymize_file_with_audit(source_path)
-            report_text = (Path(temp_dir) / "document_RAPORT.txt").read_text(
+            report_text = (Path(temp_dir) / "_wewnetrzne" / "document_RAPORT.txt").read_text(
                 encoding="utf-8"
             )
 
