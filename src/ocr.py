@@ -129,7 +129,7 @@ def _image_module():
 
 
 def _fitz_module():
-    return _import_optional("fitz")
+    return _import_optional("pymupdf")
 
 
 def _is_tesseract_not_found(error: Exception, pytesseract_module: Any) -> bool:
