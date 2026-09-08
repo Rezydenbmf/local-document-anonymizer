@@ -26,6 +26,7 @@ from gui import (
     ReviewItem,
     canvas_point_to_pdf_point,
     category_label_pl,
+    clamp_zoom_level,
     default_output_directory,
     file_type_badge,
     filter_supported_paths,
@@ -61,6 +62,8 @@ from gui import (
     review_status_label_pl,
     risk_style_key,
     save_recent_folders,
+    zoom_percent_label,
+    zoom_step_from_scroll_event,
 )
 from anonymizer import (
     PDF_OUTPUT_MODE_ORIGINAL_REDACTION,
@@ -655,6 +658,28 @@ class GuiWorkflowTests(unittest.TestCase):
         ]
 
         self.assertEqual(find_rect_at_point(rects, 1, 20, 10), rects[1])
+
+    def test_clamp_zoom_level_keeps_values_within_range(self) -> None:
+        self.assertEqual(clamp_zoom_level(1.0), 1.0)
+        self.assertEqual(clamp_zoom_level(0.1), 0.5)
+        self.assertEqual(clamp_zoom_level(9.0), 3.0)
+
+    def test_clamp_zoom_level_rounds_to_two_decimals(self) -> None:
+        self.assertEqual(clamp_zoom_level(1.234567), 1.23)
+
+    def test_zoom_percent_label_formats_whole_percent(self) -> None:
+        self.assertEqual(zoom_percent_label(1.0), "100%")
+        self.assertEqual(zoom_percent_label(1.2), "120%")
+        self.assertEqual(zoom_percent_label(0.5), "50%")
+
+    def test_zoom_step_from_scroll_event_handles_windows_delta(self) -> None:
+        self.assertEqual(zoom_step_from_scroll_event(FakeWheelEvent(delta=120)), 1)
+        self.assertEqual(zoom_step_from_scroll_event(FakeWheelEvent(delta=-120)), -1)
+        self.assertEqual(zoom_step_from_scroll_event(FakeWheelEvent(delta=0)), 0)
+
+    def test_zoom_step_from_scroll_event_handles_x11_button_numbers(self) -> None:
+        self.assertEqual(zoom_step_from_scroll_event(FakeWheelEvent(num=4)), 1)
+        self.assertEqual(zoom_step_from_scroll_event(FakeWheelEvent(num=5)), -1)
 
 
 if __name__ == "__main__":

@@ -457,6 +457,36 @@ PyMuPDF's deprecated compat shim and prints its warning on every
 just when OCR fallback actually runs. Fixed by importing `"pymupdf"`
 instead (identical API). Full suite: 301 tests.
 
+The user reported `ComparisonWindow` needed to be resizable/maximizable
+and each preview independently zoomable - without it they could not test
+the magic pen with any precision. `window.resizable(True, True)` plus a
+sane `minsize` now make the comparison window a normal resizable/
+maximizable window. Each pane ("Oryginał"/"Po anonimizacji") got its own
+small header with "－ / percent / ＋" zoom controls plus a "🔗" link
+toggle, described to the user as working "like dual-zone climate control":
+linked (the default) keeps both panes at the same zoom and changing either
+one moves both together; unlinking lets each side be sized independently.
+Ctrl+scroll over either pane zooms that pane the same way (routed through
+one `<Control-MouseWheel>` binding on the window plus
+`_pane_side_for_widget()`, which walks up from the widget under the cursor
+to find which scrollable frame it belongs to, so it keeps working across
+pane rebuilds without needing to rebind every child widget). Zoom applies
+uniformly to every preview type - PDF pages, images, and now also DOCX/TXT
+text blocks (font size and box size scale with `target_width`, reusing the
+same `render_document_preview(target_width=...)` path). Rebuilding a pane
+for a zoom change reuses the same `_rebuild_original_pane`/
+`_rebuild_result_pane`/`_reload_pdf_pane` helpers a magic pen save already
+used; a related gap surfaced while wiring this in and was fixed in the
+same pass: `_reload_pdf_pane()` destroyed and recreated the magic pen's
+canvases without repainting any still-pending (unsaved) overlay, so simply
+zooming while mid-edit made an in-progress selection look like it had been
+discarded even though the underlying `pending_remove_keys`/
+`pending_add_rects` state was untouched. Verified functionally (resize
+actually changes window dimensions; linked zoom mirrors both panes;
+unlinking makes them diverge; a pending overlay's rect count is unchanged
+across a zoom-triggered rebuild) and visually via screenshot. Full suite:
+306 tests.
+
 ## What Exists
 
 - Repository structure.
@@ -833,11 +863,12 @@ python -m unittest discover -s tests
 ## Last Completed Committed Stage
 
 Stage 26: magic pen manual PDF redaction editor, a same-day self-review
-fixing a toggle bug/unsafe overwrite/stale cursor, and a fix for a
-`fitz` deprecation warning the earlier Stage 25.1 fix missed.
+fixing a toggle bug/unsafe overwrite/stale cursor, a fix for a `fitz`
+deprecation warning the earlier Stage 25.1 fix missed, and a resizable/
+maximizable comparison window with independent or linked per-pane zoom.
 
 ```text
-a760afa Fix remaining fitz deprecation warning in OCR PDF fallback
+1ad5669 Make comparison window resizable/maximizable with dual-zone pane zoom
 ```
 
 ## Next Logical Step
