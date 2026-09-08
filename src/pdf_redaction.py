@@ -372,7 +372,7 @@ def build_pdf_visual_redaction_metadata(
 
 def _load_fitz_module():
     try:
-        import fitz
+        import pymupdf as fitz
     except ModuleNotFoundError as exc:
         raise RuntimeError(
             "PDF redaction output requires PyMuPDF. "
@@ -522,7 +522,7 @@ def save_rebuilt_review_pdf_from_text(
 def _search_page_for_text(page, text: str):
     flags = 0
     try:
-        import fitz
+        import pymupdf as fitz
 
         flags = getattr(fitz, "TEXT_DEHYPHENATE", 0)
     except ModuleNotFoundError:

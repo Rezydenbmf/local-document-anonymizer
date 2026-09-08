@@ -160,7 +160,7 @@ def write_blank_pdf(path: Path) -> None:
 
 
 def write_fitz_text_pdf(path: Path, lines: list[str]) -> None:
-    import fitz
+    import pymupdf as fitz
 
     document = fitz.open()
     page = document.new_page()
@@ -185,7 +185,7 @@ def unicode_test_font_path() -> Path | None:
 
 
 def write_fitz_unicode_text_pdf(path: Path, lines: list[str]) -> bool:
-    import fitz
+    import pymupdf as fitz
 
     font_path = unicode_test_font_path()
     if font_path is None:
@@ -1237,7 +1237,7 @@ class PdfIoTests(unittest.TestCase):
         pdf_path: Path,
         source_values: tuple[str, ...],
     ) -> None:
-        import fitz
+        import pymupdf as fitz
 
         with fitz.open(pdf_path) as document:
             redacted_text = "\n".join(page.get_text("text") for page in document)
@@ -1251,7 +1251,7 @@ class PdfIoTests(unittest.TestCase):
         pdf_path: Path,
         source_values: tuple[str, ...],
     ) -> None:
-        import fitz
+        import pymupdf as fitz
 
         with fitz.open(pdf_path) as document:
             redacted_text = "\n".join(page.get_text("text") for page in document)
@@ -1263,7 +1263,7 @@ class PdfIoTests(unittest.TestCase):
         pdf_path: Path,
         source_values: tuple[str, ...],
     ) -> None:
-        import fitz
+        import pymupdf as fitz
 
         with fitz.open(pdf_path) as document:
             redacted_text = "\n".join(page.get_text("text") for page in document)
