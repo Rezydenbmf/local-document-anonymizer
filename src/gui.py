@@ -159,6 +159,37 @@ SUPPORTED_EXTENSIONS = (
 )
 DEFAULT_OUTPUT_SUBDIR_NAME = "Anonimizer - wyniki"
 
+AUTO_OPEN_MODE_FIRST = "first"
+AUTO_OPEN_MODE_LAST = "last"
+AUTO_OPEN_MODE_ALL = "all"
+AUTO_OPEN_MODE_NONE = "none"
+AUTO_OPEN_MODE_DEFAULT = AUTO_OPEN_MODE_LAST
+AUTO_OPEN_ALL_MAX = 10
+AUTO_OPEN_MODE_LABELS = {
+    AUTO_OPEN_MODE_FIRST: "Pierwszy w kolejce",
+    AUTO_OPEN_MODE_LAST: "Ostatni w kolejce (domyślnie)",
+    AUTO_OPEN_MODE_ALL: f"Wszystkie (maks. {AUTO_OPEN_ALL_MAX} plików)",
+    AUTO_OPEN_MODE_NONE: "Nie otwieraj automatycznie",
+}
+
+
+def auto_open_output_names(
+    output_names: Sequence[str], mode: str, max_all: int = AUTO_OPEN_ALL_MAX
+) -> list[str]:
+    """Return which successfully produced batch outputs to auto-open.
+
+    ``output_names`` is expected in batch/processing order. Unknown modes
+    fall back to the same behavior as AUTO_OPEN_MODE_LAST.
+    """
+    names = list(output_names)
+    if not names or mode == AUTO_OPEN_MODE_NONE:
+        return []
+    if mode == AUTO_OPEN_MODE_FIRST:
+        return [names[0]]
+    if mode == AUTO_OPEN_MODE_ALL:
+        return names[:max_all]
+    return [names[-1]]
+
 
 def default_output_directory() -> Path:
     """Return the default output folder under the user's Documents folder."""
@@ -374,6 +405,18 @@ def open_path_with_default_app(path: Path) -> None:
 
     opener = "open" if sys.platform == "darwin" else "xdg-open"
     subprocess.Popen([opener, str(path)])
+
+
+def _bring_window_to_front(window: tk.Misc) -> None:
+    """Raise and focus a window that was just opened or returned to.
+
+    Tk/CustomTkinter windows on Windows can otherwise appear behind
+    whatever window already had focus, which reads as broken rather than
+    just unfocused.
+    """
+    window.deiconify()
+    window.lift()
+    window.focus_force()
 
 
 def format_counters(counters: dict[str, int]) -> str:
@@ -973,6 +1016,7 @@ class AnonymizerApp:
         self.use_llm_review = False
         self.llm_model_name = ""
         self.pdf_output_label = PDF_OUTPUT_LABEL_VISUAL_REDACTION
+        self.auto_open_mode = AUTO_OPEN_MODE_DEFAULT
 
         self.review_dir: Path | None = None
         self.review_items: list[ReviewItem] = []
@@ -1515,7 +1559,24 @@ class AnonymizerApp:
             self.review_items, batch_result.results
         )
         self._remember_recent_folder(self.output_dir)
+        self._auto_open_batch_results(batch_result)
         self.show_review_screen()
+
+    def _auto_open_batch_results(self, batch_result: BatchResult) -> None:
+        if self.output_dir is None:
+            return
+        output_names = [
+            str(result["output_name"])
+            for result in batch_result.results
+            if result.get("status") == "success" and result.get("output_name")
+        ]
+        for output_name in auto_open_output_names(output_names, self.auto_open_mode):
+            try:
+                open_path_with_default_app(
+                    preferred_review_output_path(self.output_dir, output_name)
+                )
+            except OSError:
+                pass
 
     def _remember_recent_folder(self, folder: Path) -> None:
         timestamp = datetime.now(timezone.utc).isoformat()
@@ -1630,8 +1691,22 @@ class AnonymizerApp:
         warning.pack(pady=(8, 0), ipadx=10, ipady=6)
 
     def _build_legend_row(self, parent: ctk.CTkFrame) -> None:
-        legend_frame = ctk.CTkFrame(parent, fg_color="transparent")
-        legend_frame.pack(pady=(2, 4))
+        legend_card = ctk.CTkFrame(
+            parent,
+            fg_color=COLOR_CARD,
+            corner_radius=10,
+            border_width=1,
+            border_color=COLOR_BORDER,
+        )
+        legend_card.pack(pady=(4, 8), padx=4, fill="x")
+        legend_frame = ctk.CTkFrame(legend_card, fg_color="transparent")
+        legend_frame.pack(pady=8, padx=12)
+        ctk.CTkLabel(
+            legend_frame,
+            text="Legenda kolorów:",
+            text_color=COLOR_TEXT,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
+        ).pack(side="left", padx=(0, 12))
         for color, text in LEGEND_ITEMS:
             item = ctk.CTkFrame(legend_frame, fg_color="transparent")
             item.pack(side="left", padx=8)
@@ -1639,14 +1714,14 @@ class AnonymizerApp:
                 item,
                 text="●",
                 text_color=color,
-                font=ctk.CTkFont(family=FONT_FAMILY, size=12),
-                width=14,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=18, weight="bold"),
+                width=16,
             ).pack(side="left")
             ctk.CTkLabel(
                 item,
                 text=text,
-                text_color=COLOR_TEXT_MUTED,
-                font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+                text_color=COLOR_TEXT,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=11),
             ).pack(side="left")
 
     def pick_review_folder(self) -> None:
@@ -1918,15 +1993,17 @@ class SettingsDialog:
         self.app = app
         self.window = ctk.CTkToplevel(app.root)
         self.window.title("Ustawienia")
-        self.window.geometry("560x560")
+        self.window.geometry("560x700")
         self.window.configure(fg_color=COLOR_BG)
         self.window.transient(app.root)
         self.window.grab_set()
+        _bring_window_to_front(self.window)
 
         self.ner_var = tk.BooleanVar(value=app.use_ner)
         self.llm_var = tk.BooleanVar(value=app.use_llm_review)
         self.llm_model_var = tk.StringVar(value=app.llm_model_name)
         self.pdf_mode_var = tk.StringVar(value=app.pdf_output_label)
+        self.auto_open_var = tk.StringVar(value=app.auto_open_mode)
         self.sensitive_terms_path = app.sensitive_terms_path
 
         self._build()
@@ -2020,6 +2097,26 @@ class SettingsDialog:
                 text_color=COLOR_TEXT,
             ).pack(anchor="w", pady=3)
 
+        auto_open_section = self._section_frame(body)
+        auto_open_inner = ctk.CTkFrame(auto_open_section, fg_color="transparent")
+        auto_open_inner.pack(fill="x", padx=14, pady=12)
+        ctk.CTkLabel(
+            auto_open_inner,
+            text="Automatyczne otwieranie wyniku po zakończeniu",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+            text_color=COLOR_TEXT,
+            anchor="w",
+        ).pack(fill="x", pady=(0, 8))
+        for mode, label in AUTO_OPEN_MODE_LABELS.items():
+            ctk.CTkRadioButton(
+                auto_open_inner,
+                text=label,
+                value=mode,
+                variable=self.auto_open_var,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                text_color=COLOR_TEXT,
+            ).pack(anchor="w", pady=3)
+
         ctk.CTkButton(
             self.window,
             text="Zapisz i zamknij",
@@ -2091,6 +2188,7 @@ class SettingsDialog:
         self.app.use_ner = self.ner_var.get()
         self.app.use_llm_review = self.llm_var.get()
         self.app.pdf_output_label = self.pdf_mode_var.get()
+        self.app.auto_open_mode = self.auto_open_var.get()
         self.app.sensitive_terms_path = self.sensitive_terms_path
         if self.app.use_llm_review and not self.app.llm_model_name:
             status, models = list_installed_models()
@@ -2340,12 +2438,10 @@ class ComparisonWindow:
         self._overlay_ids: dict[int, list[int]] = {}
         self._drag_start: tuple[float, float] | None = None
         self._drag_rect_id: int | None = None
-        self.mode = "view"
         self.edits: ManualEdits = EMPTY_MANUAL_EDITS
         self.visible_rects: list[dict[str, object]] = []
         self.pending_remove_keys: set = set()
         self.pending_add_rects: list[ManualRect] = []
-        self._mode_buttons: dict[str, ctk.CTkButton] = {}
         self.save_button: ctk.CTkButton | None = None
         self.cancel_button: ctk.CTkButton | None = None
         self.pen_status_label: ctk.CTkLabel | None = None
@@ -2381,6 +2477,7 @@ class ComparisonWindow:
         window.bind("<Control-MouseWheel>", self._on_ctrl_scroll)
         window.bind("<Control-Button-4>", self._on_ctrl_scroll)
         window.bind("<Control-Button-5>", self._on_ctrl_scroll)
+        window.protocol("WM_DELETE_WINDOW", self._close)
 
         ctk.CTkLabel(
             window,
@@ -2389,33 +2486,44 @@ class ComparisonWindow:
             text_color=COLOR_TEXT,
         ).pack(anchor="w", padx=20, pady=(16, 4))
 
-        panes = ctk.CTkFrame(window, fg_color="transparent")
-        panes.pack(fill="both", expand=True, padx=20, pady=(4, 8))
-        panes.columnconfigure(0, weight=1)
-        panes.columnconfigure(1, weight=1)
-        panes.rowconfigure(2, weight=1)
-
-        self._build_pane_header(panes, "Oryginał", "original").grid(
-            row=0, column=0, sticky="ew", pady=(0, 6)
+        # A real draggable splitter (tk.PanedWindow) instead of a fixed
+        # 50/50 grid: dragging the sash resizes one side and shrinks the
+        # other, like a normal split view.
+        paned = tk.PanedWindow(
+            window,
+            orient=tk.HORIZONTAL,
+            sashwidth=6,
+            sashrelief="flat",
+            bg=COLOR_BORDER,
+            bd=0,
+            showhandle=False,
         )
-        self._build_pane_header(panes, "Po anonimizacji", "result").grid(
-            row=0, column=1, sticky="ew", padx=(16, 0), pady=(0, 6)
+        paned.pack(fill="both", expand=True, padx=20, pady=(4, 8))
+
+        left_container = ctk.CTkFrame(paned, fg_color="transparent")
+        right_container = ctk.CTkFrame(paned, fg_color="transparent")
+        paned.add(left_container, minsize=280, width=530, stretch="always")
+        paned.add(right_container, minsize=280, width=530, stretch="always")
+
+        self._build_pane_header(left_container, "Oryginał", "original").pack(
+            fill="x", pady=(0, 6)
+        )
+        self._build_pane_header(right_container, "Po anonimizacji", "result").pack(
+            fill="x", pady=(0, 6)
         )
 
         if self.magic_pen_available:
-            self._build_magic_pen_toolbar(panes).grid(
-                row=1, column=1, sticky="ew", padx=(16, 0)
-            )
+            self._build_magic_pen_toolbar(right_container).pack(fill="x", pady=(0, 6))
 
         left_frame = ctk.CTkScrollableFrame(
-            panes, fg_color=COLOR_CARD, corner_radius=10, label_text=""
+            left_container, fg_color=COLOR_CARD, corner_radius=10, label_text=""
         )
-        left_frame.grid(row=2, column=0, sticky="nsew", padx=(0, 8))
+        left_frame.pack(fill="both", expand=True)
         self.left_frame = left_frame
         right_frame = ctk.CTkScrollableFrame(
-            panes, fg_color=COLOR_CARD, corner_radius=10, label_text=""
+            right_container, fg_color=COLOR_CARD, corner_radius=10, label_text=""
         )
-        right_frame.grid(row=2, column=1, sticky="nsew", padx=(8, 0))
+        right_frame.pack(fill="both", expand=True)
         self.right_frame = right_frame
 
         self._rebuild_original_pane()
@@ -2437,10 +2545,20 @@ class ComparisonWindow:
             corner_radius=8,
             fg_color=COLOR_ACCENT,
             hover_color=COLOR_ACCENT_HOVER,
-            command=window.destroy,
+            command=self._close,
         ).pack(pady=(0, 16))
 
         window.after(700, self._maybe_show_zoom_link_hint)
+        # Opening a preview should visibly come to the front, not appear
+        # behind whatever window was already open.
+        _bring_window_to_front(window)
+
+    def _close(self) -> None:
+        """Close this window and bring the main app window back to front -
+        matches _bring_window_to_front's rule for opening: whichever
+        window the user just acted on should end up on top."""
+        self.window.destroy()
+        _bring_window_to_front(self.app.root)
 
     # -- zoom: independent or linked, like a dual-zone climate control ------
 
@@ -2644,26 +2762,27 @@ class ComparisonWindow:
 
     def _build_magic_pen_toolbar(self, parent: ctk.CTkFrame) -> ctk.CTkFrame:
         toolbar = ctk.CTkFrame(parent, fg_color="transparent")
-        for mode, glyph, tooltip in (
-            ("view", "🖱", "Przeglądaj"),
-            ("add", "➕", "Zaznacz do ukrycia"),
-            ("remove", "➖", "Usuń zaznaczenie"),
+        # Modeless: LMB always draws a new redaction, RMB always toggles an
+        # existing one - no mode to switch first, so these are a static
+        # legend rather than clickable buttons.
+        for glyph, label in (
+            ("✏", "LPM: zaznacz do ukrycia"),
+            ("🧹", "PPM: usuń zaznaczenie"),
         ):
-            button = ctk.CTkButton(
-                toolbar,
+            chip = ctk.CTkFrame(toolbar, fg_color=COLOR_CARD, corner_radius=6)
+            chip.pack(side="left", padx=(0, 6))
+            ctk.CTkLabel(
+                chip,
                 text=glyph,
-                width=30,
-                height=26,
-                corner_radius=8,
-                fg_color=COLOR_ACCENT if mode == "view" else COLOR_ICON_IDLE,
-                hover_color=COLOR_ACCENT_HOVER,
-                text_color="#FFFFFF" if mode == "view" else COLOR_TEXT_MUTED,
-                font=ctk.CTkFont(family=FONT_FAMILY, size=12),
-                command=lambda m=mode: self._set_mode(m),
-            )
-            button.pack(side="left", padx=(0, 4))
-            IconTooltip(button, tooltip)
-            self._mode_buttons[mode] = button
+                font=ctk.CTkFont(family=FONT_FAMILY, size=13),
+                text_color=COLOR_TEXT,
+            ).pack(side="left", padx=(8, 4), pady=4)
+            ctk.CTkLabel(
+                chip,
+                text=label,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+                text_color=COLOR_TEXT_MUTED,
+            ).pack(side="left", padx=(0, 8), pady=4)
 
         self.pen_status_label = ctk.CTkLabel(
             toolbar,
@@ -2703,17 +2822,6 @@ class ComparisonWindow:
         self.save_button.pack(side="right")
         return toolbar
 
-    def _set_mode(self, mode: str) -> None:
-        self.mode = mode
-        for button_mode, button in self._mode_buttons.items():
-            active = button_mode == mode
-            button.configure(
-                fg_color=COLOR_ACCENT if active else COLOR_ICON_IDLE,
-                text_color="#FFFFFF" if active else COLOR_TEXT_MUTED,
-            )
-        for canvas in self._page_canvases.values():
-            canvas.configure(cursor="tcross" if mode == "add" else "arrow")
-
     # -- magic pen: rendering -------------------------------------------------
 
     def _reload_visible_rects(self) -> None:
@@ -2750,12 +2858,15 @@ class ComparisonWindow:
                         height=pix.height,
                         highlightthickness=0,
                         bg="#FFFFFF",
-                        cursor="tcross" if self.mode == "add" else "arrow",
+                        cursor="tcross",
                     )
                     canvas.pack(pady=6)
                     canvas.create_image(0, 0, anchor="nw", image=tk_image)
                     self._page_canvases[page_index] = canvas
                     self._page_zoom[page_index] = zoom
+                    # Modeless: left button always draws a new redaction,
+                    # right button always toggles an existing one - no mode
+                    # to switch first.
                     canvas.bind(
                         "<ButtonPress-1>",
                         lambda event, p=page_index: self._on_pane_press(event, p),
@@ -2767,6 +2878,10 @@ class ComparisonWindow:
                     canvas.bind(
                         "<ButtonRelease-1>",
                         lambda event, p=page_index: self._on_pane_release(event, p),
+                    )
+                    canvas.bind(
+                        "<ButtonPress-3>",
+                        lambda event, p=page_index: self._on_pane_right_click(event, p),
                     )
         except Exception:  # noqa: BLE001 - preview must never crash the app
             ctk.CTkLabel(
@@ -2815,18 +2930,20 @@ class ComparisonWindow:
         return list(self.visible_rects) + pending
 
     def _on_pane_press(self, event: tk.Event, page_number: int) -> None:
-        if self.mode == "add":
-            self._drag_start = (event.x, event.y)
-            self._drag_rect_id = None
-        elif self.mode == "remove":
-            zoom = self._page_zoom.get(page_number, 1.0)
-            px, py = canvas_point_to_pdf_point(event.x, event.y, zoom)
-            hit = find_rect_at_point(self._hit_test_pool(), page_number, px, py)
-            if hit is not None:
-                self._toggle_pending_remove(hit)
+        """Left button always starts drawing a new redaction rectangle."""
+        self._drag_start = (event.x, event.y)
+        self._drag_rect_id = None
+
+    def _on_pane_right_click(self, event: tk.Event, page_number: int) -> None:
+        """Right button always toggles the rectangle under the cursor."""
+        zoom = self._page_zoom.get(page_number, 1.0)
+        px, py = canvas_point_to_pdf_point(event.x, event.y, zoom)
+        hit = find_rect_at_point(self._hit_test_pool(), page_number, px, py)
+        if hit is not None:
+            self._toggle_pending_remove(hit)
 
     def _on_pane_drag(self, event: tk.Event, page_number: int) -> None:
-        if self.mode != "add" or self._drag_start is None:
+        if self._drag_start is None:
             return
         canvas = self._page_canvases.get(page_number)
         if canvas is None:
@@ -2839,7 +2956,7 @@ class ComparisonWindow:
         )
 
     def _on_pane_release(self, event: tk.Event, page_number: int) -> None:
-        if self.mode != "add" or self._drag_start is None:
+        if self._drag_start is None:
             return
         canvas = self._page_canvases.get(page_number)
         x0, y0 = self._drag_start
@@ -3034,6 +3151,7 @@ class SummaryDialog:
         window.configure(fg_color=COLOR_BG)
         window.transient(app.root)
         window.grab_set()
+        _bring_window_to_front(window)
 
         header = ctk.CTkFrame(window, fg_color="transparent")
         header.pack(fill="x", padx=20, pady=(18, 6))
