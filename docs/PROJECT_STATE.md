@@ -380,6 +380,49 @@ did not want a database or password-protected store for this, consistent
 with the project's existing "no database" scope decisions. Full suite:
 273 tests.
 
+Stage 26 implements the "magic pen" manual redaction editor inside
+`ComparisonWindow` that Stage 25 deliberately scoped out, for PDF outputs
+only (DOCX/TXT have no word coordinates to draw on and are left for a
+possible later stage). The right ("Po anonimizacji") pane becomes an
+interactive `tk.Canvas` per page with three modes: view, add
+(drag a rectangle over visible text the automatic pass missed), and remove
+(click an existing black rectangle to undo it). Nothing is written until
+"Zapisz zmiany" - edits are staged locally first and shown as a live
+overlay, with "Anuluj zmiany" available to discard them. The key design
+constraint, from a direct user security question mid-planning: since
+`page.apply_redactions()` physically deletes the underlying text (not a
+colored box drawn over it), an "undo" cannot edit the already-redacted
+output file - the only correct way to reveal a wrongly hidden fragment
+again is to regenerate the true-redacted PDF from the original source file
+with that one rectangle excluded. `save_word_coordinate_redacted_pdf_copy`
+in `pdf_redaction.py` gained optional `output_path` (overwrite in place
+instead of picking a fresh collision-safe name), `removed_span_keys`
+(exclude specific auto-detected rectangles, identified by a deterministic
+`manual_edit_span_key(page, label, rect)`), and `extra_redaction_rects`
+(burn in manually drawn rectangles labelled `RECZNE`) - all optional and
+defaulting to a no-op, so every existing caller and test is unaffected. Its
+rect-resolution logic was extracted into a new pure `compute_redaction_rects`
+so the GUI can ask "what would currently be hidden" for click hit-testing
+without writing any file. A new `src/manual_redaction.py` module holds the
+small `_MANUAL_EDITS.json` sidecar (removed-rectangle keys plus added
+rectangles, never document content) next to each visual PDF output, the
+`regenerate_pdf_with_manual_overrides`/`compute_visible_redaction_rects`
+orchestration, a pure `apply_pending_overrides` reconciler (this-session
+staged changes folded into a new `ManualEdits`, fully unit-tested without
+any GUI or Tk dependency), and `apply_manual_redaction_count_to_report_text`,
+which appends/updates/removes a clearly separate, delimited "Magic pen"
+note in the existing `_RAPORT.txt` rather than silently rewriting the
+original detection counts it never re-ran. Per explicit user decision,
+saving edits always resets that item's review status back to
+"wymaga przeglądu", even if it was already approved, and every manual
+addition uses one general `RECZNE` label/color rather than a
+user-chosen category. Verified functionally end-to-end with a synthetic
+PDF (real spaCy NER, real PyMuPDF text extraction): un-redacting an
+auto-detected email restored it in the regenerated PDF's extracted text,
+and a manually added rectangle removed its covered line's text entirely,
+with the review status flipping back to needs-review and the report
+gaining the new note - all as designed. Full suite: 301 tests.
+
 ## What Exists
 
 - Repository structure.
@@ -711,12 +754,16 @@ python -m unittest discover -s tests
   can miss unusual encodings, fragmented glyphs, rotated text, form fields,
   annotations, or text in images, and can still over-redact when strict NER
   scope is selected.
-- The GUI processes selected files sequentially and does not include document
-  preview, editing, or drag and drop.
-- The manual review workflow tracks statuses only. It does not inspect,
-  validate, preview, edit, or automatically approve anonymized document
-  contents. Opening a selected output or report delegates to the operating
-  system default application and does not add an in-app viewer.
+- The GUI processes selected files sequentially. Document preview, drag and
+  drop, and a side-by-side comparison view exist; manual redaction editing
+  ("magic pen") exists only for PDF outputs and only for true-redacted
+  rectangles - DOCX/TXT outputs and other kinds of editing are not
+  supported.
+- The manual review workflow tracks statuses and, for PDF outputs, manual
+  redaction rectangles only. It does not inspect, validate, or automatically
+  approve anonymized document contents beyond that. Opening a selected
+  output or report delegates to the operating system default application
+  and does not add an in-app viewer for non-preview actions.
 - Review status and summary files contain safe generated basenames and status
   counts only, not full paths, source data, document excerpts, private
   dictionary terms, aliases, tracebacks, or replacement maps.
@@ -751,24 +798,24 @@ python -m unittest discover -s tests
 
 ## Last Completed Committed Stage
 
-Stage 25.1: pymupdf import fix, review-scope/drag-drop fixes, History tab.
+Stage 26: magic pen manual PDF redaction editor.
 
 ```text
-abfefd8 Add a separate History tab instead of a database
+3d42082 Add magic pen manual PDF redaction editor
 ```
 
 ## Next Logical Step
 
-Use the completed Stage 25 GUI in real local pilot/use and make future
-improvements only from observed needs. The explicitly agreed next GUI
-candidate is an interactive "magic pen" manual redaction editor inside
-`ComparisonWindow` (click to add a missed redaction or undo an incorrect
-one, then regenerate the file) - deliberately scoped out of Stage 25 as its
-own later stage. Other potential future work still requires an explicit
-project decision, especially OCR quality improvements, NER candidate
-export, installer work, AI/API integration, broader LLM features, databases,
-broad NLP/entity detection, packaging, release automation, embedding retrieval
-with `bge-m3`, or a general town/city name database.
+Use the completed Stage 26 GUI (including the magic pen) in real local
+pilot/use and make future improvements only from observed needs. A
+possible later stage is extending manual redaction editing to DOCX/TXT
+outputs, which have no word coordinates and would need a different,
+text-selection-based mechanism - deliberately left out of Stage 26. Other
+potential future work still requires an explicit project decision,
+especially OCR quality improvements, NER candidate export, installer work,
+AI/API integration, broader LLM features, databases, broad NLP/entity
+detection, packaging, release automation, embedding retrieval with
+`bge-m3`, or a general town/city name database.
 
 ## Warning
 

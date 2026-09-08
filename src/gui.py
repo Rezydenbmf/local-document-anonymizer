@@ -1,6 +1,6 @@
 """CustomTkinter GUI for batch anonymization."""
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 import json
 import os
@@ -12,7 +12,7 @@ import tkinter as tk
 from tkinter import filedialog
 
 import customtkinter as ctk
-from PIL import Image
+from PIL import Image, ImageTk
 from tkinterdnd2 import DND_FILES, TkinterDnD
 
 try:
@@ -29,6 +29,20 @@ try:
         anonymize_batch,
     )
     from .llm_review import LLM_STATUS_AVAILABLE, list_installed_models
+    from .manual_redaction import (
+        EMPTY_MANUAL_EDITS,
+        MANUAL_REDACTION_LABEL,
+        ManualEdits,
+        ManualRect,
+        apply_manual_redaction_count_to_report_text,
+        apply_pending_overrides,
+        compute_visible_redaction_rects,
+        load_manual_edits,
+        manual_edits_path,
+        rect_info_key,
+        regenerate_pdf_with_manual_overrides,
+        save_manual_edits,
+    )
     from .report import (
         DICTIONARY_STATUS_INVALID,
         DICTIONARY_STATUS_LOADED,
@@ -59,6 +73,20 @@ except ImportError:
         anonymize_batch,
     )
     from llm_review import LLM_STATUS_AVAILABLE, list_installed_models
+    from manual_redaction import (
+        EMPTY_MANUAL_EDITS,
+        MANUAL_REDACTION_LABEL,
+        ManualEdits,
+        ManualRect,
+        apply_manual_redaction_count_to_report_text,
+        apply_pending_overrides,
+        compute_visible_redaction_rects,
+        load_manual_edits,
+        manual_edits_path,
+        rect_info_key,
+        regenerate_pdf_with_manual_overrides,
+        save_manual_edits,
+    )
     from report import (
         DICTIONARY_STATUS_INVALID,
         DICTIONARY_STATUS_LOADED,
@@ -771,6 +799,7 @@ CATEGORY_LABELS_PL = {
     "NER_ORG": "Organizacja (AI)",
     "NER_LOCATION": "Lokalizacja (AI)",
     "NER_MISC": "Inne (AI)",
+    "RECZNE": "Ręcznie ukryte (magic pen)",
 }
 RISK_SUMMARY_TEXT_PL = {
     "ok": "Nie znaleziono podejrzanych pozostałości.",
@@ -858,6 +887,7 @@ LEGEND_ITEMS = (
     ("#737373", "data"),
     ("#806BB3", "organizacja (AI)"),
     ("#408C59", "lokalizacja, ulica, miejscowo\u015b\u0107"),
+    ("#141414", "r\u0119cznie ukryte (magic pen)"),
 )
 
 
@@ -2060,6 +2090,47 @@ class SettingsDialog:
         self.window.destroy()
 
 
+def pdf_page_zoom(page_width_pt: float, target_width: int) -> float:
+    """Return the render zoom used to scale a PDF page to ``target_width``."""
+    safe_width = max(page_width_pt, 1)
+    return target_width / safe_width
+
+
+def canvas_point_to_pdf_point(cx: float, cy: float, zoom: float) -> tuple[float, float]:
+    """Convert a canvas pixel coordinate back to PDF point coordinates."""
+    safe_zoom = zoom if zoom else 1.0
+    return (cx / safe_zoom, cy / safe_zoom)
+
+
+def normalize_drag_rect(
+    x0: float, y0: float, x1: float, y1: float
+) -> tuple[float, float, float, float]:
+    """Return a rectangle with x0<=x1 and y0<=y1, regardless of drag direction."""
+    return (min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1))
+
+
+def is_degenerate_drag_rect(
+    x0: float, y0: float, x1: float, y1: float, *, min_size: float = 4.0
+) -> bool:
+    """True when a dragged rectangle is too small to be an intentional selection."""
+    return (x1 - x0) < min_size or (y1 - y0) < min_size
+
+
+def find_rect_at_point(
+    rects: Sequence[Mapping[str, object]], page_number: int, x: float, y: float
+) -> Mapping[str, object] | None:
+    """Return the top-most rect on a page whose bounds contain the point."""
+    for rect in reversed(list(rects)):
+        if int(rect.get("page", -1)) != page_number:
+            continue
+        if (
+            float(rect["x0"]) <= x <= float(rect["x1"])
+            and float(rect["y0"]) <= y <= float(rect["y1"])
+        ):
+            return rect
+    return None
+
+
 def _render_text_block(parent: ctk.CTkBaseClass, text: str) -> None:
     box = ctk.CTkTextbox(
         parent,
@@ -2134,7 +2205,16 @@ def render_document_preview(
 
 
 class ComparisonWindow:
-    """Side-by-side original-vs-anonymized preview (view only, no editing)."""
+    """Side-by-side original-vs-anonymized preview.
+
+    For PDF outputs with a known original from the current session, the
+    right pane ("Po anonimizacji") also offers the magic pen: manually hide
+    a piece of text automatic detection missed, or undo a specific
+    automatically detected rectangle. Every edit is staged locally and only
+    takes effect on "Zapisz zmiany", which regenerates the true-redacted PDF
+    from the original source file (see manual_redaction.py) — never by
+    drawing over the already redacted output.
+    """
 
     def __init__(
         self,
@@ -2144,12 +2224,38 @@ class ComparisonWindow:
         result_path: Path,
     ) -> None:
         self.app = app
+        self.item = item
+        self.source_path = original_path
+        self.result_path = result_path
         self._images: list[ctk.CTkImage] = []
+        self._tk_images: list[ImageTk.PhotoImage] = []
+        self._page_canvases: dict[int, tk.Canvas] = {}
+        self._page_zoom: dict[int, float] = {}
+        self._overlay_ids: dict[int, list[int]] = {}
+        self._drag_start: tuple[float, float] | None = None
+        self._drag_rect_id: int | None = None
+        self.mode = "view"
+        self.edits: ManualEdits = EMPTY_MANUAL_EDITS
+        self.visible_rects: list[dict[str, object]] = []
+        self.pending_remove_keys: set = set()
+        self.pending_add_rects: list[ManualRect] = []
+        self._mode_buttons: dict[str, ctk.CTkButton] = {}
+        self.save_button: ctk.CTkButton | None = None
+        self.cancel_button: ctk.CTkButton | None = None
+        self.pen_status_label: ctk.CTkLabel | None = None
+        self.right_frame: ctk.CTkScrollableFrame | None = None
+
+        self.magic_pen_available = bool(
+            original_path is not None
+            and original_path.exists()
+            and result_path.exists()
+            and result_path.suffix.lower() == ".pdf"
+        )
 
         window = ctk.CTkToplevel(app.root)
         self.window = window
         window.title(f"Porównanie - {item.output_name}")
-        window.geometry("1120x740")
+        window.geometry("1120x780")
         window.configure(fg_color=COLOR_BG)
         window.transient(app.root)
 
@@ -2164,7 +2270,7 @@ class ComparisonWindow:
         panes.pack(fill="both", expand=True, padx=20, pady=(4, 8))
         panes.columnconfigure(0, weight=1)
         panes.columnconfigure(1, weight=1)
-        panes.rowconfigure(1, weight=1)
+        panes.rowconfigure(2, weight=1)
 
         ctk.CTkLabel(
             panes,
@@ -2179,14 +2285,20 @@ class ComparisonWindow:
             text_color=COLOR_TEXT_MUTED,
         ).grid(row=0, column=1, sticky="w", padx=(16, 0), pady=(0, 6))
 
+        if self.magic_pen_available:
+            self._build_magic_pen_toolbar(panes).grid(
+                row=1, column=1, sticky="ew", padx=(16, 0)
+            )
+
         left_frame = ctk.CTkScrollableFrame(
             panes, fg_color=COLOR_CARD, corner_radius=10, label_text=""
         )
-        left_frame.grid(row=1, column=0, sticky="nsew", padx=(0, 8))
+        left_frame.grid(row=2, column=0, sticky="nsew", padx=(0, 8))
         right_frame = ctk.CTkScrollableFrame(
             panes, fg_color=COLOR_CARD, corner_radius=10, label_text=""
         )
-        right_frame.grid(row=1, column=1, sticky="nsew", padx=(8, 0))
+        right_frame.grid(row=2, column=1, sticky="nsew", padx=(8, 0))
+        self.right_frame = right_frame
 
         if original_path is not None and original_path.exists():
             self._images.extend(render_document_preview(left_frame, original_path))
@@ -2202,7 +2314,11 @@ class ComparisonWindow:
                 justify="left",
             ).pack(pady=30, padx=16)
 
-        if result_path.exists():
+        if self.magic_pen_available:
+            self.edits = load_manual_edits(manual_edits_path(result_path))
+            self._reload_visible_rects()
+            self._build_magic_pen_pane(right_frame)
+        elif result_path.exists():
             self._images.extend(render_document_preview(right_frame, result_path))
         else:
             ctk.CTkLabel(
@@ -2223,6 +2339,350 @@ class ComparisonWindow:
             hover_color=COLOR_ACCENT_HOVER,
             command=window.destroy,
         ).pack(pady=(0, 16))
+
+    # -- magic pen: toolbar -------------------------------------------------
+
+    def _build_magic_pen_toolbar(self, parent: ctk.CTkFrame) -> ctk.CTkFrame:
+        toolbar = ctk.CTkFrame(parent, fg_color="transparent")
+        for mode, glyph, tooltip in (
+            ("view", "🖱", "Przeglądaj"),
+            ("add", "➕", "Zaznacz do ukrycia"),
+            ("remove", "➖", "Usuń zaznaczenie"),
+        ):
+            button = ctk.CTkButton(
+                toolbar,
+                text=glyph,
+                width=30,
+                height=26,
+                corner_radius=8,
+                fg_color=COLOR_ACCENT if mode == "view" else COLOR_ICON_IDLE,
+                hover_color=COLOR_ACCENT_HOVER,
+                text_color="#FFFFFF" if mode == "view" else COLOR_TEXT_MUTED,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+                command=lambda m=mode: self._set_mode(m),
+            )
+            button.pack(side="left", padx=(0, 4))
+            IconTooltip(button, tooltip)
+            self._mode_buttons[mode] = button
+
+        self.pen_status_label = ctk.CTkLabel(
+            toolbar,
+            text="",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLOR_TEXT_MUTED,
+        )
+        self.pen_status_label.pack(side="left", padx=10)
+
+        self.cancel_button = ctk.CTkButton(
+            toolbar,
+            text="Anuluj zmiany",
+            width=120,
+            height=26,
+            corner_radius=8,
+            fg_color="transparent",
+            hover_color=COLOR_ICON_IDLE,
+            text_color=COLOR_TEXT_MUTED,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            state="disabled",
+            command=self._cancel_pending_changes,
+        )
+        self.cancel_button.pack(side="right", padx=(6, 0))
+        self.save_button = ctk.CTkButton(
+            toolbar,
+            text="Zapisz zmiany",
+            width=130,
+            height=26,
+            corner_radius=8,
+            fg_color=COLOR_ICON_IDLE,
+            hover_color=COLOR_ACCENT_HOVER,
+            text_color=COLOR_TEXT_MUTED,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11, weight="bold"),
+            state="disabled",
+            command=self._save_pending_changes,
+        )
+        self.save_button.pack(side="right")
+        return toolbar
+
+    def _set_mode(self, mode: str) -> None:
+        self.mode = mode
+        for button_mode, button in self._mode_buttons.items():
+            active = button_mode == mode
+            button.configure(
+                fg_color=COLOR_ACCENT if active else COLOR_ICON_IDLE,
+                text_color="#FFFFFF" if active else COLOR_TEXT_MUTED,
+            )
+        for canvas in self._page_canvases.values():
+            canvas.configure(cursor="tcross" if mode == "add" else "arrow")
+
+    # -- magic pen: rendering -------------------------------------------------
+
+    def _reload_visible_rects(self) -> None:
+        if self.source_path is None:
+            self.visible_rects = []
+            return
+        try:
+            self.visible_rects = compute_visible_redaction_rects(
+                self.source_path,
+                edits=self.edits,
+                sensitive_terms_path=self.app.sensitive_terms_path,
+                use_ner=self.app.use_ner,
+            )
+        except (OSError, RuntimeError, ValueError):
+            self.visible_rects = []
+
+    def _build_magic_pen_pane(self, parent: ctk.CTkBaseClass, target_width: int = 460) -> None:
+        try:
+            import pymupdf as fitz
+
+            with fitz.open(self.result_path) as document:
+                for page_index, page in enumerate(document, start=1):
+                    zoom = pdf_page_zoom(max(page.rect.width, 1), target_width)
+                    pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom))
+                    pil_image = Image.frombytes(
+                        "RGB", (pix.width, pix.height), pix.samples
+                    )
+                    tk_image = ImageTk.PhotoImage(pil_image)
+                    self._tk_images.append(tk_image)
+                    canvas = tk.Canvas(
+                        parent,
+                        width=pix.width,
+                        height=pix.height,
+                        highlightthickness=0,
+                        bg="#FFFFFF",
+                        cursor="arrow",
+                    )
+                    canvas.pack(pady=6)
+                    canvas.create_image(0, 0, anchor="nw", image=tk_image)
+                    self._page_canvases[page_index] = canvas
+                    self._page_zoom[page_index] = zoom
+                    canvas.bind(
+                        "<ButtonPress-1>",
+                        lambda event, p=page_index: self._on_pane_press(event, p),
+                    )
+                    canvas.bind(
+                        "<B1-Motion>",
+                        lambda event, p=page_index: self._on_pane_drag(event, p),
+                    )
+                    canvas.bind(
+                        "<ButtonRelease-1>",
+                        lambda event, p=page_index: self._on_pane_release(event, p),
+                    )
+        except Exception:  # noqa: BLE001 - preview must never crash the app
+            ctk.CTkLabel(
+                parent,
+                text="Nie udało się wczytać podglądu tego pliku.",
+                text_color=COLOR_HIGH_RISK,
+                wraplength=380,
+                justify="left",
+            ).pack(pady=30, padx=16)
+            self.magic_pen_available = False
+
+    def _reload_pdf_pane(self) -> None:
+        if self.right_frame is None:
+            return
+        for canvas in self._page_canvases.values():
+            canvas.destroy()
+        self._page_canvases = {}
+        self._page_zoom = {}
+        self._overlay_ids = {}
+        self._tk_images = []
+        self._build_magic_pen_pane(self.right_frame)
+
+    # -- magic pen: interaction -------------------------------------------------
+
+    def _effective_rects(self) -> list[dict[str, object]]:
+        remaining = [
+            rect
+            for rect in self.visible_rects
+            if rect_info_key(rect) not in self.pending_remove_keys
+        ]
+        pending = [
+            {
+                "page": rect.page,
+                "label": MANUAL_REDACTION_LABEL,
+                "x0": rect.x0,
+                "y0": rect.y0,
+                "x1": rect.x1,
+                "y1": rect.y1,
+            }
+            for rect in self.pending_add_rects
+        ]
+        return remaining + pending
+
+    def _on_pane_press(self, event: tk.Event, page_number: int) -> None:
+        if self.mode == "add":
+            self._drag_start = (event.x, event.y)
+            self._drag_rect_id = None
+        elif self.mode == "remove":
+            zoom = self._page_zoom.get(page_number, 1.0)
+            px, py = canvas_point_to_pdf_point(event.x, event.y, zoom)
+            hit = find_rect_at_point(self._effective_rects(), page_number, px, py)
+            if hit is not None:
+                self._toggle_pending_remove(hit)
+
+    def _on_pane_drag(self, event: tk.Event, page_number: int) -> None:
+        if self.mode != "add" or self._drag_start is None:
+            return
+        canvas = self._page_canvases.get(page_number)
+        if canvas is None:
+            return
+        if self._drag_rect_id is not None:
+            canvas.delete(self._drag_rect_id)
+        x0, y0 = self._drag_start
+        self._drag_rect_id = canvas.create_rectangle(
+            x0, y0, event.x, event.y, outline="#dc2626", width=2, dash=(4, 2)
+        )
+
+    def _on_pane_release(self, event: tk.Event, page_number: int) -> None:
+        if self.mode != "add" or self._drag_start is None:
+            return
+        canvas = self._page_canvases.get(page_number)
+        x0, y0 = self._drag_start
+        self._drag_start = None
+        if canvas is not None and self._drag_rect_id is not None:
+            canvas.delete(self._drag_rect_id)
+        self._drag_rect_id = None
+
+        cx0, cy0, cx1, cy1 = normalize_drag_rect(x0, y0, event.x, event.y)
+        if is_degenerate_drag_rect(cx0, cy0, cx1, cy1):
+            return
+        zoom = self._page_zoom.get(page_number, 1.0)
+        px0, py0 = canvas_point_to_pdf_point(cx0, cy0, zoom)
+        px1, py1 = canvas_point_to_pdf_point(cx1, cy1, zoom)
+        self.pending_add_rects.append(
+            ManualRect(page=page_number, x0=px0, y0=py0, x1=px1, y1=py1)
+        )
+        self._redraw_overlay(page_number)
+        self._update_pending_state()
+
+    def _toggle_pending_remove(self, hit: Mapping[str, object]) -> None:
+        key = rect_info_key(hit)
+        page_number = int(hit["page"])
+        for index, rect in enumerate(self.pending_add_rects):
+            rect_key = rect_info_key(
+                {
+                    "page": rect.page,
+                    "label": MANUAL_REDACTION_LABEL,
+                    "x0": rect.x0,
+                    "y0": rect.y0,
+                    "x1": rect.x1,
+                    "y1": rect.y1,
+                }
+            )
+            if rect_key == key:
+                del self.pending_add_rects[index]
+                self._redraw_overlay(page_number)
+                self._update_pending_state()
+                return
+        self.pending_remove_keys.add(key)
+        self._redraw_overlay(page_number)
+        self._update_pending_state()
+
+    def _redraw_overlay(self, page_number: int) -> None:
+        canvas = self._page_canvases.get(page_number)
+        if canvas is None:
+            return
+        for item_id in self._overlay_ids.get(page_number, []):
+            canvas.delete(item_id)
+        zoom = self._page_zoom.get(page_number, 1.0)
+        drawn_ids: list[int] = []
+
+        for key in self.pending_remove_keys:
+            for rect_info in self.visible_rects:
+                if int(rect_info["page"]) != page_number:
+                    continue
+                if rect_info_key(rect_info) != key:
+                    continue
+                x0 = float(rect_info["x0"]) * zoom
+                y0 = float(rect_info["y0"]) * zoom
+                x1 = float(rect_info["x1"]) * zoom
+                y1 = float(rect_info["y1"]) * zoom
+                drawn_ids.append(
+                    canvas.create_rectangle(x0, y0, x1, y1, outline="#16a34a", width=3)
+                )
+                break
+
+        for rect in self.pending_add_rects:
+            if rect.page != page_number:
+                continue
+            x0, y0, x1, y1 = rect.x0 * zoom, rect.y0 * zoom, rect.x1 * zoom, rect.y1 * zoom
+            drawn_ids.append(
+                canvas.create_rectangle(
+                    x0, y0, x1, y1, fill="#111827", outline="#dc2626", width=2
+                )
+            )
+
+        self._overlay_ids[page_number] = drawn_ids
+
+    def _has_pending_changes(self) -> bool:
+        return bool(self.pending_remove_keys) or bool(self.pending_add_rects)
+
+    def _update_pending_state(self) -> None:
+        has_pending = self._has_pending_changes()
+        if self.save_button is not None:
+            self.save_button.configure(
+                state="normal" if has_pending else "disabled",
+                fg_color=COLOR_ACCENT if has_pending else COLOR_ICON_IDLE,
+                text_color="#FFFFFF" if has_pending else COLOR_TEXT_MUTED,
+            )
+        if self.cancel_button is not None:
+            self.cancel_button.configure(state="normal" if has_pending else "disabled")
+        if self.pen_status_label is not None:
+            count = len(self.pending_remove_keys) + len(self.pending_add_rects)
+            self.pen_status_label.configure(
+                text=f"Niezapisane zmiany: {count}" if has_pending else ""
+            )
+
+    def _cancel_pending_changes(self) -> None:
+        self.pending_remove_keys = set()
+        self.pending_add_rects = []
+        for page_number in list(self._page_canvases.keys()):
+            self._redraw_overlay(page_number)
+        self._update_pending_state()
+
+    def _save_pending_changes(self) -> None:
+        if not self._has_pending_changes() or self.source_path is None:
+            return
+        new_edits = apply_pending_overrides(
+            self.edits, self.visible_rects, self.pending_remove_keys, self.pending_add_rects
+        )
+        try:
+            regenerate_pdf_with_manual_overrides(
+                self.source_path,
+                output_path=self.result_path,
+                edits=new_edits,
+                sensitive_terms_path=self.app.sensitive_terms_path,
+                use_ner=self.app.use_ner,
+            )
+            save_manual_edits(manual_edits_path(self.result_path), new_edits)
+        except (OSError, RuntimeError, ValueError):
+            if self.pen_status_label is not None:
+                self.pen_status_label.configure(text="Nie udało się zapisać zmian.")
+            return
+
+        self.edits = new_edits
+        self.pending_remove_keys = set()
+        self.pending_add_rects = []
+        self._reload_visible_rects()
+        self._reload_pdf_pane()
+        self._patch_report_with_manual_count(len(new_edits.added))
+        self.app.set_review_status(self.item, REVIEW_STATUS_NEEDS_REVIEW)
+        self._update_pending_state()
+        if self.pen_status_label is not None:
+            self.pen_status_label.configure(text="✓ Zmiany zapisane")
+
+    def _patch_report_with_manual_count(self, manual_count: int) -> None:
+        if self.app.review_dir is None or self.item.report_name is None:
+            return
+        report_path = self.app.review_dir / Path(self.item.report_name).name
+        try:
+            report_text = report_path.read_text(encoding="utf-8")
+            report_path.write_text(
+                apply_manual_redaction_count_to_report_text(report_text, manual_count),
+                encoding="utf-8",
+            )
+        except OSError:
+            pass
 
 
 class SummaryDialog:
