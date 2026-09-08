@@ -1840,7 +1840,7 @@ def render_document_preview(
     suffix = path.suffix.lower()
     try:
         if suffix == ".pdf":
-            import fitz
+            import pymupdf as fitz
 
             with fitz.open(path) as document:
                 for page in document:
