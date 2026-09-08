@@ -423,6 +423,30 @@ and a manually added rectangle removed its covered line's text entirely,
 with the review status flipping back to needs-review and the report
 gaining the new note - all as designed. Full suite: 301 tests.
 
+A self-review of Stage 26 right after landing it found three real issues,
+fixed immediately rather than left as a follow-up: (1) `_toggle_pending_remove`
+only ever added a key to `pending_remove_keys`, and `_effective_rects()`
+filtered out anything already staged for removal, so a rectangle a user
+clicked to undo became un-clickable - the only way to change your mind
+about that one click was "Anuluj zmiany", discarding every other pending
+change too; hit-testing now uses a `_hit_test_pool()` that keeps
+staged-for-removal rects targetable, and the toggle now actually toggles.
+(2) `_save_pending_changes` regenerated the true-redacted PDF by writing
+directly over the live output path; an interruption mid-write (disk full,
+process killed) could have corrupted or truncated the existing good file,
+and even on success a failed sidecar write right after could leave
+`_MANUAL_EDITS.json` out of sync with what the PDF actually contains. It
+now regenerates to a `*.tmp.pdf` staging file first and only `os.replace()`s
+it over the live output once that fully succeeds, with the sidecar written
+last (the smallest, least failure-prone step) and the staging file cleaned
+up on any failure - plus a "Zapisywanie..." status shown before the
+synchronous work starts, addressing a related no-feedback concern from the
+same review. (3) `_reload_pdf_pane()` always rebuilt canvases with a plain
+arrow cursor regardless of the active mode; it now matches the current
+mode like the original build does. Verified with a regression script that
+exercises the toggle-twice-cancels path and confirms no leftover staging
+file after save. Full suite: 301 tests.
+
 ## What Exists
 
 - Repository structure.
@@ -798,10 +822,12 @@ python -m unittest discover -s tests
 
 ## Last Completed Committed Stage
 
-Stage 26: magic pen manual PDF redaction editor.
+Stage 26: magic pen manual PDF redaction editor, plus a same-day
+self-review fixing a toggle bug, an unsafe direct-overwrite save, and a
+stale cursor.
 
 ```text
-3d42082 Add magic pen manual PDF redaction editor
+40e17e1 Fix magic pen self-review findings: toggle, staged write, cursor
 ```
 
 ## Next Logical Step
