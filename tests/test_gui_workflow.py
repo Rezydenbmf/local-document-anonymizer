@@ -38,19 +38,24 @@ from gui import (
     format_llm_model_selector_state,
     format_processing_status,
     format_readiness_pl,
+    format_recent_folder_timestamp,
     format_review_summary_line,
     format_selected_file_count,
     format_short_path,
+    history_config_path,
+    load_recent_folders,
     mousewheel_scroll_units,
     open_path_with_default_app,
     parse_dropped_file_paths,
     parse_report_summary,
     pdf_output_mode_from_gui_label,
     pdf_redaction_scope_from_gui_label,
+    record_recent_folder,
     remove_paths_by_indexes,
     restrict_review_items_to_batch,
     review_status_label_pl,
     risk_style_key,
+    save_recent_folders,
 )
 from anonymizer import (
     PDF_OUTPUT_MODE_ORIGINAL_REDACTION,
@@ -533,6 +538,80 @@ class GuiWorkflowTests(unittest.TestCase):
         result = restrict_review_items_to_batch(review_items, [])
 
         self.assertEqual(result, [])
+
+    def test_gui_history_config_path_is_under_home_dot_folder(self) -> None:
+        result = history_config_path()
+
+        self.assertEqual(result.parent.name, ".anonimizer")
+        self.assertEqual(result.name, "recent_folders.json")
+
+    def test_gui_load_recent_folders_missing_file_returns_empty(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            missing_path = Path(temp_dir) / "does_not_exist.json"
+
+            self.assertEqual(load_recent_folders(missing_path), [])
+
+    def test_gui_load_recent_folders_ignores_corrupt_file(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            bad_path = Path(temp_dir) / "recent_folders.json"
+            bad_path.write_text("not valid json {{{", encoding="utf-8")
+
+            self.assertEqual(load_recent_folders(bad_path), [])
+
+    def test_gui_save_and_load_recent_folders_round_trips(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            config_path = Path(temp_dir) / "nested" / "recent_folders.json"
+            entries = [{"path": "C:/Wyniki", "last_used": "2026-09-08T10:00:00+00:00"}]
+
+            save_recent_folders(config_path, entries)
+            loaded = load_recent_folders(config_path)
+
+            self.assertEqual(loaded, entries)
+
+    def test_gui_record_recent_folder_adds_new_entry_to_front(self) -> None:
+        entries = [{"path": "C:/Old", "last_used": "2026-09-01T10:00:00+00:00"}]
+
+        updated = record_recent_folder(
+            entries, Path("C:/New"), "2026-09-08T10:00:00+00:00"
+        )
+
+        self.assertEqual(updated[0]["path"], "C:\\New")
+        self.assertEqual(updated[1]["path"], "C:/Old")
+
+    def test_gui_record_recent_folder_moves_existing_entry_to_front(self) -> None:
+        entries = [
+            {"path": "C:\\A", "last_used": "2026-09-01T10:00:00+00:00"},
+            {"path": "C:\\B", "last_used": "2026-09-02T10:00:00+00:00"},
+        ]
+
+        updated = record_recent_folder(
+            entries, Path("C:\\B"), "2026-09-08T10:00:00+00:00"
+        )
+
+        self.assertEqual(len(updated), 2)
+        self.assertEqual(updated[0]["path"], "C:\\B")
+        self.assertEqual(updated[0]["last_used"], "2026-09-08T10:00:00+00:00")
+
+    def test_gui_record_recent_folder_caps_list_length(self) -> None:
+        entries = [
+            {"path": f"C:\\folder{i}", "last_used": "2026-09-01T10:00:00+00:00"}
+            for i in range(20)
+        ]
+
+        updated = record_recent_folder(
+            entries, Path("C:\\newest"), "2026-09-08T10:00:00+00:00"
+        )
+
+        self.assertEqual(len(updated), 15)
+        self.assertEqual(updated[0]["path"], "C:\\newest")
+
+    def test_gui_formats_recent_folder_timestamp(self) -> None:
+        result = format_recent_folder_timestamp("2026-09-08T14:32:00+00:00")
+
+        self.assertEqual(result, "08.09.2026, 14:32")
+
+    def test_gui_formats_invalid_recent_folder_timestamp(self) -> None:
+        self.assertEqual(format_recent_folder_timestamp("not-a-date"), "nieznana data")
 
 
 if __name__ == "__main__":
