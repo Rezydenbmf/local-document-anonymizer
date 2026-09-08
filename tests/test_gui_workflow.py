@@ -1,24 +1,30 @@
 """Tests for the Stage 5 single-file GUI workflow integration layer."""
 
 import importlib
-from pathlib import Path
 import sys
 import tempfile
 import unittest
-
+from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from anonymizer import BatchResult, anonymize_file, anonymize_file_with_audit
+from anonymizer import (
+    PDF_OUTPUT_MODE_ORIGINAL_REDACTION,
+    PDF_OUTPUT_MODE_REBUILT_REVIEW,
+    PDF_OUTPUT_MODE_VISUAL,
+    BatchResult,
+    anonymize_file,
+    anonymize_file_with_audit,
+)
 from gui import (
     LLM_MODELS_FOUND_HINT,
     LLM_NO_MODELS_HINT,
-    PDF_OUTPUT_LABEL_VISUAL_REDACTION,
-    PDF_OUTPUT_LABEL_REBUILT_REVIEW,
     PDF_OUTPUT_LABEL_ORIGINAL_SAFE,
     PDF_OUTPUT_LABEL_ORIGINAL_STRICT,
+    PDF_OUTPUT_LABEL_REBUILT_REVIEW,
+    PDF_OUTPUT_LABEL_VISUAL_REDACTION,
     PDF_OUTPUT_SHORT_LABELS,
     REVIEW_STATUS_APPROVED,
     REVIEW_STATUS_NEEDS_REVIEW,
@@ -32,8 +38,8 @@ from gui import (
     filter_supported_paths,
     find_rect_at_point,
     format_anonymize_readiness,
-    format_audit_result,
     format_approved_export_status,
+    format_audit_result,
     format_batch_audit_result,
     format_batch_status,
     format_dictionary_result,
@@ -48,6 +54,7 @@ from gui import (
     history_config_path,
     is_degenerate_drag_rect,
     load_recent_folders,
+    load_seen_hints,
     mousewheel_scroll_units,
     normalize_drag_rect,
     open_path_with_default_app,
@@ -62,13 +69,12 @@ from gui import (
     review_status_label_pl,
     risk_style_key,
     save_recent_folders,
+    save_seen_hints,
+    ui_hints_config_path,
+    zoom_link_glyph,
+    zoom_link_tooltip_text,
     zoom_percent_label,
     zoom_step_from_scroll_event,
-)
-from anonymizer import (
-    PDF_OUTPUT_MODE_ORIGINAL_REDACTION,
-    PDF_OUTPUT_MODE_REBUILT_REVIEW,
-    PDF_OUTPUT_MODE_VISUAL,
 )
 from llm_review import LLM_STATUS_AVAILABLE, LLM_STATUS_OLLAMA_NOT_FOUND
 
@@ -680,6 +686,41 @@ class GuiWorkflowTests(unittest.TestCase):
     def test_zoom_step_from_scroll_event_handles_x11_button_numbers(self) -> None:
         self.assertEqual(zoom_step_from_scroll_event(FakeWheelEvent(num=4)), 1)
         self.assertEqual(zoom_step_from_scroll_event(FakeWheelEvent(num=5)), -1)
+
+    def test_zoom_link_glyph_shows_closed_padlock_when_linked(self) -> None:
+        self.assertEqual(zoom_link_glyph(True), "🔒")
+        self.assertEqual(zoom_link_glyph(False), "🔓")
+
+    def test_zoom_link_tooltip_text_describes_current_state_and_next_action(self) -> None:
+        linked_text = zoom_link_tooltip_text(True)
+        unlinked_text = zoom_link_tooltip_text(False)
+        self.assertIn("połączone", linked_text)
+        self.assertIn("osobno", linked_text)
+        self.assertIn("niezależne", unlinked_text)
+        self.assertIn("połączyć", unlinked_text)
+
+    def test_ui_hints_config_path_is_under_home_dot_folder(self) -> None:
+        path = ui_hints_config_path()
+        self.assertEqual(path.parent.name, ".anonimizer")
+        self.assertEqual(path.name, "ui_hints_seen.json")
+
+    def test_load_seen_hints_missing_file_returns_empty_set(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            missing = Path(temp_dir) / "does_not_exist.json"
+            self.assertEqual(load_seen_hints(missing), set())
+
+    def test_load_seen_hints_ignores_corrupt_file(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            path = Path(temp_dir) / "corrupt.json"
+            path.write_text("{not valid json", encoding="utf-8")
+            self.assertEqual(load_seen_hints(path), set())
+
+    def test_save_and_load_seen_hints_round_trips(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            path = Path(temp_dir) / "hints" / "seen.json"
+            save_seen_hints(path, {"zoom_link_toggle", "another_hint"})
+
+            self.assertEqual(load_seen_hints(path), {"zoom_link_toggle", "another_hint"})
 
 
 if __name__ == "__main__":
