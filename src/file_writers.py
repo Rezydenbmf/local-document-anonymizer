@@ -1,6 +1,7 @@
 """File writers for TXT, DOCX, PDF-to-TXT, image-to-TXT, and reports."""
 
 from collections.abc import Callable
+import os
 from pathlib import Path
 
 
@@ -16,7 +17,35 @@ REPORT_SUFFIX = "_RAPORT"
 REVIEW_CHECKLIST_SUFFIX = "_REVIEW_CHECKLIST"
 BATCH_SUMMARY_FILENAME = "_BATCH_SUMMARY.txt"
 BATCH_REVIEW_CHECKLIST_FILENAME = "_BATCH_REVIEW_CHECKLIST.txt"
+INTERNAL_ARTIFACTS_DIRNAME = "_wewnetrzne"
 AnonymizeFunction = Callable[[str], tuple[str, dict[str, int]]]
+
+
+def _mark_hidden(path: Path) -> None:
+    """Best-effort: mark a folder hidden on Windows. No-op elsewhere or on
+    failure - never blocks writing the files themselves."""
+    if os.name != "nt":
+        return
+    try:
+        import ctypes
+
+        file_attribute_hidden = 0x02
+        ctypes.windll.kernel32.SetFileAttributesW(str(path), file_attribute_hidden)
+    except (OSError, AttributeError):
+        pass
+
+
+def internal_artifacts_dir(output_dir: str | Path) -> Path:
+    """Return (creating if needed) the hidden subfolder for internal/
+    diagnostic artifacts of one output workspace: reports, checklists,
+    review status/summary, and magic pen edit sidecars. Never document
+    content, never a user-facing deliverable - kept out of the main output
+    folder so regular users are not confronted with app-internal files.
+    """
+    path = Path(output_dir) / INTERNAL_ARTIFACTS_DIRNAME
+    path.mkdir(parents=True, exist_ok=True)
+    _mark_hidden(path)
+    return path
 
 
 def _unsupported_extension_error(file_path: str | Path) -> ValueError:
@@ -170,7 +199,11 @@ def build_anonymized_image_txt_path(
 def build_report_path(
     source_path: str | Path, output_dir: str | Path | None = None
 ) -> Path:
-    """Return the safe report output path for a supported source file."""
+    """Return the safe report output path for a supported source file.
+
+    Lives in the hidden internal-artifacts subfolder, not the main output
+    folder - it is an app/reviewer diagnostic, not a user-facing deliverable.
+    """
     path = Path(source_path)
     if path.suffix.lower() not in (
         TXT_EXTENSION,
@@ -180,13 +213,17 @@ def build_report_path(
     ):
         raise _unsupported_extension_error(path)
 
-    return _output_directory(path, output_dir) / f"{path.stem}{REPORT_SUFFIX}{TXT_EXTENSION}"
+    internal_dir = internal_artifacts_dir(_output_directory(path, output_dir))
+    return internal_dir / f"{path.stem}{REPORT_SUFFIX}{TXT_EXTENSION}"
 
 
 def build_review_checklist_path(
     source_path: str | Path, output_dir: str | Path | None = None
 ) -> Path:
-    """Return the manual review checklist path for a supported source file."""
+    """Return the manual review checklist path for a supported source file.
+
+    Lives in the hidden internal-artifacts subfolder; see build_report_path.
+    """
     path = Path(source_path)
     if path.suffix.lower() not in (
         TXT_EXTENSION,
@@ -196,20 +233,24 @@ def build_review_checklist_path(
     ):
         raise _unsupported_extension_error(path)
 
-    return (
-        _output_directory(path, output_dir)
-        / f"{path.stem}{REVIEW_CHECKLIST_SUFFIX}{TXT_EXTENSION}"
-    )
+    internal_dir = internal_artifacts_dir(_output_directory(path, output_dir))
+    return internal_dir / f"{path.stem}{REVIEW_CHECKLIST_SUFFIX}{TXT_EXTENSION}"
 
 
 def build_batch_summary_path(output_dir: str | Path) -> Path:
-    """Return the default batch summary path in an output workspace."""
-    return Path(output_dir) / BATCH_SUMMARY_FILENAME
+    """Return the default batch summary path in an output workspace.
+
+    Lives in the hidden internal-artifacts subfolder; see build_report_path.
+    """
+    return internal_artifacts_dir(output_dir) / BATCH_SUMMARY_FILENAME
 
 
 def build_batch_review_checklist_path(output_dir: str | Path) -> Path:
-    """Return the default batch review checklist path in an output workspace."""
-    return Path(output_dir) / BATCH_REVIEW_CHECKLIST_FILENAME
+    """Return the default batch review checklist path in an output workspace.
+
+    Lives in the hidden internal-artifacts subfolder; see build_report_path.
+    """
+    return internal_artifacts_dir(output_dir) / BATCH_REVIEW_CHECKLIST_FILENAME
 
 
 def save_anonymized_txt_copy(

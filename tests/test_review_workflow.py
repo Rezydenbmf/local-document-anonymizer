@@ -31,32 +31,34 @@ class ReviewWorkflowTests(unittest.TestCase):
     def test_detects_anon_files_and_pairs_matching_reports(self) -> None:
         with workspace_temp_dir() as temp_dir:
             output_dir = Path(temp_dir)
+            internal_dir = output_dir / "_wewnetrzne"
+            internal_dir.mkdir(exist_ok=True)
             (output_dir / "document_ANON.txt").write_text(
                 "Synthetic anonymized output.", encoding="utf-8"
             )
-            (output_dir / "document_RAPORT.txt").write_text(
+            (internal_dir / "document_RAPORT.txt").write_text(
                 "Synthetic report.", encoding="utf-8"
             )
-            (output_dir / "document_REVIEW_CHECKLIST.txt").write_text(
+            (internal_dir / "document_REVIEW_CHECKLIST.txt").write_text(
                 "Synthetic checklist.", encoding="utf-8"
             )
             (output_dir / "letter_ANON.docx").write_bytes(b"synthetic docx")
             (output_dir / "scan_ANON_2.txt").write_text(
                 "Synthetic PDF text output.", encoding="utf-8"
             )
-            (output_dir / "scan_RAPORT_2.txt").write_text(
+            (internal_dir / "scan_RAPORT_2.txt").write_text(
                 "Synthetic report.", encoding="utf-8"
             )
-            (output_dir / "scan_REVIEW_CHECKLIST_2.txt").write_text(
+            (internal_dir / "scan_REVIEW_CHECKLIST_2.txt").write_text(
                 "Synthetic checklist.", encoding="utf-8"
             )
-            (output_dir / "_BATCH_SUMMARY.txt").write_text(
+            (internal_dir / "_BATCH_SUMMARY.txt").write_text(
                 "Synthetic batch summary.", encoding="utf-8"
             )
-            (output_dir / "_BATCH_REVIEW_CHECKLIST.txt").write_text(
+            (internal_dir / "_BATCH_REVIEW_CHECKLIST.txt").write_text(
                 "Synthetic batch checklist.", encoding="utf-8"
             )
-            (output_dir / "_REVIEW_SUMMARY.txt").write_text(
+            (internal_dir / "_REVIEW_SUMMARY.txt").write_text(
                 "Old review summary.", encoding="utf-8"
             )
 
@@ -122,24 +124,26 @@ class ReviewWorkflowTests(unittest.TestCase):
     def test_detects_risk_levels_from_safe_reports_and_sorts_high_risk_first(self) -> None:
         with workspace_temp_dir() as temp_dir:
             output_dir = Path(temp_dir)
+            internal_dir = output_dir / "_wewnetrzne"
+            internal_dir.mkdir(exist_ok=True)
             (output_dir / "low_ANON.txt").write_text(
                 "Synthetic output.", encoding="utf-8"
             )
-            (output_dir / "low_RAPORT.txt").write_text(
+            (internal_dir / "low_RAPORT.txt").write_text(
                 "Post-anonymization audit:\nRisk level: warning\n",
                 encoding="utf-8",
             )
             (output_dir / "high_ANON.txt").write_text(
                 "Synthetic output.", encoding="utf-8"
             )
-            (output_dir / "high_RAPORT.txt").write_text(
+            (internal_dir / "high_RAPORT.txt").write_text(
                 "Post-anonymization audit:\nRisk level: high_risk\n",
                 encoding="utf-8",
             )
             (output_dir / "clean_ANON.txt").write_text(
                 "Synthetic output.", encoding="utf-8"
             )
-            (output_dir / "clean_RAPORT.txt").write_text(
+            (internal_dir / "clean_RAPORT.txt").write_text(
                 "Post-anonymization audit:\nRisk level: ok\n",
                 encoding="utf-8",
             )
@@ -168,10 +172,12 @@ class ReviewWorkflowTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            (output_dir / "document_RAPORT.txt").write_text(
+            internal_dir = output_dir / "_wewnetrzne"
+            internal_dir.mkdir(exist_ok=True)
+            (internal_dir / "document_RAPORT.txt").write_text(
                 "Synthetic safe report.", encoding="utf-8"
             )
-            (output_dir / "_BATCH_SUMMARY.txt").write_text(
+            (internal_dir / "_BATCH_SUMMARY.txt").write_text(
                 "Synthetic batch summary.", encoding="utf-8"
             )
 
@@ -216,7 +222,9 @@ class ReviewWorkflowTests(unittest.TestCase):
             (output_dir / "document_ANON.txt").write_text(
                 "Synthetic output.", encoding="utf-8"
             )
-            (output_dir / "_REVIEW_SUMMARY.txt").write_text(
+            internal_dir = output_dir / "_wewnetrzne"
+            internal_dir.mkdir(exist_ok=True)
+            (internal_dir / "_REVIEW_SUMMARY.txt").write_text(
                 "Existing summary.", encoding="utf-8"
             )
             workspace = detect_review_workspace(output_dir)
@@ -228,7 +236,7 @@ class ReviewWorkflowTests(unittest.TestCase):
             )
 
             self.assertEqual(save_result.summary_path.name, "_REVIEW_SUMMARY_2.txt")
-            self.assertTrue((output_dir / "_REVIEW_SUMMARY.txt").exists())
+            self.assertTrue((internal_dir / "_REVIEW_SUMMARY.txt").exists())
 
     def test_stage_12_batch_outputs_reports_and_audit_are_reviewable(self) -> None:
         with workspace_temp_dir() as temp_dir:
@@ -244,7 +252,7 @@ class ReviewWorkflowTests(unittest.TestCase):
 
             batch_result = anonymize_batch([source_path], output_dir)
             workspace = detect_review_workspace(output_dir)
-            report_text = (output_dir / "document_RAPORT.txt").read_text(
+            report_text = (output_dir / "_wewnetrzne" / "document_RAPORT.txt").read_text(
                 encoding="utf-8"
             )
 
@@ -290,16 +298,18 @@ class ReviewWorkflowTests(unittest.TestCase):
     def test_exports_only_approved_anonymized_outputs_and_matching_reports(self) -> None:
         with workspace_temp_dir() as temp_dir:
             output_dir = Path(temp_dir)
+            internal_dir = output_dir / "_wewnetrzne"
+            internal_dir.mkdir(exist_ok=True)
             (output_dir / "approved_ANON.txt").write_text(
                 "Approved anonymized content.", encoding="utf-8"
             )
-            (output_dir / "approved_RAPORT.txt").write_text(
+            (internal_dir / "approved_RAPORT.txt").write_text(
                 "Post-anonymization audit:\nRisk level: ok\n", encoding="utf-8"
             )
             (output_dir / "needs_ANON.txt").write_text(
                 "Needs review anonymized content.", encoding="utf-8"
             )
-            (output_dir / "needs_RAPORT.txt").write_text(
+            (internal_dir / "needs_RAPORT.txt").write_text(
                 "Post-anonymization audit:\nRisk level: warning\n", encoding="utf-8"
             )
             (output_dir / "rejected_ANON.txt").write_text(
@@ -434,7 +444,9 @@ class ReviewWorkflowTests(unittest.TestCase):
             (output_dir / "document_ANON.txt").write_text(
                 "Synthetic anonymized content.", encoding="utf-8"
             )
-            (output_dir / "document_RAPORT.txt").write_text(
+            internal_dir = output_dir / "_wewnetrzne"
+            internal_dir.mkdir(exist_ok=True)
+            (internal_dir / "document_RAPORT.txt").write_text(
                 "Post-anonymization audit:\nRisk level: warning\n",
                 encoding="utf-8",
             )

@@ -139,7 +139,7 @@ class OcrFoundationTests(unittest.TestCase):
             with patch("anonymizer.extract_text_with_ocr", return_value=extraction):
                 output_path, counters = anonymize_image_file(source_path)
 
-            report_text = (Path(temp_dir) / "scan_RAPORT.txt").read_text(
+            report_text = (Path(temp_dir) / "_wewnetrzne" / "scan_RAPORT.txt").read_text(
                 encoding="utf-8"
             )
 
@@ -193,7 +193,7 @@ class OcrFoundationTests(unittest.TestCase):
             with patch("anonymizer.extract_text_with_ocr") as mocked_ocr:
                 output_path, counters = anonymize_file(source_path)
 
-            report_text = (Path(temp_dir) / "document_RAPORT.txt").read_text(
+            report_text = (Path(temp_dir) / "_wewnetrzne" / "document_RAPORT.txt").read_text(
                 encoding="utf-8"
             )
 
@@ -222,7 +222,7 @@ class OcrFoundationTests(unittest.TestCase):
             with patch("anonymizer.extract_text_with_ocr", return_value=extraction):
                 output_path, counters = anonymize_file(source_path)
 
-            report_text = (Path(temp_dir) / "scan_RAPORT.txt").read_text(
+            report_text = (Path(temp_dir) / "_wewnetrzne" / "scan_RAPORT.txt").read_text(
                 encoding="utf-8"
             )
 

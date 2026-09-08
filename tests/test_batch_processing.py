@@ -18,7 +18,7 @@ from anonymizer import (
     anonymize_batch,
     anonymize_file,
 )
-from file_writers import build_collision_safe_path
+from file_writers import build_collision_safe_path, internal_artifacts_dir
 
 
 def workspace_temp_dir():
@@ -116,8 +116,10 @@ class BatchProcessingTests(unittest.TestCase):
 
             self.assertEqual(output_path, output_dir / "document_ANON.txt")
             self.assertEqual(counters, {"EMAIL": 1})
-            self.assertTrue((output_dir / "document_RAPORT.txt").exists())
-            self.assertTrue((output_dir / "document_REVIEW_CHECKLIST.txt").exists())
+            self.assertTrue((output_dir / "_wewnetrzne" / "document_RAPORT.txt").exists())
+            self.assertTrue(
+                (output_dir / "_wewnetrzne" / "document_REVIEW_CHECKLIST.txt").exists()
+            )
             self.assertFalse((source_dir / "document_ANON.txt").exists())
             self.assertFalse((source_dir / "document_RAPORT.txt").exists())
             self.assertFalse((source_dir / "document_REVIEW_CHECKLIST.txt").exists())
@@ -153,14 +155,15 @@ class BatchProcessingTests(unittest.TestCase):
             self.assertTrue((output_dir / "letter_ANON.docx").exists())
             self.assertTrue((output_dir / "scan_ANON.txt").exists())
             self.assertTrue((output_dir / "scan_ANON_REVIEW.pdf").exists())
-            self.assertTrue((output_dir / "document_REVIEW_CHECKLIST.txt").exists())
-            self.assertTrue((output_dir / "letter_REVIEW_CHECKLIST.txt").exists())
-            self.assertTrue((output_dir / "scan_REVIEW_CHECKLIST.txt").exists())
+            internal_dir = output_dir / "_wewnetrzne"
+            self.assertTrue((internal_dir / "document_REVIEW_CHECKLIST.txt").exists())
+            self.assertTrue((internal_dir / "letter_REVIEW_CHECKLIST.txt").exists())
+            self.assertTrue((internal_dir / "scan_REVIEW_CHECKLIST.txt").exists())
             self.assertFalse((source_dir / "document_ANON.txt").exists())
-            self.assertEqual(result.summary_path, output_dir / "_BATCH_SUMMARY.txt")
+            self.assertEqual(result.summary_path, internal_dir / "_BATCH_SUMMARY.txt")
             self.assertEqual(
                 result.review_checklist_path,
-                output_dir / "_BATCH_REVIEW_CHECKLIST.txt",
+                internal_dir / "_BATCH_REVIEW_CHECKLIST.txt",
             )
             self.assertTrue(result.review_checklist_path.exists())
             summary_text = result.summary_path.read_text(encoding="utf-8")
@@ -237,7 +240,9 @@ class BatchProcessingTests(unittest.TestCase):
             output_dir = Path(temp_dir) / "output"
             source_dir.mkdir()
             output_dir.mkdir()
-            (output_dir / "_BATCH_SUMMARY.txt").write_text(
+            internal_dir = output_dir / "_wewnetrzne"
+            internal_dir.mkdir(exist_ok=True)
+            (internal_dir / "_BATCH_SUMMARY.txt").write_text(
                 "existing summary", encoding="utf-8"
             )
             source_term = "Private Alias Example"
@@ -263,7 +268,7 @@ class BatchProcessingTests(unittest.TestCase):
             )
             summary_text = result.summary_path.read_text(encoding="utf-8")
 
-            self.assertEqual(result.summary_path, output_dir / "_BATCH_SUMMARY_2.txt")
+            self.assertEqual(result.summary_path, internal_dir / "_BATCH_SUMMARY_2.txt")
             self.assertIn("Input files: 2", summary_text)
             self.assertIn("Successful files: 1", summary_text)
             self.assertIn("Errors: 1", summary_text)
@@ -289,6 +294,28 @@ class BatchProcessingTests(unittest.TestCase):
             self.assertIn("Original sensitive values stored: no", summary_text)
             self.assertIn("Replacement map created: no", summary_text)
             self.assertIn("Source paths stored: no", summary_text)
+
+
+class InternalArtifactsDirTests(unittest.TestCase):
+    def test_creates_hidden_subfolder_inside_output_dir(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            output_dir = Path(temp_dir)
+
+            internal_dir = internal_artifacts_dir(output_dir)
+
+            self.assertEqual(internal_dir, output_dir / "_wewnetrzne")
+            self.assertTrue(internal_dir.is_dir())
+
+    def test_is_idempotent_and_safe_to_call_repeatedly(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            output_dir = Path(temp_dir)
+
+            first = internal_artifacts_dir(output_dir)
+            (first / "marker.txt").write_text("kept", encoding="utf-8")
+            second = internal_artifacts_dir(output_dir)
+
+            self.assertEqual(first, second)
+            self.assertEqual((second / "marker.txt").read_text(encoding="utf-8"), "kept")
 
 
 if __name__ == "__main__":

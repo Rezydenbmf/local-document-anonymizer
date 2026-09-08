@@ -256,9 +256,9 @@ class DocxIoTests(unittest.TestCase):
                 source_path,
                 sensitive_terms_path=dictionary_path,
             )
-            report_text = (Path(temp_dir) / "document_RAPORT.txt").read_text(
-                encoding="utf-8"
-            )
+            report_text = (
+                Path(temp_dir) / "_wewnetrzne" / "document_RAPORT.txt"
+            ).read_text(encoding="utf-8")
 
             self.assertEqual(output_path, Path(temp_dir) / "document_ANON.docx")
             self.assertEqual(

@@ -133,7 +133,7 @@ class Stage18EndToEndWorkflowTests(unittest.TestCase):
                 exported_at="2026-06-19T08:05:00Z",
             )
 
-            report_text = (output_dir / "simple_RAPORT.txt").read_text(
+            report_text = (output_dir / "_wewnetrzne" / "simple_RAPORT.txt").read_text(
                 encoding="utf-8"
             )
             summary_text = batch_result.summary_path.read_text(encoding="utf-8")
@@ -257,7 +257,7 @@ class Stage18EndToEndWorkflowTests(unittest.TestCase):
             output_text = (output_dir / "dictionary_ANON.txt").read_text(
                 encoding="utf-8"
             )
-            report_text = (output_dir / "dictionary_RAPORT.txt").read_text(
+            report_text = (output_dir / "_wewnetrzne" / "dictionary_RAPORT.txt").read_text(
                 encoding="utf-8"
             )
             summary_text = batch_result.summary_path.read_text(encoding="utf-8")
@@ -311,9 +311,9 @@ class Stage18EndToEndWorkflowTests(unittest.TestCase):
 
             self.assertEqual(batch_result.success_count, 2)
             self.assertTrue((output_dir / "document_ANON.docx").exists())
-            self.assertTrue((output_dir / "document_RAPORT.txt").exists())
+            self.assertTrue((output_dir / "_wewnetrzne" / "document_RAPORT.txt").exists())
             self.assertTrue((output_dir / "notice_ANON.txt").exists())
-            self.assertTrue((output_dir / "notice_RAPORT.txt").exists())
+            self.assertTrue((output_dir / "_wewnetrzne" / "notice_RAPORT.txt").exists())
             self.assertEqual(export_result.exported_output_count, 2)
             self.assertEqual(export_result.copied_report_count, 2)
             self.assertTrue((output_dir / "approved" / "document_ANON.docx").exists())

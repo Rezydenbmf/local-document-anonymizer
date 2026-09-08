@@ -18,6 +18,7 @@ from tkinterdnd2 import DND_FILES, TkinterDnD
 try:
     from .audit import AUDIT_CATEGORY_ORDER
     from .file_readers import read_docx_file, read_txt_file
+    from .file_writers import internal_artifacts_dir
     from .anonymizer import (
         PDF_OUTPUT_MODE_ORIGINAL_REDACTION,
         PDF_OUTPUT_MODE_REBUILT_REVIEW,
@@ -62,6 +63,7 @@ try:
 except ImportError:
     from audit import AUDIT_CATEGORY_ORDER
     from file_readers import read_docx_file, read_txt_file
+    from file_writers import internal_artifacts_dir
     from anonymizer import (
         PDF_OUTPUT_MODE_ORIGINAL_REDACTION,
         PDF_OUTPUT_MODE_REBUILT_REVIEW,
@@ -1939,17 +1941,29 @@ class AnonymizerApp:
     def open_review_report(self, item: ReviewItem) -> None:
         if item.report_name is None:
             return
-        self._open_review_file(item.report_name)
+        self._open_internal_review_file(item.report_name)
 
     def open_review_checklist(self, item: ReviewItem) -> None:
         if item.checklist_name is None:
             return
-        self._open_review_file(item.checklist_name)
+        self._open_internal_review_file(item.checklist_name)
 
     def _open_review_file(self, file_name: str) -> None:
         if self.review_dir is None:
             return
         file_path = self.review_dir / Path(file_name).name
+        try:
+            open_path_with_default_app(file_path)
+        except OSError:
+            pass
+
+    def _open_internal_review_file(self, file_name: str) -> None:
+        """Open a report/checklist/other internal-artifact file, which
+        lives in the hidden internal-artifacts subfolder, not review_dir
+        itself."""
+        if self.review_dir is None:
+            return
+        file_path = internal_artifacts_dir(self.review_dir) / Path(file_name).name
         try:
             open_path_with_default_app(file_path)
         except OSError:
@@ -1970,7 +1984,7 @@ class AnonymizerApp:
     def open_summary(self, item: ReviewItem) -> None:
         if self.review_dir is None or item.report_name is None:
             return
-        report_path = self.review_dir / Path(item.report_name).name
+        report_path = internal_artifacts_dir(self.review_dir) / Path(item.report_name).name
         try:
             report_text = report_path.read_text(encoding="utf-8")
         except OSError:
@@ -3122,7 +3136,9 @@ class ComparisonWindow:
     def _patch_report_with_manual_count(self, manual_count: int) -> None:
         if self.app.review_dir is None or self.item.report_name is None:
             return
-        report_path = self.app.review_dir / Path(self.item.report_name).name
+        report_path = (
+            internal_artifacts_dir(self.app.review_dir) / Path(self.item.report_name).name
+        )
         try:
             report_text = report_path.read_text(encoding="utf-8")
             report_path.write_text(

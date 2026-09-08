@@ -200,17 +200,18 @@ class ReportTests(unittest.TestCase):
 
     def test_report_path_is_built_as_raport_txt(self) -> None:
         with workspace_temp_dir() as temp_dir:
+            internal_dir = Path(temp_dir) / "_wewnetrzne"
             self.assertEqual(
                 build_report_path(Path(temp_dir) / "document.txt"),
-                Path(temp_dir) / "document_RAPORT.txt",
+                internal_dir / "document_RAPORT.txt",
             )
             self.assertEqual(
                 build_report_path(Path(temp_dir) / "document.docx"),
-                Path(temp_dir) / "document_RAPORT.txt",
+                internal_dir / "document_RAPORT.txt",
             )
             self.assertEqual(
                 build_report_path(Path(temp_dir) / "document.pdf"),
-                Path(temp_dir) / "document_RAPORT.txt",
+                internal_dir / "document_RAPORT.txt",
             )
 
     def test_txt_integration_creates_anon_and_safe_report(self) -> None:
@@ -222,7 +223,7 @@ class ReportTests(unittest.TestCase):
             )
 
             output_path, counters = anonymize_txt_file(source_path)
-            report_path = Path(temp_dir) / "document_RAPORT.txt"
+            report_path = Path(temp_dir) / "_wewnetrzne" / "document_RAPORT.txt"
 
             self.assertEqual(output_path, Path(temp_dir) / "document_ANON.txt")
             self.assertTrue(output_path.exists())
@@ -238,7 +239,7 @@ class ReportTests(unittest.TestCase):
             write_docx(source_path, ["Contact safe@example.test on 2026-06-01."])
 
             output_path, counters = anonymize_docx_file(source_path)
-            report_path = Path(temp_dir) / "document_RAPORT.txt"
+            report_path = Path(temp_dir) / "_wewnetrzne" / "document_RAPORT.txt"
 
             self.assertEqual(output_path, Path(temp_dir) / "document_ANON.docx")
             self.assertEqual(read_docx_file(output_path), "Contact [EMAIL] on [DATA].")
@@ -252,10 +253,10 @@ class ReportTests(unittest.TestCase):
             write_text_pdf(source_path, "Contact safe@example.test on 2026-06-01.")
 
             output_path, counters = anonymize_pdf_file(source_path)
-            report_path = Path(temp_dir) / "document_RAPORT.txt"
+            report_path = Path(temp_dir) / "_wewnetrzne" / "document_RAPORT.txt"
             visual_pdf_path = Path(temp_dir) / "document_ANON_VISUAL.pdf"
             review_pdf_path = Path(temp_dir) / "document_ANON_REVIEW.pdf"
-            checklist_path = Path(temp_dir) / "document_REVIEW_CHECKLIST.txt"
+            checklist_path = Path(temp_dir) / "_wewnetrzne" / "document_REVIEW_CHECKLIST.txt"
 
             self.assertEqual(output_path, Path(temp_dir) / "document_ANON.txt")
             self.assertEqual(
@@ -377,7 +378,7 @@ class ReportTests(unittest.TestCase):
             )
 
             output_path, counters = anonymize_file(source_path)
-            report_path = Path(temp_dir) / "document_RAPORT.txt"
+            report_path = Path(temp_dir) / "_wewnetrzne" / "document_RAPORT.txt"
             report_text = report_path.read_text(encoding="utf-8")
 
             self.assertEqual(output_path, Path(temp_dir) / "document_ANON.txt")

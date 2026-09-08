@@ -254,7 +254,7 @@ class PdfIoTests(unittest.TestCase):
             )
             self.assertEqual(
                 build_review_checklist_path(source_path),
-                Path(temp_dir) / "document_REVIEW_CHECKLIST.txt",
+                Path(temp_dir) / "_wewnetrzne" / "document_REVIEW_CHECKLIST.txt",
             )
             self.assertEqual(
                 build_original_redacted_pdf_path(source_path),
@@ -298,7 +298,7 @@ class PdfIoTests(unittest.TestCase):
             output_path, counters = anonymize_pdf_file(source_path)
             visual_pdf_path = Path(temp_dir) / "document_ANON_VISUAL.pdf"
             review_pdf_path = Path(temp_dir) / "document_ANON_REVIEW.pdf"
-            checklist_path = Path(temp_dir) / "document_REVIEW_CHECKLIST.txt"
+            checklist_path = Path(temp_dir) / "_wewnetrzne" / "document_REVIEW_CHECKLIST.txt"
 
             self.assertEqual(output_path, Path(temp_dir) / "document_ANON.txt")
             self.assertEqual(
@@ -324,7 +324,7 @@ class PdfIoTests(unittest.TestCase):
                 review_pdf_path,
                 (source_email, "00000000000", "+48 123 456 789", "2026-06-01"),
             )
-            report_text = (Path(temp_dir) / "document_RAPORT.txt").read_text(
+            report_text = (Path(temp_dir) / "_wewnetrzne" / "document_RAPORT.txt").read_text(
                 encoding="utf-8"
             )
             checklist_text = checklist_path.read_text(encoding="utf-8")
@@ -369,7 +369,7 @@ class PdfIoTests(unittest.TestCase):
                 source_path,
                 sensitive_terms_path=dictionary_path,
             )
-            report_text = (Path(temp_dir) / "document_RAPORT.txt").read_text(
+            report_text = (Path(temp_dir) / "_wewnetrzne" / "document_RAPORT.txt").read_text(
                 encoding="utf-8"
             )
 
@@ -431,7 +431,7 @@ class PdfIoTests(unittest.TestCase):
             output_path, counters = anonymize_pdf_file(source_path)
             visual_pdf_path = Path(temp_dir) / "document_ANON_VISUAL.pdf"
             review_pdf_path = Path(temp_dir) / "document_ANON_REVIEW.pdf"
-            report_text = (Path(temp_dir) / "document_RAPORT.txt").read_text(
+            report_text = (Path(temp_dir) / "_wewnetrzne" / "document_RAPORT.txt").read_text(
                 encoding="utf-8"
             )
 
@@ -527,7 +527,7 @@ class PdfIoTests(unittest.TestCase):
                 output_path, counters = anonymize_pdf_file(source_path, use_ner=True)
 
             visual_pdf_path = Path(temp_dir) / "health_terms_ANON_VISUAL.pdf"
-            report_text = (Path(temp_dir) / "health_terms_RAPORT.txt").read_text(
+            report_text = (Path(temp_dir) / "_wewnetrzne" / "health_terms_RAPORT.txt").read_text(
                 encoding="utf-8"
             )
             output_text = output_path.read_text(encoding="utf-8")
@@ -597,7 +597,7 @@ class PdfIoTests(unittest.TestCase):
 
             visual_pdf_path = Path(temp_dir) / "unicode_health_terms_ANON_VISUAL.pdf"
             report_text = (
-                Path(temp_dir) / "unicode_health_terms_RAPORT.txt"
+                Path(temp_dir) / "_wewnetrzne" / "unicode_health_terms_RAPORT.txt"
             ).read_text(encoding="utf-8")
             output_text = output_path.read_text(encoding="utf-8")
             normalized_output_text = _normalized_extracted_text(output_text)
@@ -769,7 +769,7 @@ class PdfIoTests(unittest.TestCase):
                 )
 
             public_visual = Path(temp_dir) / "public_ANON_VISUAL.pdf"
-            public_report = (Path(temp_dir) / "public_RAPORT.txt").read_text(
+            public_report = (Path(temp_dir) / "_wewnetrzne" / "public_RAPORT.txt").read_text(
                 encoding="utf-8"
             )
             self.assertNotIn("NER_ORG", public_counters)
@@ -814,11 +814,11 @@ class PdfIoTests(unittest.TestCase):
             output_path, counters = anonymize_pdf_file(source_path)
 
             visual_pdf_path = Path(temp_dir) / "phone_table_ANON_VISUAL.pdf"
-            report_text = (Path(temp_dir) / "phone_table_RAPORT.txt").read_text(
+            report_text = (Path(temp_dir) / "_wewnetrzne" / "phone_table_RAPORT.txt").read_text(
                 encoding="utf-8"
             )
             checklist_text = (
-                Path(temp_dir) / "phone_table_REVIEW_CHECKLIST.txt"
+                Path(temp_dir) / "_wewnetrzne" / "phone_table_REVIEW_CHECKLIST.txt"
             ).read_text(encoding="utf-8")
             output_text = output_path.read_text(encoding="utf-8")
 
@@ -872,7 +872,7 @@ class PdfIoTests(unittest.TestCase):
                     pdf_output_mode=PDF_OUTPUT_MODE_ORIGINAL_REDACTION,
                 )
 
-            report_text = (Path(temp_dir) / "stage23_synthetic_RAPORT.txt").read_text(
+            report_text = (Path(temp_dir) / "_wewnetrzne" / "stage23_synthetic_RAPORT.txt").read_text(
                 encoding="utf-8"
             )
             redacted_pdf_path = Path(temp_dir) / "stage23_synthetic_ORIGINAL_REDACTED.pdf"
@@ -934,7 +934,7 @@ class PdfIoTests(unittest.TestCase):
                     pdf_output_mode=PDF_OUTPUT_MODE_ORIGINAL_REDACTION,
                 )
 
-            report_text = (Path(temp_dir) / "short_person_RAPORT.txt").read_text(
+            report_text = (Path(temp_dir) / "_wewnetrzne" / "short_person_RAPORT.txt").read_text(
                 encoding="utf-8"
             )
             redacted_pdf_path = Path(temp_dir) / "short_person_ORIGINAL_REDACTED.pdf"
@@ -970,7 +970,7 @@ class PdfIoTests(unittest.TestCase):
                     pdf_output_mode=PDF_OUTPUT_MODE_ORIGINAL_REDACTION,
                 )
 
-            report_text = (Path(temp_dir) / "linebreak_person_RAPORT.txt").read_text(
+            report_text = (Path(temp_dir) / "_wewnetrzne" / "linebreak_person_RAPORT.txt").read_text(
                 encoding="utf-8"
             )
             redacted_pdf_path = Path(temp_dir) / "linebreak_person_ORIGINAL_REDACTED.pdf"
@@ -1017,7 +1017,7 @@ class PdfIoTests(unittest.TestCase):
                     pdf_output_mode=PDF_OUTPUT_MODE_VISUAL,
                 )
 
-            report_text = (Path(temp_dir) / "visual_ner_RAPORT.txt").read_text(
+            report_text = (Path(temp_dir) / "_wewnetrzne" / "visual_ner_RAPORT.txt").read_text(
                 encoding="utf-8"
             )
             visual_pdf_path = Path(temp_dir) / "visual_ner_ANON_VISUAL.pdf"
@@ -1062,7 +1062,7 @@ class PdfIoTests(unittest.TestCase):
 
             visual_pdf_path = Path(temp_dir) / "visual_linebreak_person_ANON_VISUAL.pdf"
             report_text = (
-                Path(temp_dir) / "visual_linebreak_person_RAPORT.txt"
+                Path(temp_dir) / "_wewnetrzne" / "visual_linebreak_person_RAPORT.txt"
             ).read_text(encoding="utf-8")
 
             self.assertIn("[NER_PERSON]", output_path.read_text(encoding="utf-8"))
@@ -1164,7 +1164,7 @@ class PdfIoTests(unittest.TestCase):
                     pdf_output_mode=PDF_OUTPUT_MODE_ORIGINAL_REDACTION,
                 )
 
-            report_text = (Path(temp_dir) / "strict_scope_RAPORT.txt").read_text(
+            report_text = (Path(temp_dir) / "_wewnetrzne" / "strict_scope_RAPORT.txt").read_text(
                 encoding="utf-8"
             )
             redacted_pdf_path = Path(temp_dir) / "strict_scope_ORIGINAL_REDACTED.pdf"
@@ -1215,7 +1215,7 @@ class PdfIoTests(unittest.TestCase):
             visual_pdf_path = Path(temp_dir) / "review_ANON_VISUAL.pdf"
             review_pdf_path = Path(temp_dir) / "review_ANON_REVIEW.pdf"
             original_redacted_path = Path(temp_dir) / "review_ORIGINAL_REDACTED.pdf"
-            report_text = (Path(temp_dir) / "review_RAPORT.txt").read_text(
+            report_text = (Path(temp_dir) / "_wewnetrzne" / "review_RAPORT.txt").read_text(
                 encoding="utf-8"
             )
 

@@ -43,11 +43,23 @@ def write_fitz_text_pdf(path: Path, lines: list[str]) -> None:
 
 class ManualEditsPathTests(unittest.TestCase):
     def test_manual_edits_path_is_named_after_visual_output(self) -> None:
-        output_pdf = Path("C:/out/document_ANON_VISUAL.pdf")
-        self.assertEqual(
-            manual_edits_path(output_pdf).name,
-            "document_ANON_VISUAL_MANUAL_EDITS.json",
-        )
+        # A real temp directory, never a fabricated path: manual_edits_path
+        # creates its internal-artifacts parent folder as a side effect, so
+        # a fictional path here would leave a stray folder on real disk.
+        with workspace_temp_dir() as temp_dir:
+            output_pdf = Path(temp_dir) / "document_ANON_VISUAL.pdf"
+            self.assertEqual(
+                manual_edits_path(output_pdf).name,
+                "document_ANON_VISUAL_MANUAL_EDITS.json",
+            )
+
+    def test_manual_edits_path_lives_in_hidden_internal_subfolder(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            output_pdf = Path(temp_dir) / "document_ANON_VISUAL.pdf"
+            self.assertEqual(
+                manual_edits_path(output_pdf).parent,
+                Path(temp_dir) / "_wewnetrzne",
+            )
 
 
 class ManualEditsPersistenceTests(unittest.TestCase):
