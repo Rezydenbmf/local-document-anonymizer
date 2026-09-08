@@ -2449,7 +2449,7 @@ class ComparisonWindow:
                         height=pix.height,
                         highlightthickness=0,
                         bg="#FFFFFF",
-                        cursor="arrow",
+                        cursor="tcross" if self.mode == "add" else "arrow",
                     )
                     canvas.pack(pady=6)
                     canvas.create_image(0, 0, anchor="nw", image=tk_image)
@@ -2490,12 +2490,10 @@ class ComparisonWindow:
 
     # -- magic pen: interaction -------------------------------------------------
 
-    def _effective_rects(self) -> list[dict[str, object]]:
-        remaining = [
-            rect
-            for rect in self.visible_rects
-            if rect_info_key(rect) not in self.pending_remove_keys
-        ]
+    def _hit_test_pool(self) -> list[dict[str, object]]:
+        """Every rect a "remove" click can target: staged-for-removal rects
+        stay in this pool (still shown, still clickable) so clicking one a
+        second time can toggle the pending removal back off."""
         pending = [
             {
                 "page": rect.page,
@@ -2507,7 +2505,7 @@ class ComparisonWindow:
             }
             for rect in self.pending_add_rects
         ]
-        return remaining + pending
+        return list(self.visible_rects) + pending
 
     def _on_pane_press(self, event: tk.Event, page_number: int) -> None:
         if self.mode == "add":
@@ -2516,7 +2514,7 @@ class ComparisonWindow:
         elif self.mode == "remove":
             zoom = self._page_zoom.get(page_number, 1.0)
             px, py = canvas_point_to_pdf_point(event.x, event.y, zoom)
-            hit = find_rect_at_point(self._effective_rects(), page_number, px, py)
+            hit = find_rect_at_point(self._hit_test_pool(), page_number, px, py)
             if hit is not None:
                 self._toggle_pending_remove(hit)
 
@@ -2570,11 +2568,19 @@ class ComparisonWindow:
                 }
             )
             if rect_key == key:
+                # A not-yet-saved manual addition: clicking it again in
+                # remove mode simply cancels that pending addition.
                 del self.pending_add_rects[index]
                 self._redraw_overlay(page_number)
                 self._update_pending_state()
                 return
-        self.pending_remove_keys.add(key)
+        if key in self.pending_remove_keys:
+            # Clicking an already-staged-for-removal rect a second time
+            # un-stages it, so a misclick doesn't require cancelling every
+            # other pending change to undo.
+            self.pending_remove_keys.discard(key)
+        else:
+            self.pending_remove_keys.add(key)
         self._redraw_overlay(page_number)
         self._update_pending_state()
 
@@ -2646,16 +2652,34 @@ class ComparisonWindow:
         new_edits = apply_pending_overrides(
             self.edits, self.visible_rects, self.pending_remove_keys, self.pending_add_rects
         )
+        if self.pen_status_label is not None:
+            self.pen_status_label.configure(text="Zapisywanie...")
+            self.window.update_idletasks()
+
+        # Regenerate to a staging file first and only replace the live
+        # output once that fully succeeds, so an interrupted or failed
+        # regeneration (disk full, process killed) can never truncate or
+        # corrupt the existing good output. The sidecar is written last,
+        # after the real file is already safely in place, since it is the
+        # smallest and least failure-prone step of the three.
+        staging_path = self.result_path.with_name(
+            f"{self.result_path.stem}.tmp{self.result_path.suffix}"
+        )
         try:
             regenerate_pdf_with_manual_overrides(
                 self.source_path,
-                output_path=self.result_path,
+                output_path=staging_path,
                 edits=new_edits,
                 sensitive_terms_path=self.app.sensitive_terms_path,
                 use_ner=self.app.use_ner,
             )
+            os.replace(staging_path, self.result_path)
             save_manual_edits(manual_edits_path(self.result_path), new_edits)
         except (OSError, RuntimeError, ValueError):
+            try:
+                staging_path.unlink(missing_ok=True)
+            except OSError:
+                pass
             if self.pen_status_label is not None:
                 self.pen_status_label.configure(text="Nie udało się zapisać zmian.")
             return
