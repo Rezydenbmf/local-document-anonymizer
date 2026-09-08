@@ -356,6 +356,30 @@ several newer generated file types (`_ANON_VISUAL*.pdf`, `_ANON_REVIEW*.pdf`,
 `_BATCH_REVIEW_CHECKLIST*.txt`) were never added, so a real manual-test
 output folder was one `git add -A` away from being committed by accident.
 
+Stage 25.1 is a small batch of fixes and one addition from hands-on testing
+of the Stage 25 GUI. `import fitz` is replaced with `import pymupdf as fitz`
+everywhere (8 call sites) to drop PyMuPDF's own deprecation warning printed
+on every launch; every existing `fitz.*` reference is unchanged since the
+module is imported under the same local name. Reprocessing files into an
+output folder that already held older generated files (collision-safe
+naming never overwrites them) showed the same-looking file twice in the
+review screen and reported the original as unavailable for the stale
+duplicate; `restrict_review_items_to_batch` now scopes the post-batch
+review screen to only the outputs the batch just produced, while opening
+an existing folder for review deliberately still shows everything in it.
+Dragging files onto the drop zone also opened an unrelated file-picker
+dialog right after the drop, because the drop-target widget and the
+"click to pick files" binding were the same widget and a drop's mouse-up
+was also read as a click; a short debounce after a real drop now
+suppresses that spurious dialog. Finally, a "History" screen (top-bar
+button, kept separate from the current-session workflow per explicit
+request) lists recently used output folders - path and timestamp only,
+never document content - backed by a small local JSON file at
+`~/.anonimizer/recent_folders.json`, not a database; the user explicitly
+did not want a database or password-protected store for this, consistent
+with the project's existing "no database" scope decisions. Full suite:
+273 tests.
+
 ## What Exists
 
 - Repository structure.
@@ -727,10 +751,10 @@ python -m unittest discover -s tests
 
 ## Last Completed Committed Stage
 
-Stage 25: CustomTkinter GUI redesign with side-by-side comparison view.
+Stage 25.1: pymupdf import fix, review-scope/drag-drop fixes, History tab.
 
 ```text
-3142ad3 Redesign GUI with CustomTkinter: drag&drop, cards, comparison view
+abfefd8 Add a separate History tab instead of a database
 ```
 
 ## Next Logical Step
