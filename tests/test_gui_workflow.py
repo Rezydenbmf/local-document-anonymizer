@@ -23,6 +23,7 @@ from gui import (
     REVIEW_STATUS_APPROVED,
     REVIEW_STATUS_NEEDS_REVIEW,
     REVIEW_STATUS_REJECTED,
+    ReviewItem,
     category_label_pl,
     default_output_directory,
     file_type_badge,
@@ -47,6 +48,7 @@ from gui import (
     pdf_output_mode_from_gui_label,
     pdf_redaction_scope_from_gui_label,
     remove_paths_by_indexes,
+    restrict_review_items_to_batch,
     review_status_label_pl,
     risk_style_key,
 )
@@ -497,6 +499,40 @@ class GuiWorkflowTests(unittest.TestCase):
 
         self.assertEqual(summary["categories"], [])
         self.assertEqual(summary["risk_level"], "ok")
+
+    def test_restrict_review_items_to_batch_drops_leftover_old_files(self) -> None:
+        review_items = [
+            ReviewItem(output_name="new_ANON.txt"),
+            ReviewItem(output_name="old_leftover_ANON.txt"),
+        ]
+        batch_results = [
+            {"status": "success", "output_name": "new_ANON.txt"},
+        ]
+
+        result = restrict_review_items_to_batch(review_items, batch_results)
+
+        self.assertEqual([item.output_name for item in result], ["new_ANON.txt"])
+
+    def test_restrict_review_items_to_batch_ignores_failed_results(self) -> None:
+        review_items = [
+            ReviewItem(output_name="ok_ANON.txt"),
+            ReviewItem(output_name="unrelated_old_ANON.txt"),
+        ]
+        batch_results = [
+            {"status": "success", "output_name": "ok_ANON.txt"},
+            {"status": "error", "output_name": "unrelated_old_ANON.txt"},
+        ]
+
+        result = restrict_review_items_to_batch(review_items, batch_results)
+
+        self.assertEqual([item.output_name for item in result], ["ok_ANON.txt"])
+
+    def test_restrict_review_items_to_batch_with_empty_batch_keeps_nothing(self) -> None:
+        review_items = [ReviewItem(output_name="a_ANON.txt")]
+
+        result = restrict_review_items_to_batch(review_items, [])
+
+        self.assertEqual(result, [])
 
 
 if __name__ == "__main__":
