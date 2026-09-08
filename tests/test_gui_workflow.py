@@ -24,10 +24,12 @@ from gui import (
     REVIEW_STATUS_NEEDS_REVIEW,
     REVIEW_STATUS_REJECTED,
     ReviewItem,
+    canvas_point_to_pdf_point,
     category_label_pl,
     default_output_directory,
     file_type_badge,
     filter_supported_paths,
+    find_rect_at_point,
     format_anonymize_readiness,
     format_audit_result,
     format_approved_export_status,
@@ -43,12 +45,15 @@ from gui import (
     format_selected_file_count,
     format_short_path,
     history_config_path,
+    is_degenerate_drag_rect,
     load_recent_folders,
     mousewheel_scroll_units,
+    normalize_drag_rect,
     open_path_with_default_app,
     parse_dropped_file_paths,
     parse_report_summary,
     pdf_output_mode_from_gui_label,
+    pdf_page_zoom,
     pdf_redaction_scope_from_gui_label,
     record_recent_folder,
     remove_paths_by_indexes,
@@ -612,6 +617,44 @@ class GuiWorkflowTests(unittest.TestCase):
 
     def test_gui_formats_invalid_recent_folder_timestamp(self) -> None:
         self.assertEqual(format_recent_folder_timestamp("not-a-date"), "nieznana data")
+
+    def test_pdf_page_zoom_scales_page_width_to_target(self) -> None:
+        self.assertEqual(pdf_page_zoom(200, 400), 2.0)
+
+    def test_pdf_page_zoom_guards_against_zero_width(self) -> None:
+        self.assertEqual(pdf_page_zoom(0, 460), 460.0)
+
+    def test_canvas_point_to_pdf_point_divides_by_zoom(self) -> None:
+        self.assertEqual(canvas_point_to_pdf_point(100, 50, 2.0), (50.0, 25.0))
+
+    def test_canvas_point_to_pdf_point_guards_against_zero_zoom(self) -> None:
+        self.assertEqual(canvas_point_to_pdf_point(10, 10, 0), (10.0, 10.0))
+
+    def test_normalize_drag_rect_handles_any_drag_direction(self) -> None:
+        self.assertEqual(normalize_drag_rect(50, 60, 10, 20), (10, 20, 50, 60))
+        self.assertEqual(normalize_drag_rect(10, 20, 50, 60), (10, 20, 50, 60))
+
+    def test_is_degenerate_drag_rect_flags_tiny_selections(self) -> None:
+        self.assertTrue(is_degenerate_drag_rect(0, 0, 2, 2))
+        self.assertFalse(is_degenerate_drag_rect(0, 0, 10, 10))
+
+    def test_find_rect_at_point_matches_containing_rect_on_same_page(self) -> None:
+        rects = [
+            {"page": 1, "label": "EMAIL", "x0": 0, "y0": 0, "x1": 50, "y1": 20},
+            {"page": 2, "label": "PESEL", "x0": 0, "y0": 0, "x1": 50, "y1": 20},
+        ]
+
+        self.assertEqual(find_rect_at_point(rects, 1, 25, 10), rects[0])
+        self.assertIsNone(find_rect_at_point(rects, 1, 25, 100))
+        self.assertIsNone(find_rect_at_point(rects, 3, 25, 10))
+
+    def test_find_rect_at_point_prefers_most_recently_added_overlap(self) -> None:
+        rects = [
+            {"page": 1, "label": "EMAIL", "x0": 0, "y0": 0, "x1": 50, "y1": 20},
+            {"page": 1, "label": "RECZNE", "x0": 10, "y0": 5, "x1": 40, "y1": 15},
+        ]
+
+        self.assertEqual(find_rect_at_point(rects, 1, 20, 10), rects[1])
 
 
 if __name__ == "__main__":

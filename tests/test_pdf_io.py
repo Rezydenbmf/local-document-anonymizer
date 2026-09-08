@@ -27,7 +27,14 @@ from file_writers import (
     save_anonymized_copy,
     save_anonymized_pdf_txt_copy,
 )
-from pdf_redaction import PdfWordPage, extract_pdf_word_pages, save_redacted_pdf_copy
+from pdf_redaction import (
+    PdfWordPage,
+    compute_redaction_rects,
+    extract_pdf_word_pages,
+    manual_edit_span_key,
+    save_redacted_pdf_copy,
+    save_word_coordinate_redacted_pdf_copy,
+)
 
 
 class FakeEntity:
@@ -1231,6 +1238,157 @@ class PdfIoTests(unittest.TestCase):
             )
             self.assertIn("Review PDF type: rebuilt_from_anonymized_text", report_text)
             self.assertIn("Layout-preserving original redaction used: yes", report_text)
+
+    def test_word_coordinate_redaction_accepts_manual_removed_and_extra_rects(
+        self,
+    ) -> None:
+        with workspace_temp_dir() as temp_dir:
+            source_path = Path(temp_dir) / "magic_pen.pdf"
+            write_fitz_text_pdf(
+                source_path,
+                ["Contact tester@example.test today.", "Header Alpha Beta Gamma"],
+            )
+            word_pages = extract_pdf_word_pages(source_path)
+            spans = _pdf_detection_spans_for_word_pages(
+                word_pages, sensitive_terms=None, ner_context=None
+            )
+            self.assertTrue(spans, "expected the EMAIL regex span to be detected")
+
+            # Baseline run: no manual overrides, behaves exactly as before.
+            baseline = save_word_coordinate_redacted_pdf_copy(
+                source_path,
+                word_pages=word_pages,
+                spans=spans,
+                output_dir=temp_dir,
+            )
+            self.assertTrue(baseline["applied_rects"])
+            self.assert_redacted_pdf_does_not_expose_text(
+                Path(temp_dir) / baseline["output_name"],
+                ("tester@example.test",),
+            )
+
+            import pymupdf as fitz
+
+            email_rect_info = next(
+                rect for rect in baseline["applied_rects"] if rect["label"] == "EMAIL"
+            )
+            removed_key = manual_edit_span_key(
+                email_rect_info["page"],
+                email_rect_info["label"],
+                fitz.Rect(
+                    email_rect_info["x0"],
+                    email_rect_info["y0"],
+                    email_rect_info["x1"],
+                    email_rect_info["y1"],
+                ),
+            )
+
+            alpha_word = next(word for word in word_pages[0].words if word.text == "Alpha")
+            extra_rect = (word_pages[0].page_number, tuple(alpha_word.rect))
+
+            override_output = Path(temp_dir) / "magic_pen_ANON_VISUAL_override.pdf"
+            result = save_word_coordinate_redacted_pdf_copy(
+                source_path,
+                word_pages=word_pages,
+                spans=spans,
+                output_path=override_output,
+                removed_span_keys={removed_key},
+                extra_redaction_rects=[extra_rect],
+            )
+
+            self.assertEqual(result["output_name"], override_output.name)
+            self.assertTrue(override_output.exists())
+            # The manually un-redacted email is visible again...
+            self.assert_pdf_exposes_text(override_output, ("tester@example.test",))
+            # ...while the manually added rectangle hides "Alpha" even though
+            # it was never auto-detected.
+            self.assert_redacted_pdf_does_not_expose_text(override_output, ("Alpha",))
+            self.assert_pdf_exposes_text(override_output, ("Header", "Beta", "Gamma"))
+            self.assertEqual(result["counters"].get("RECZNE"), 1)
+            self.assertNotIn("EMAIL", result["counters"])
+
+    def test_compute_redaction_rects_matches_what_gets_written_to_file(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            source_path = Path(temp_dir) / "compute_rects.pdf"
+            write_fitz_text_pdf(
+                source_path, ["Contact tester@example.test today."]
+            )
+            word_pages = extract_pdf_word_pages(source_path)
+            spans = _pdf_detection_spans_for_word_pages(
+                word_pages, sensitive_terms=None, ner_context=None
+            )
+
+            rects, counters, unmapped = compute_redaction_rects(word_pages, spans)
+            written = save_word_coordinate_redacted_pdf_copy(
+                source_path, word_pages=word_pages, spans=spans, output_dir=temp_dir
+            )
+
+            self.assertEqual(rects, written["applied_rects"])
+            self.assertEqual(counters, written["counters"])
+            self.assertEqual(unmapped, written["unmapped_categories"])
+
+    def test_compute_redaction_rects_honors_removed_span_keys_without_touching_a_file(
+        self,
+    ) -> None:
+        with workspace_temp_dir() as temp_dir:
+            source_path = Path(temp_dir) / "compute_rects_removed.pdf"
+            write_fitz_text_pdf(
+                source_path, ["Contact tester@example.test today."]
+            )
+            word_pages = extract_pdf_word_pages(source_path)
+            spans = _pdf_detection_spans_for_word_pages(
+                word_pages, sensitive_terms=None, ner_context=None
+            )
+            baseline_rects, _counters, _unmapped = compute_redaction_rects(
+                word_pages, spans
+            )
+            self.assertTrue(baseline_rects)
+
+            import pymupdf as fitz
+
+            removed_key = manual_edit_span_key(
+                baseline_rects[0]["page"],
+                baseline_rects[0]["label"],
+                fitz.Rect(
+                    baseline_rects[0]["x0"],
+                    baseline_rects[0]["y0"],
+                    baseline_rects[0]["x1"],
+                    baseline_rects[0]["y1"],
+                ),
+            )
+
+            rects, counters, _unmapped = compute_redaction_rects(
+                word_pages, spans, removed_span_keys={removed_key}
+            )
+
+            self.assertEqual(rects, [])
+            self.assertEqual(counters, {})
+
+    def test_word_coordinate_redaction_output_path_overwrites_in_place(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            source_path = Path(temp_dir) / "overwrite.pdf"
+            write_fitz_text_pdf(source_path, ["Contact tester@example.test today."])
+            word_pages = extract_pdf_word_pages(source_path)
+            spans = _pdf_detection_spans_for_word_pages(
+                word_pages, sensitive_terms=None, ner_context=None
+            )
+            fixed_output = Path(temp_dir) / "overwrite_ANON_VISUAL.pdf"
+
+            first = save_word_coordinate_redacted_pdf_copy(
+                source_path,
+                word_pages=word_pages,
+                spans=spans,
+                output_path=fixed_output,
+            )
+            second = save_word_coordinate_redacted_pdf_copy(
+                source_path,
+                word_pages=word_pages,
+                spans=spans,
+                output_path=fixed_output,
+            )
+
+            self.assertEqual(first["output_name"], second["output_name"])
+            self.assertEqual(len(list(Path(temp_dir).glob("overwrite_ANON_VISUAL*.pdf"))), 1)
 
     def assert_redacted_pdf_does_not_expose_text(
         self,

@@ -61,7 +61,9 @@ PDF_REDACTION_COLORS = {
     "REGON": (0.85, 0.12, 0.12),
     "DOWOD_OSOBISTY": (0.85, 0.12, 0.12),
     "IBAN": (0.85, 0.12, 0.12),
+    "RECZNE": (0.08, 0.08, 0.08),
 }
+MANUAL_REDACTION_LABEL = "RECZNE"
 _SAFE_WORD_PADDING = set(".,;:!?()[]{}<>\"'")
 _UPPER_LETTERS = "A-ZĄĆĘŁŃÓŚŹŻ"
 _LOWER_LETTERS = "A-Za-zĄĆĘŁŃÓŚŹŻąćęłńóśźż"
@@ -298,6 +300,7 @@ def build_pdf_redaction_metadata(
             PDF_REDACTION_STATUS_NO_MATCHES,
         ),
         "original_layout_redaction_experimental": False,
+        "applied_rects": [],
     }
 
 
@@ -333,12 +336,32 @@ def build_pdf_review_metadata(
     }
 
 
+def manual_edit_span_key(
+    page_number: int, label: str, rect: object
+) -> tuple[int, str, float, float, float, float]:
+    """Return a stable identity for one applied redaction rectangle.
+
+    Deterministic for a given source file and detection settings, so a
+    manually removed (undone) automatic redaction can be recognised again
+    the next time the same source is re-scanned and skipped.
+    """
+    return (
+        int(page_number),
+        str(label),
+        round(rect.x0, 2),
+        round(rect.y0, 2),
+        round(rect.x1, 2),
+        round(rect.y1, 2),
+    )
+
+
 def build_pdf_visual_redaction_metadata(
     *,
     output_path: str | Path,
     redaction_count: int,
     counters: dict[str, int],
     unmapped_categories: dict[str, int],
+    applied_rects: Sequence[dict[str, object]] = (),
 ) -> dict[str, object]:
     """Return safe metadata for word-coordinate visual PDF redaction."""
     status = (
@@ -363,6 +386,7 @@ def build_pdf_visual_redaction_metadata(
     metadata["original_layout_redaction_used"] = True
     metadata["original_layout_redaction_experimental"] = False
     metadata["text_extraction"] = PDF_TEXT_EXTRACTION_TEXT_LAYER
+    metadata["applied_rects"] = list(applied_rects)
     if unmapped_categories:
         metadata["warning"] = (
             "Some detected PDF spans could not be mapped to full word rectangles"
@@ -596,66 +620,143 @@ def _span_page_lookup(word_pages: Sequence[PdfWordPage]) -> dict[int, PdfWordPag
     return {page.page_number: page for page in word_pages}
 
 
+def compute_redaction_rects(
+    word_pages: Sequence[PdfWordPage],
+    spans: Iterable[PdfRedactionSpan],
+    *,
+    removed_span_keys: object = frozenset(),
+) -> tuple[list[dict[str, object]], dict[str, int], dict[str, int]]:
+    """Resolve spans to concrete redaction rectangles without touching a file.
+
+    Returns ``(applied_rects, counters, unmapped_categories)``. ``rects`` in
+    ``removed_span_keys`` (as produced by :func:`manual_edit_span_key`) are
+    excluded, letting a caller compute exactly what is currently visible on a
+    true-redacted PDF -- including any manual "un-redact" overrides -- for
+    hit-testing in a preview, without regenerating the file itself.
+    """
+    pages_by_number = _span_page_lookup(word_pages)
+    counters: dict[str, int] = {}
+    unmapped: dict[str, int] = {}
+    seen: set[tuple[int, str, float, float, float, float]] = set()
+    applied_rects: list[dict[str, object]] = []
+    removed_keys = set(removed_span_keys)
+
+    for span in spans:
+        page_words = pages_by_number.get(span.page_number)
+        if page_words is None:
+            unmapped[span.label] = unmapped.get(span.label, 0) + 1
+            continue
+        rects = _span_maps_to_full_words(page_words, span)
+        if not rects:
+            unmapped[span.label] = unmapped.get(span.label, 0) + 1
+            continue
+        mapped_any = False
+        all_removed_by_user = True
+        for rect in rects:
+            key = manual_edit_span_key(span.page_number, span.label, rect)
+            if key in removed_keys:
+                continue
+            all_removed_by_user = False
+            if key in seen:
+                continue
+            seen.add(key)
+            applied_rects.append(
+                {
+                    "page": span.page_number,
+                    "label": span.label,
+                    "x0": round(rect.x0, 2),
+                    "y0": round(rect.y0, 2),
+                    "x1": round(rect.x1, 2),
+                    "y1": round(rect.y1, 2),
+                }
+            )
+            mapped_any = True
+        if mapped_any:
+            counters[span.label] = counters.get(span.label, 0) + 1
+        elif not all_removed_by_user:
+            unmapped[span.label] = unmapped.get(span.label, 0) + 1
+
+    return applied_rects, counters, unmapped
+
+
 def save_word_coordinate_redacted_pdf_copy(
     source_path: str | Path,
     *,
     word_pages: Sequence[PdfWordPage],
     spans: Iterable[PdfRedactionSpan],
     output_dir: str | Path | None = None,
+    output_path: str | Path | None = None,
+    removed_span_keys: object = frozenset(),
+    extra_redaction_rects: Iterable[tuple[int, object]] = (),
 ) -> dict[str, object]:
-    """Create an original-layout true-redacted PDF from word-coordinate spans."""
+    """Create an original-layout true-redacted PDF from word-coordinate spans.
+
+    ``removed_span_keys`` (as produced by :func:`manual_edit_span_key`) lets a
+    caller exclude specific auto-detected rectangles that a user manually
+    un-redacted; ``extra_redaction_rects`` (an iterable of
+    ``(page_number, rect)`` pairs, in PDF point coordinates) lets a caller add
+    manually drawn redaction rectangles that were not detected automatically.
+    Both are optional and default to a no-op, so existing callers behave
+    exactly as before. When ``output_path`` is given, that exact path is
+    (over)written instead of picking a fresh collision-safe name — used to
+    regenerate an existing visual PDF in place after manual edits.
+    """
     fitz = _load_fitz_module()
     source = Path(source_path)
-    output_path = build_collision_safe_path(
-        build_pdf_visual_path(source, output_dir=output_dir)
+    if output_path is not None:
+        resolved_output_path = Path(output_path)
+    else:
+        resolved_output_path = build_collision_safe_path(
+            build_pdf_visual_path(source, output_dir=output_dir)
+        )
+    applied_rects, counters, unmapped = compute_redaction_rects(
+        word_pages, spans, removed_span_keys=removed_span_keys
     )
-    pages_by_number = _span_page_lookup(word_pages)
-    counters: dict[str, int] = {}
-    unmapped: dict[str, int] = {}
-    redaction_count = 0
-    seen: set[tuple[int, str, float, float, float, float]] = set()
+    seen = {
+        (rect["page"], rect["label"], rect["x0"], rect["y0"], rect["x1"], rect["y1"])
+        for rect in applied_rects
+    }
 
     with fitz.open(source) as document:
-        for span in spans:
-            page_words = pages_by_number.get(span.page_number)
-            if page_words is None:
-                unmapped[span.label] = unmapped.get(span.label, 0) + 1
+        for rect_info in applied_rects:
+            page = document[int(rect_info["page"]) - 1]
+            rect = fitz.Rect(
+                rect_info["x0"], rect_info["y0"], rect_info["x1"], rect_info["y1"]
+            )
+            _add_redaction(page, rect, str(rect_info["label"]))
+
+        for page_number, raw_rect in extra_redaction_rects:
+            if page_number < 1 or page_number > len(document):
                 continue
-            rects = _span_maps_to_full_words(page_words, span)
-            if not rects:
-                unmapped[span.label] = unmapped.get(span.label, 0) + 1
+            rect = raw_rect if isinstance(raw_rect, fitz.Rect) else fitz.Rect(raw_rect)
+            key = manual_edit_span_key(page_number, MANUAL_REDACTION_LABEL, rect)
+            if key in seen:
                 continue
-            page = document[span.page_number - 1]
-            mapped_any = False
-            for rect in rects:
-                key = (
-                    span.page_number,
-                    span.label,
-                    round(rect.x0, 2),
-                    round(rect.y0, 2),
-                    round(rect.x1, 2),
-                    round(rect.y1, 2),
-                )
-                if key in seen:
-                    continue
-                seen.add(key)
-                _add_redaction(page, rect, span.label)
-                redaction_count += 1
-                mapped_any = True
-            if mapped_any:
-                counters[span.label] = counters.get(span.label, 0) + 1
-            else:
-                unmapped[span.label] = unmapped.get(span.label, 0) + 1
+            seen.add(key)
+            page = document[page_number - 1]
+            _add_redaction(page, rect, MANUAL_REDACTION_LABEL)
+            applied_rects.append(
+                {
+                    "page": page_number,
+                    "label": MANUAL_REDACTION_LABEL,
+                    "x0": round(rect.x0, 2),
+                    "y0": round(rect.y0, 2),
+                    "x1": round(rect.x1, 2),
+                    "y1": round(rect.y1, 2),
+                }
+            )
+            counters[MANUAL_REDACTION_LABEL] = counters.get(MANUAL_REDACTION_LABEL, 0) + 1
 
         for page in document:
             page.apply_redactions()
-        document.save(output_path, garbage=4, deflate=True, clean=True)
+        document.save(resolved_output_path, garbage=4, deflate=True, clean=True)
 
     return build_pdf_visual_redaction_metadata(
-        output_path=output_path,
-        redaction_count=redaction_count,
+        output_path=resolved_output_path,
+        redaction_count=len(applied_rects),
         counters=counters,
         unmapped_categories=unmapped,
+        applied_rects=applied_rects,
     )
 
 

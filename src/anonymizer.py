@@ -767,6 +767,32 @@ def _pdf_detection_spans_for_word_pages(
     return spans
 
 
+def compute_pdf_redaction_spans(
+    source_path: str | Path,
+    *,
+    sensitive_terms: Iterable[SensitiveTerm] | None = None,
+    sensitive_terms_path: str | Path | None = None,
+    use_ner: bool = False,
+    ner_model_name: str = DEFAULT_NER_MODEL,
+) -> tuple[list, list[PdfRedactionSpan]]:
+    """Recompute word pages and detection spans for a source PDF.
+
+    Reruns the same dictionary/regex/NER detection used by the normal batch
+    workflow, without producing any output file. Used to regenerate a
+    true-redacted visual PDF (for example after manual "magic pen" edits)
+    without re-running the full ``anonymize_batch`` pipeline.
+    """
+    terms, _dictionary_status = _prepare_workflow_dictionary(
+        sensitive_terms, sensitive_terms_path
+    )
+    ner_context = prepare_ner_context(enabled=use_ner, model_name=ner_model_name)
+    word_pages = extract_pdf_word_pages(source_path)
+    spans = _pdf_detection_spans_for_word_pages(
+        word_pages, sensitive_terms=terms, ner_context=ner_context
+    )
+    return word_pages, spans
+
+
 def _positive_counts(source: object) -> dict[str, int]:
     if not isinstance(source, dict):
         return {}

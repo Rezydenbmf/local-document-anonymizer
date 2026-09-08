@@ -24,6 +24,7 @@ data/
 local_config.*
 *_ANON.*
 *_ANON_VISUAL*.pdf
+*_MANUAL_EDITS*.json
 *_ANON_REVIEW*.pdf
 *_ORIGINAL_REDACTED*.pdf
 *_RAPORT.*
