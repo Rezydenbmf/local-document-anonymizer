@@ -487,6 +487,33 @@ unlinking makes them diverge; a pending overlay's rect count is unchanged
 across a zoom-triggered rebuild) and visually via screenshot. Full suite:
 306 tests.
 
+Two follow-up reports from the user's own hands-on testing of the above:
+the window still would not maximize, and the 🔗 link icon was not
+intuitive without already knowing the convention. The real cause of the
+first was `window.transient(app.root)`: on Windows, a transient window is
+treated as a dialog of its parent and loses the native maximize button
+even with `resizable(True, True)` set, regardless of anything else in the
+window's configuration - removing that one call (this window does not
+need dialog-parenting behavior) fixed it, confirmed by `wm_transient()`
+now reporting empty and a programmatic resize actually changing the
+window's dimensions. For the icon, swapped the static 🔗 for a padlock
+that changes glyph with state (🔒 linked / 🔓 independent - closer to the
+"lock together" convention used for paired values in other tools, and the
+glyph itself now hints at the meaning instead of relying on color alone)
+plus a hover tooltip describing the *current* state and what clicking does
+next, sourced from new pure `zoom_link_glyph`/`zoom_link_tooltip_text`
+functions. Also added a lightweight one-time onboarding hint: the first
+time `ComparisonWindow` is ever opened, the link tooltip auto-flashes for
+a few seconds without needing a hover; a small local `IconTooltip.flash()`
+helper drives it, and a tiny local JSON file
+(`~/.anonimizer/ui_hints_seen.json`, hint ids only - same "no database,
+just a small local file" pattern as the History tab's recent-folders
+list) remembers it has been shown so it never repeats. Verified
+end-to-end (`wm_transient` empty, glyph codepoint changes between the two
+padlock states, the hint fires on a first-ever open and is confirmed
+suppressed on a second, separate window instance once already recorded as
+seen) and visually via screenshot. Full suite: 312 tests.
+
 ## What Exists
 
 - Repository structure.
@@ -864,11 +891,13 @@ python -m unittest discover -s tests
 
 Stage 26: magic pen manual PDF redaction editor, a same-day self-review
 fixing a toggle bug/unsafe overwrite/stale cursor, a fix for a `fitz`
-deprecation warning the earlier Stage 25.1 fix missed, and a resizable/
-maximizable comparison window with independent or linked per-pane zoom.
+deprecation warning the earlier Stage 25.1 fix missed, a resizable/
+maximizable comparison window with independent or linked per-pane zoom,
+and a follow-up fixing the maximize button itself plus a padlock-based,
+tooltip-and-hint-backed redesign of the zoom-link icon.
 
 ```text
-1ad5669 Make comparison window resizable/maximizable with dual-zone pane zoom
+e872c00 Fix comparison window maximize and make the zoom-link icon intuitive
 ```
 
 ## Next Logical Step
