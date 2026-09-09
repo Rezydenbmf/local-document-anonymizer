@@ -999,6 +999,58 @@ every width tested, with the chips visibly compressing first instead.
 Lint unchanged against baseline; full suite still 372 (same reasoning as
 above - real layout/geometry behavior, verified functionally).
 
+**Visual redesign started (Stage 1 of a multi-stage rebuild).** The user
+asked a separate design-focused AI conversation to work out a visual
+identity for the app, deliberately without steering it toward specific
+colors/icons (only a functional description of what the app does and
+its screens), then reviewed the resulting mockups (saved in `pomysly/`,
+outside the normal `src`/`tests` structure - reference material, not
+part of the app) and asked for the full scope implemented: a rename to
+"DocShield", a generated app icon, a new indigo/navy-based color
+palette, and a set of structural changes (sidebar navigation, tabs in
+Settings, a stat-cards-and-table review screen, a sidebar tool panel in
+the comparison window) the mockups introduced beyond what already
+existed. Confirmed with the user before starting: rename fully (not just
+reskin), do the full scope rather than holding structural changes back,
+and use the generated icon as the real app/taskbar icon. Given the size,
+this is being built as a sequence of separately tested and shipped
+stages rather than one giant change, starting with the lowest-risk,
+highest-visibility one.
+
+Stage 1 (this commit): branding, icon, and palette, on the *existing*
+screen structure - `APP_TITLE` is now "DocShield" (window title,
+default output folder name `DocShield - wyniki`; a repo-relative
+`assets/icon.png`, a resized copy of the mockup's generated icon, is
+loaded as the real window/taskbar icon via `iconphoto()` (never fatal if
+missing - `_load_app_icon` degrades silently). The top bar (title +
+Historia button + gear icon) is replaced with a persistent left sidebar
+(`_build_sidebar`): brand mark, three nav items (Anonimizacja / Historia
+/ Ustawienia - Ustawienia still opens the existing modal
+`SettingsDialog`, unchanged in this stage), and a "Przetwarzanie
+lokalne" trust badge pinned to the bottom. `_update_sidebar_active_state`
+highlights whichever nav item the current screen belongs to - Anonimizacja
+stays highlighted through the whole start/processing/review flow it
+starts, not just literally while `self.active_screen == "start"`, since
+those are steps of one flow, not separate destinations. The start screen
+gained a page heading ("Anonimizuj dokumenty" + subtitle) and a small,
+deliberately personal touch matching what the user singled out from the
+mockups as their favorite single element: a script-font ("Segoe Script")
+note reading "Twoje dokumenty. Tylko u Ciebie." - not because the text
+itself is remarkable, but because a handwritten-style note reads as
+individual care rather than a generic label. The color palette gained a
+second, distinct blue (`COLOR_PRIMARY`, a dark navy for brand identity)
+alongside a refined `COLOR_ACCENT` shifted toward indigo for interactive
+elements - the existing semantic colors (green=ok, amber=warning,
+red=high-risk) were already correct per the design brief's own
+recommendation and are unchanged. Verified visually against the real
+running app (screenshot forced to the foreground first, cropped to the
+app's own window only - full-screen or unforced captures were confirmed,
+twice, to risk sweeping in the user's unrelated real windows in the
+background, and were deleted immediately both times without reading
+their content beyond noticing they existed). Full suite: 372 tests (one
+updated for the renamed default folder). Lint unchanged against
+baseline.
+
 ## What Exists
 
 - Repository structure.
@@ -1427,11 +1479,42 @@ Tk's `pack()` hands out row width in packing order, not visual order, so
 the save/cancel buttons are now packed first, guaranteeing them priority
 over the tool chips and status label when space runs short.
 
+Separately, a full visual redesign to "DocShield" branding began the
+same day, built as a sequence of tested/shipped stages (full brief and
+confirmed scope decisions in the narrative above). Stage 1 (this
+commit): app renamed throughout, a generated icon wired up as the real
+window/taskbar icon, the top bar replaced with a persistent sidebar
+(Anonimizacja / Historia / Ustawienia, with active-item highlighting
+that follows the whole start/processing/review flow), a start-screen
+page heading plus a small handwritten-style personal note the user
+specifically called out as their favorite element from the mockups, and
+a refined palette (a new dark-navy brand color alongside a
+indigo-shifted interactive accent; the existing status colors were
+already correct and are unchanged). Stages 2-5 (Settings tabs, a
+stat-cards-and-table review screen, and a sidebar tool panel in the
+comparison window) are the next work.
+
 ```text
-4a80cc8 Stop the magic pen save button from being clipped when narrow
+e425537 Rebrand to DocShield: sidebar nav, icon, and refreshed palette
 ```
 
 ## Next Logical Step
+
+**Immediate priority**: continue the DocShield visual redesign, Stages 2-5,
+each its own tested/shipped increment (see the Stage 1 narrative above for
+the full brief and the confirmed scope decisions): (2) tabs inside the
+existing `SettingsDialog` (Wykrywanie danych / Dokumenty PDF / OCR i AI /
+Słownik / Ogólne per the mockups), reorganizing controls that already
+exist rather than adding new ones, staying a modal; (3) the review screen
+redesigned around stat cards (counts by status) plus a data table
+(replacing the current card-list), with bulk select/approve/reject/export
+actions; (4) the comparison window's magic pen controls moved from the
+top toolbar into a right-hand sidebar panel ("Korekta anonimizacji" +
+"Kategorie danych" checklist) - this touches the toolbar/pane-alignment
+work from earlier the same day, so needs care not to regress the pixel
+alignment or the save-button-clipping fix. Reference mockups live in
+`pomysly/` (not part of the app, not `.gitignore`d - the user's own
+working reference, left alone unless asked to touch it).
 
 The next candidates, not yet started: (a) relocating the PDF-derived
 `_ANON.txt` companion and `_ANON_REVIEW.pdf` into the internal folder too

@@ -151,7 +151,15 @@ except ImportError:
     )
 
 
-APP_TITLE = "Anonimizer"
+APP_TITLE = "DocShield"
+APP_TAGLINE = "Anonimizuj dokumenty"
+APP_SUBTITLE = "Chroń dane wrażliwe. Szybko, bezpiecznie i lokalnie."
+# A small, deliberately personal touch on the start screen - rendered in
+# a script-style font so it reads as a handwritten note, not a generic
+# label (see the app's own design notes in pomysly/).
+APP_PERSONAL_NOTE = "Twoje dokumenty. Tylko u Ciebie."
+SCRIPT_FONT_FAMILY = "Segoe Script"
+APP_ICON_PATH = Path(__file__).resolve().parent.parent / "assets" / "icon.png"
 MANUAL_REVIEW_WARNING = (
     "Wymagany jest ręczny przegląd przed użyciem lub udostępnieniem wyniku."
 )
@@ -203,7 +211,7 @@ SUPPORTED_EXTENSIONS = (
     ".tif",
     ".tiff",
 )
-DEFAULT_OUTPUT_SUBDIR_NAME = "Anonimizer - wyniki"
+DEFAULT_OUTPUT_SUBDIR_NAME = "DocShield - wyniki"
 
 def default_output_directory() -> Path:
     """Return the default output folder under the user's Documents folder."""
@@ -961,9 +969,16 @@ def restrict_review_items_to_batch(
 COLOR_BG = "#F7F9FC"
 COLOR_CARD = "#FFFFFF"
 COLOR_BORDER = "#D7DEEA"
-COLOR_ACCENT = "#2F80ED"
-COLOR_ACCENT_HOVER = "#2568C4"
-COLOR_ACCENT_SOFT = "#E8F0FE"
+# Two blues, deliberately distinct: a dark navy/indigo for brand identity
+# (sidebar, logo mark, big trust moments) and a brighter indigo-blue for
+# interactive accents (buttons, links, active state) - the design brief
+# calls for "granat/indygo jako kolor główny" plus a separate accent,
+# not one blue doing both jobs.
+COLOR_PRIMARY = "#16265C"
+COLOR_PRIMARY_SOFT = "#E9ECF8"
+COLOR_ACCENT = "#3D5AFE"
+COLOR_ACCENT_HOVER = "#2F45D6"
+COLOR_ACCENT_SOFT = "#E8EAFE"
 COLOR_TEXT = "#1A2333"
 COLOR_TEXT_MUTED = "#5B6472"
 COLOR_OK = "#27AE60"
@@ -1113,6 +1128,9 @@ class AnonymizerApp:
         self.export_button: ctk.CTkButton | None = None
 
         self.active_screen = "start"
+        self._nav_buttons: dict[str, ctk.CTkButton] = {}
+        self._app_icon_photo: ImageTk.PhotoImage | None = None
+        self._sidebar_badge_image: ctk.CTkImage | None = None
         self.environment_items: list | None = None
         self.environment_installing: set[str] = set()
 
@@ -1150,55 +1168,144 @@ class AnonymizerApp:
             return None
         return candidate
 
+    def _load_app_icon(self, window: tk.Misc) -> None:
+        """Set the window/taskbar icon from the bundled asset, if present.
+
+        Never fatal: a missing or unreadable icon file must never stop
+        the app from opening. iconphoto() needs a live PhotoImage kept
+        somewhere for as long as the window exists, or Tk garbage-collects
+        it and the icon silently reverts - self._app_icon_photo holds
+        that reference.
+        """
+        if not APP_ICON_PATH.exists():
+            return
+        try:
+            icon_image = Image.open(APP_ICON_PATH)
+            self._app_icon_photo = ImageTk.PhotoImage(icon_image)
+            window.iconphoto(True, self._app_icon_photo)
+        except (OSError, tk.TclError):
+            pass
+
     def _build_shell(self) -> None:
         self.root.title(APP_TITLE)
         self.root.geometry(WINDOW_DEFAULT_SIZE)
         self.root.minsize(WINDOW_MIN_WIDTH, WINDOW_MIN_HEIGHT)
         self.root.configure(fg_color=COLOR_BG)
+        self._load_app_icon(self.root)
 
-        topbar = ctk.CTkFrame(self.root, fg_color="transparent", height=44)
-        topbar.pack(fill="x", padx=20, pady=(14, 0))
+        shell = ctk.CTkFrame(self.root, fg_color="transparent")
+        shell.pack(fill="both", expand=True)
 
-        title_label = ctk.CTkLabel(
-            topbar,
+        self._build_sidebar(shell).pack(side="left", fill="y")
+
+        self.content = ctk.CTkFrame(shell, fg_color="transparent")
+        self.content.pack(side="left", fill="both", expand=True, padx=20, pady=16)
+
+    def _build_sidebar(self, parent: ctk.CTkFrame) -> ctk.CTkFrame:
+        sidebar = ctk.CTkFrame(parent, fg_color=COLOR_CARD, corner_radius=0, width=208)
+        sidebar.pack_propagate(False)
+
+        brand_row = ctk.CTkFrame(sidebar, fg_color="transparent")
+        brand_row.pack(fill="x", padx=18, pady=(22, 28))
+        if APP_ICON_PATH.exists():
+            try:
+                badge_image = Image.open(APP_ICON_PATH)
+                badge = ctk.CTkImage(light_image=badge_image, size=(32, 32))
+                self._sidebar_badge_image = badge
+                ctk.CTkLabel(brand_row, image=badge, text="").pack(side="left", padx=(0, 8))
+            except (OSError, tk.TclError):
+                pass
+        brand_text_col = ctk.CTkFrame(brand_row, fg_color="transparent")
+        brand_text_col.pack(side="left")
+        ctk.CTkLabel(
+            brand_text_col,
             text=APP_TITLE,
             font=ctk.CTkFont(family=FONT_FAMILY, size=16, weight="bold"),
             text_color=COLOR_TEXT,
-        )
-        title_label.pack(side="left")
-
-        settings_button = ctk.CTkButton(
-            topbar,
-            text="\u2699",
-            width=34,
-            height=34,
-            corner_radius=17,
-            fg_color="transparent",
-            hover_color=COLOR_ICON_IDLE,
+        ).pack(anchor="w")
+        ctk.CTkLabel(
+            brand_text_col,
+            text="Anonimizator dokumentów",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
             text_color=COLOR_TEXT_MUTED,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=16),
-            command=self.open_settings,
-        )
-        settings_button.pack(side="right")
-        IconTooltip(settings_button, "Ustawienia")
+        ).pack(anchor="w")
 
-        history_button = ctk.CTkButton(
-            topbar,
-            text="\U0001f553 Historia",
-            width=100,
-            height=34,
-            corner_radius=8,
-            fg_color="transparent",
-            hover_color=COLOR_ICON_IDLE,
+        nav_col = ctk.CTkFrame(sidebar, fg_color="transparent")
+        nav_col.pack(fill="x", padx=10)
+        self._nav_buttons = {}
+        nav_items = (
+            ("start", "\U0001f4c4", "Anonimizacja", self.show_start_screen, None),
+            (
+                "history",
+                "\U0001f553",
+                "Historia",
+                self.show_history_screen,
+                "Wcześniej przetworzone foldery",
+            ),
+            ("settings", "⚙", "Ustawienia", self.open_settings, None),
+        )
+        for key, glyph, label, command, tooltip in nav_items:
+            button = ctk.CTkButton(
+                nav_col,
+                text=f"{glyph}   {label}",
+                anchor="w",
+                height=38,
+                corner_radius=8,
+                fg_color="transparent",
+                hover_color=COLOR_ICON_IDLE,
+                text_color=COLOR_TEXT_MUTED,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=13),
+                command=command,
+            )
+            button.pack(fill="x", pady=(0, 4))
+            if tooltip:
+                IconTooltip(button, tooltip)
+            self._nav_buttons[key] = button
+
+        # Empty expanding spacer pushes the trust badge to the bottom.
+        ctk.CTkFrame(sidebar, fg_color="transparent").pack(fill="both", expand=True)
+
+        trust_card = ctk.CTkFrame(sidebar, fg_color=COLOR_BG, corner_radius=10)
+        trust_card.pack(fill="x", padx=14, pady=16)
+        ctk.CTkLabel(
+            trust_card,
+            text="\U0001f512 Przetwarzanie lokalne",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11, weight="bold"),
+            text_color=COLOR_TEXT,
+            anchor="w",
+        ).pack(fill="x", padx=12, pady=(10, 2))
+        ctk.CTkLabel(
+            trust_card,
+            text="Pliki nie opuszczają\ntwojego komputera.",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
             text_color=COLOR_TEXT_MUTED,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
-            command=self.show_history_screen,
-        )
-        history_button.pack(side="right", padx=(0, 8))
-        IconTooltip(history_button, "Wcześniej przetworzone foldery")
+            justify="left",
+            anchor="w",
+        ).pack(fill="x", padx=12, pady=(0, 10))
 
-        self.content = ctk.CTkFrame(self.root, fg_color="transparent")
-        self.content.pack(fill="both", expand=True, padx=20, pady=16)
+        self._update_sidebar_active_state()
+        return sidebar
+
+    def _update_sidebar_active_state(self) -> None:
+        """Highlight whichever sidebar item the current screen belongs to.
+
+        Processing and review are steps of the same anonymization flow
+        "Anonimizacja" was clicked to start, not destinations of their
+        own, so both map back to that same nav item. "Ustawienia" opens
+        a modal rather than swapping self.content, so it has no
+        persistent active state to show - it stays a plain action button.
+        """
+        if not self._nav_buttons:
+            return
+        active_key = "history" if self.active_screen == "history" else "start"
+        for key, button in self._nav_buttons.items():
+            if key == "settings":
+                continue
+            is_active = key == active_key
+            button.configure(
+                fg_color=COLOR_ACCENT_SOFT if is_active else "transparent",
+                text_color=COLOR_ACCENT if is_active else COLOR_TEXT_MUTED,
+            )
 
     def _clear_content(self) -> None:
         for widget in self.content.winfo_children():
@@ -1468,7 +1575,33 @@ class AnonymizerApp:
 
     def show_start_screen(self) -> None:
         self.active_screen = "start"
+        self._update_sidebar_active_state()
         self._clear_content()
+
+        header_row = ctk.CTkFrame(self.content, fg_color="transparent")
+        header_row.pack(fill="x", pady=(0, 16))
+        heading_col = ctk.CTkFrame(header_row, fg_color="transparent")
+        heading_col.pack(side="left")
+        ctk.CTkLabel(
+            heading_col,
+            text=APP_TAGLINE,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=22, weight="bold"),
+            text_color=COLOR_TEXT,
+        ).pack(anchor="w")
+        ctk.CTkLabel(
+            heading_col,
+            text=APP_SUBTITLE,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            text_color=COLOR_TEXT_MUTED,
+        ).pack(anchor="w", pady=(2, 0))
+        # A small, deliberately personal touch - see APP_PERSONAL_NOTE's
+        # own docstring-style comment at its definition for why.
+        ctk.CTkLabel(
+            header_row,
+            text=APP_PERSONAL_NOTE,
+            font=ctk.CTkFont(family=SCRIPT_FONT_FAMILY, size=18),
+            text_color=COLOR_ACCENT,
+        ).pack(side="right", anchor="n", padx=(10, 4))
 
         self._build_status_banner(self.content)
 
@@ -1704,6 +1837,7 @@ class AnonymizerApp:
 
     def show_history_screen(self) -> None:
         self.active_screen = "history"
+        self._update_sidebar_active_state()
         self._clear_content()
         self.recent_folders = load_recent_folders(self.history_config_path)
 
@@ -1823,6 +1957,7 @@ class AnonymizerApp:
 
     def show_processing_screen(self) -> None:
         self.active_screen = "processing"
+        self._update_sidebar_active_state()
         self._clear_content()
 
         wrapper = ctk.CTkFrame(self.content, fg_color="transparent")
@@ -1960,6 +2095,7 @@ class AnonymizerApp:
 
     def show_review_screen(self) -> None:
         self.active_screen = "review"
+        self._update_sidebar_active_state()
         self._clear_content()
 
         header = ctk.CTkFrame(self.content, fg_color="transparent")
