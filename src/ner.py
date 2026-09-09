@@ -210,6 +210,26 @@ def _spacy_module():
         return None
 
 
+def check_ner_model_installed(model_name: str = DEFAULT_NER_MODEL) -> str:
+    """Cheaply report NER availability without loading the model.
+
+    Unlike prepare_ner_context() (which actually loads the spaCy pipeline
+    into memory - real, non-trivial latency), this only checks whether the
+    spaCy library and the model package are importable, via
+    importlib.util.find_spec. Safe to call on every app startup.
+    """
+    if _spacy_module() is None:
+        return NER_STATUS_DEPENDENCY_MISSING
+    safe_model_name = _safe_model_name(model_name)
+    try:
+        import importlib.util
+
+        found = importlib.util.find_spec(safe_model_name) is not None
+    except (ImportError, ValueError, ModuleNotFoundError):
+        found = False
+    return NER_STATUS_AVAILABLE if found else NER_STATUS_MODEL_MISSING
+
+
 def _safe_model_name(model_name: object) -> str:
     text = str(model_name or DEFAULT_NER_MODEL).strip()
     if not text:

@@ -4,8 +4,10 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import time
 import tkinter as tk
+import webbrowser
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
@@ -27,6 +29,13 @@ try:
         anonymize_batch,
     )
     from .audit import AUDIT_CATEGORY_ORDER
+    from .environment_check import (
+        ENV_ITEM_NER,
+        INSTALL_ACTION_OPEN_URL,
+        INSTALL_ACTION_SPACY_MODEL,
+        check_environment,
+        install_ner_model,
+    )
     from .file_readers import read_docx_file, read_txt_file
     from .file_writers import internal_artifacts_dir
     from .llm_review import LLM_STATUS_AVAILABLE, list_installed_models
@@ -80,6 +89,13 @@ except ImportError:
         anonymize_batch,
     )
     from audit import AUDIT_CATEGORY_ORDER
+    from environment_check import (
+        ENV_ITEM_NER,
+        INSTALL_ACTION_OPEN_URL,
+        INSTALL_ACTION_SPACY_MODEL,
+        check_environment,
+        install_ner_model,
+    )
     from file_readers import read_docx_file, read_txt_file
     from file_writers import internal_artifacts_dir
     from llm_review import LLM_STATUS_AVAILABLE, list_installed_models
@@ -1089,11 +1105,19 @@ class AnonymizerApp:
         self.review_summary_label: ctk.CTkLabel | None = None
         self.export_button: ctk.CTkButton | None = None
 
+        self.active_screen = "start"
+        self.environment_items: list | None = None
+        self.environment_banner_dismissed = False
+        self.environment_installing: set[str] = set()
+
         ctk.set_appearance_mode("light")
         ctk.set_default_color_theme("blue")
 
         self._build_shell()
         self.show_start_screen()
+        # Off the GUI thread: importing spaCy alone costs ~1-2s, and this
+        # must never make the window feel slow to open.
+        self.root.after(150, self._start_environment_check)
 
     # ------------------------------------------------------------------
     # Shell
@@ -1162,11 +1186,163 @@ class AnonymizerApp:
             widget.destroy()
 
     # ------------------------------------------------------------------
+    # Startup environment check (NER model / OCR / local LLM availability)
+    # ------------------------------------------------------------------
+
+    def _start_environment_check(self) -> None:
+        def worker() -> None:
+            items = check_environment()
+            self.root.after(0, lambda: self._on_environment_check_done(items))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_environment_check_done(self, items: list) -> None:
+        self.environment_items = items
+        if self.active_screen == "start":
+            self.show_start_screen()
+
+    def _dismiss_environment_banner(self) -> None:
+        self.environment_banner_dismissed = True
+        if self.active_screen == "start":
+            self.show_start_screen()
+
+    def _install_ner_model_clicked(self, model_name: str) -> None:
+        if ENV_ITEM_NER in self.environment_installing:
+            return
+        self.environment_installing.add(ENV_ITEM_NER)
+        if self.active_screen == "start":
+            self.show_start_screen()
+
+        def worker() -> None:
+            install_ner_model(model_name)
+            self.root.after(0, self._on_ner_install_done)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_ner_install_done(self) -> None:
+        self.environment_installing.discard(ENV_ITEM_NER)
+        # Re-run the full check rather than assuming success - confirms the
+        # install actually worked instead of just hiding the button.
+        self._start_environment_check()
+
+    def _build_environment_banner(self, parent: ctk.CTkFrame) -> None:
+        if self.environment_banner_dismissed or self.environment_items is None:
+            return
+        issues = [item for item in self.environment_items if not item.ok]
+        if not issues:
+            return
+
+        card = ctk.CTkFrame(
+            parent,
+            fg_color=COLOR_WARNING_SOFT,
+            corner_radius=10,
+            border_width=1,
+            border_color=COLOR_WARNING,
+        )
+        card.pack(fill="x", pady=(0, 12))
+        inner = ctk.CTkFrame(card, fg_color="transparent")
+        inner.pack(fill="x", padx=14, pady=10)
+
+        header_row = ctk.CTkFrame(inner, fg_color="transparent")
+        header_row.pack(fill="x")
+        ctk.CTkLabel(
+            header_row,
+            text="⚠ Niektóre funkcje mogą nie działać w pełni:",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
+            text_color=COLOR_WARNING_TEXT,
+            anchor="w",
+        ).pack(side="left")
+        ctk.CTkButton(
+            header_row,
+            text="✕",
+            width=24,
+            height=24,
+            corner_radius=12,
+            fg_color="transparent",
+            hover_color=COLOR_ICON_IDLE,
+            text_color=COLOR_WARNING_TEXT,
+            command=self._dismiss_environment_banner,
+        ).pack(side="right")
+
+        for item in issues:
+            row = ctk.CTkFrame(inner, fg_color="transparent")
+            row.pack(fill="x", pady=(8, 0))
+            text_col = ctk.CTkFrame(row, fg_color="transparent")
+            text_col.pack(side="left", fill="x", expand=True)
+            ctk.CTkLabel(
+                text_col,
+                text=item.label_pl,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=11, weight="bold"),
+                text_color=COLOR_TEXT,
+                anchor="w",
+            ).pack(fill="x")
+            ctk.CTkLabel(
+                text_col,
+                text=item.detail_pl,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+                text_color=COLOR_TEXT_MUTED,
+                anchor="w",
+                wraplength=520,
+                justify="left",
+            ).pack(fill="x")
+
+            if item.item in self.environment_installing:
+                ctk.CTkLabel(
+                    row,
+                    text="Instaluję...",
+                    font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+                    text_color=COLOR_TEXT_MUTED,
+                ).pack(side="right", padx=(8, 0))
+            elif item.install_action == INSTALL_ACTION_SPACY_MODEL:
+                ctk.CTkButton(
+                    row,
+                    text="Zainstaluj model NER",
+                    width=160,
+                    height=26,
+                    corner_radius=8,
+                    fg_color=COLOR_ACCENT,
+                    hover_color=COLOR_ACCENT_HOVER,
+                    font=ctk.CTkFont(family=FONT_FAMILY, size=10, weight="bold"),
+                    command=lambda target=item.install_target: self._install_ner_model_clicked(
+                        target
+                    ),
+                ).pack(side="right", padx=(8, 0))
+            elif item.install_action == INSTALL_ACTION_OPEN_URL:
+                ctk.CTkButton(
+                    row,
+                    text="Pobierz",
+                    width=100,
+                    height=26,
+                    corner_radius=8,
+                    fg_color=COLOR_ICON_IDLE,
+                    hover_color=COLOR_BORDER,
+                    text_color=COLOR_TEXT,
+                    font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+                    command=lambda url=item.install_target: webbrowser.open(url),
+                ).pack(side="right", padx=(8, 0))
+
+        ctk.CTkButton(
+            inner,
+            text="Sprawdź ponownie",
+            width=140,
+            height=24,
+            corner_radius=8,
+            fg_color="transparent",
+            hover_color=COLOR_ICON_IDLE,
+            text_color=COLOR_TEXT_MUTED,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+            command=self._start_environment_check,
+        ).pack(anchor="e", pady=(10, 0))
+
+    # ------------------------------------------------------------------
     # Start screen (drag & drop)
     # ------------------------------------------------------------------
 
     def show_start_screen(self) -> None:
+        self.active_screen = "start"
         self._clear_content()
+
+        self._build_environment_banner(self.content)
 
         drop_frame = ctk.CTkFrame(
             self.content,
@@ -1399,6 +1575,7 @@ class AnonymizerApp:
     # ------------------------------------------------------------------
 
     def show_history_screen(self) -> None:
+        self.active_screen = "history"
         self._clear_content()
         self.recent_folders = load_recent_folders(self.history_config_path)
 
@@ -1517,6 +1694,7 @@ class AnonymizerApp:
     # ------------------------------------------------------------------
 
     def show_processing_screen(self) -> None:
+        self.active_screen = "processing"
         self._clear_content()
 
         wrapper = ctk.CTkFrame(self.content, fg_color="transparent")
@@ -1670,6 +1848,7 @@ class AnonymizerApp:
         self.review_batch_summary_names = workspace.batch_summary_names
 
     def show_review_screen(self) -> None:
+        self.active_screen = "review"
         self._clear_content()
 
         header = ctk.CTkFrame(self.content, fg_color="transparent")

@@ -658,6 +658,38 @@ unrelated previous batch. Also renamed the "Nowy batch" button (English
 word left over in Polish UI, flagged by the user) to "Nowe pliki". Full
 suite: 326 tests.
 
+Direct follow-up from that same pilot session: the user asked for a
+startup verification pass over optional local dependencies (NER model,
+OCR engine, local LLM) - the app should still open even if something is
+missing, but say clearly what won't work and offer a one-click fix. New
+`src/environment_check.py` holds three side-effect-free, deliberately
+cheap checks (never load a full spaCy pipeline, never run real OCR, never
+block long on a slow local network call): `check_ner_environment()` uses
+a new `ner.check_ner_model_installed()` that checks the model package via
+`importlib.util.find_spec` instead of `prepare_ner_context()`'s actual
+`.load()` (measured ~1.5s vs ~2.7s locally, and avoids loading a pipeline
+into memory just to throw it away) - still slow enough (spaCy's own
+import) that `AnonymizerApp` runs the whole check on a background
+`threading.Thread` scheduled via `root.after(150, ...)` rather than
+during `__init__`, so opening the window is never delayed; results are
+marshaled back to the GUI thread with `root.after(0, ...)`.
+`check_ocr_environment()`/`check_llm_environment()` reuse the existing
+`detect_ocr_support()`/`list_installed_models()` as-is. A new dismissible
+card on the start screen (`_build_environment_banner`, tracked via a new
+`self.active_screen` attribute so a background check completing while the
+user has since navigated elsewhere doesn't rebuild the wrong screen) lists
+each missing piece in plain Polish with a fix button: the spaCy model gets
+a real one-click install (`install_ner_model()` runs
+`python -m spacy download <model>` in the app's own venv via
+`sys.executable` - a contained package download, no admin rights, safe to
+automate), while Tesseract/Ollama - external system installers this app
+cannot safely run unattended - get a "Pobierz" button that opens their
+official download page in the browser instead. Verified functionally:
+screenshots confirm the banner is absent before the background check
+completes, renders correctly listing exactly the missing pieces once it
+does, and the dismiss button correctly hides it. Full suite: 339 tests,
+lint unchanged against baseline for every touched file.
+
 ## What Exists
 
 - Repository structure.
@@ -1035,8 +1067,9 @@ python -m unittest discover -s tests
 
 Stage 26: magic pen manual PDF redaction editor (and its first-pilot
 follow-up: a batch-error review-screen banner plus a real `.gitignore`
-collision-numbering gap fix), a same-day self-review fixing a toggle
-bug/unsafe overwrite/stale cursor, a fix for a `fitz`
+collision-numbering gap fix, then a startup environment check for
+optional dependencies with one-click fixes), a same-day self-review
+fixing a toggle bug/unsafe overwrite/stale cursor, a fix for a `fitz`
 deprecation warning the earlier Stage 25.1 fix missed, a resizable/
 maximizable comparison window with independent or linked per-pane zoom, a
 follow-up fixing the maximize button itself plus a padlock-based,
@@ -1047,7 +1080,7 @@ a new auto-open-result Settings option), and moving internal/diagnostic
 output files into a hidden `_wewnetrzne` output subfolder.
 
 ```text
-08fb4c6 Surface batch errors on the review screen; fix a real .gitignore gap
+5568499 Add startup environment check for optional dependencies (NER/OCR/LLM)
 ```
 
 ## Next Logical Step
