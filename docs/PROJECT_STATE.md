@@ -550,6 +550,10 @@ new pure `auto_open_output_names()` (batch order in,
 capped at `AUTO_OPEN_ALL_MAX = 10` for `_ALL`) called from
 `start_anonymize()` via `_auto_open_batch_results()`, resolving each
 chosen item's real file through the existing `preferred_review_output_path()`.
+(This whole `auto_open_mode` system was itself replaced later - see the
+"Pilot-testing bug fix" paragraph further below - once real use showed
+opening right after anonymizing, before any review, was the wrong
+moment.)
 Verified functionally (PanedWindow with 2 panes exists; a plain LMB drag
 adds a pending rect and a plain RMB click toggles a removal with no mode
 ever set; `_close()` destroys the window without raising;
@@ -707,6 +711,23 @@ silently miss both the startup warning and this new status dot - a
 maintenance-note docstring was added directly on that function as the
 explicit reminder, since a comment living right where the list is defined
 is far more likely to be seen than a rule living only in this file.
+
+Pilot-testing bug fix: the result file was auto-opening right after a
+batch finished, before the user had looked at it in the review screen at
+all - confusing when the file still needed manual review, edits, or
+rejection. The `auto_open_mode` system from the earlier feedback batch
+above (`AUTO_OPEN_MODE_FIRST/_LAST/_ALL/_NONE`, `auto_open_output_names()`,
+`_auto_open_batch_results()`) is removed entirely and replaced with a
+single `auto_open_on_approve` boolean: `set_review_status()` now calls a
+new `_open_on_approve(item)` exactly when the status transitions to
+`REVIEW_STATUS_APPROVED`, opening that item's real output via
+`preferred_review_output_path()` only if the setting is on. The Settings
+dialog's four-way radio choice is replaced with one toggle ("Otwórz
+automatycznie po zatwierdzeniu"). Verified functionally end to end with a
+scripted run driving the real GUI: nothing opens right after
+anonymizing, the file opens exactly when "Zatwierdzony" is clicked, and
+toggling the setting off correctly suppresses the open-on-approve too.
+Full suite: 335 tests, lint unchanged against baseline.
 
 ## What Exists
 
@@ -1095,11 +1116,16 @@ follow-up fixing the maximize button itself plus a padlock-based,
 tooltip-and-hint-backed redesign of the zoom-link icon, a further round
 of hands-on-testing feedback (window focus in/out, a draggable pane
 splitter, modeless LMB/RMB magic pen interaction, a more visible legend,
-a new auto-open-result Settings option), and moving internal/diagnostic
-output files into a hidden `_wewnetrzne` output subfolder.
+a new auto-open-result Settings option), moving internal/diagnostic
+output files into a hidden `_wewnetrzne` output subfolder, and, from
+first pilot use, a batch-error review-screen banner, a `.gitignore`
+collision-numbering gap fix, a startup environment check with one-click
+fixes and status dots in Settings, and a fix so the result file opens
+only when the user clicks "Zatwierdzony" instead of right after
+anonymizing.
 
 ```text
-43a8ceb Add subtle status dots for NER/OCR/LLM in Settings
+f5232b0 Open result on approve, not right after anonymizing
 ```
 
 ## Next Logical Step
