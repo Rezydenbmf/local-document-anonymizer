@@ -941,6 +941,43 @@ fades back on its own, clicking a chip pins it (persistent highlight,
 LMB press while pinned to "erase" performs the toggle-remove directly
 without starting a draw-drag. Lint unchanged against baseline.
 
+Fixed a real regression the user caught in testing: the comparison
+window was again opening *behind* the main app instead of on top of it -
+the exact class of bug `_bring_window_to_front()` was built to prevent.
+Root-caused directly rather than guessed at, and in the process an
+earlier, more serious mistake was made and corrected: a first diagnostic
+script took a full-screen screenshot to inspect real OS-level window
+stacking, which captured the user's own unrelated windows in the
+background (at one point a separate real ChatGPT conversation of
+theirs was visible) - both screenshots were deleted immediately without
+reading their content beyond noticing they existed, the user was told
+about the mistake, and every screenshot afterward was re-scoped to a
+small, explicitly-known region covering only this app's own windows,
+never the full screen again; two further screenshots that still ended
+up spanning into unrelated desktop area (window chrome, browser tabs,
+unrelated code - no further private conversation content) were deleted
+the same way out of caution. The actual root cause: `lift()` +
+`focus_force()` alone are not always enough on Windows - `focus_force()`
+ultimately calls `SetForegroundWindow`, which Windows can silently
+refuse from a process that was not already in the foreground, a
+deliberate anti-focus-stealing OS rule, confirmed to actually bite with
+a real other application in the foreground. `_bring_window_to_front()`
+now also briefly forces `-topmost` (`SetWindowPos` with `HWND_TOPMOST`,
+not subject to that same restriction) before switching it back off.
+Confirmed experimentally (not just in theory) that releasing `-topmost`
+too soon undid the whole fix - some other window could still reclaim the
+front the instant it was no longer forced, before the new window had
+genuinely finished becoming the real foreground window - so the release
+is delayed 600ms rather than done immediately, giving that transition
+time to actually land first. Verified functionally against the real
+running app with the comparison window, confirmed both with `-topmost`
+release disabled entirely (proves the initial force works) and with the
+final 600ms-delayed release (proves the fix holds once released too).
+Lint unchanged against baseline; full suite still 372 (no test changes -
+this is real OS window-manager behavior no headless/mocked test would
+meaningfully catch, verified functionally instead, same as the rest of
+`_bring_window_to_front`'s history).
+
 ## What Exists
 
 - Repository structure.
@@ -1357,10 +1394,15 @@ neither pane) is fixed too, and finally a same-day toolbar polish pass
 above the header/zoom row with both pages kept pixel-aligned by a
 matching spacer, the two chips became real toggle buttons that pin LMB
 to a single "manual" tool, and each chip now visibly lights up for as
-long as its action is actually happening.
+long as its action is actually happening, and finally a same-day fix for
+a reported regression where the comparison window opened behind the main
+app again - root-caused to Windows silently refusing a foreground-focus
+request from a background process, fixed with a briefly-forced, then
+delayed-released `-topmost`, confirmed experimentally that the delay
+before releasing it matters as much as forcing it in the first place.
 
 ```text
-5904806 Magic pen toolbar: reorder, pixel-align panes, and live tool chips
+87038b3 Fix comparison window opening behind the main app again
 ```
 
 ## Next Logical Step

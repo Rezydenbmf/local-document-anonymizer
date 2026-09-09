@@ -426,11 +426,28 @@ def _bring_window_to_front(window: tk.Misc) -> None:
 
     Tk/CustomTkinter windows on Windows can otherwise appear behind
     whatever window already had focus, which reads as broken rather than
-    just unfocused.
+    just unfocused. lift() + focus_force() alone are not always enough:
+    Windows can silently refuse a foreground-focus request
+    (SetForegroundWindow, what focus_force() ultimately calls) from a
+    process that was not already in the foreground - a deliberate
+    anti-focus-stealing OS rule. Briefly forcing "-topmost" uses a
+    different call (SetWindowPos with HWND_TOPMOST) that is not subject
+    to that same restriction, so it reliably wins the Z-order fight even
+    when focus_force() alone would silently do nothing.
+
+    Confirmed directly (not just in theory): releasing "-topmost" too
+    soon after setting it undoes the whole fix - the window manager can
+    still let some other window reclaim the front the moment it is no
+    longer forced, before this one has genuinely finished becoming the
+    real foreground window. 600ms gives that transition enough time to
+    actually land before "-topmost" is switched back off, so the window
+    does not end up pinned above everything else forever either.
     """
     window.deiconify()
     window.lift()
+    window.attributes("-topmost", True)
     window.focus_force()
+    window.after(600, lambda: window.attributes("-topmost", False))
 
 
 def format_counters(counters: dict[str, int]) -> str:
