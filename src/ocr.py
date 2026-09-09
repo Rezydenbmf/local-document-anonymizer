@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import shutil
+import sys
 from dataclasses import dataclass
 from importlib import import_module
 from io import BytesIO
@@ -141,6 +143,56 @@ def _is_tesseract_not_found(error: Exception, pytesseract_module: Any) -> bool:
     )
 
 
+# The official Windows installer does not reliably add itself to PATH -
+# confirmed on a real pilot machine: the binary was present at the default
+# location but no PATH entry existed at all (see docs/PROJECT_STATE.md).
+# These are the only two locations the installer itself offers, so falling
+# back to them covers that case without any manual PATH editing.
+_TESSERACT_WINDOWS_CANDIDATES = (
+    r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+    r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+)
+
+
+def _resolve_tesseract_cmd() -> str | None:
+    """Find a Tesseract executable even when it isn't on PATH.
+
+    Returns None only when nothing is found anywhere - callers should
+    treat that the same as "not installed".
+    """
+    found_on_path = shutil.which("tesseract")
+    if found_on_path:
+        return found_on_path
+    if sys.platform != "win32":
+        return None
+    for candidate in _TESSERACT_WINDOWS_CANDIDATES:
+        if Path(candidate).is_file():
+            return candidate
+    return None
+
+
+def _configure_tesseract_cmd(pytesseract_module: Any) -> None:
+    """Point pytesseract at a discovered Tesseract binary, if needed.
+
+    Cheap and idempotent: only overrides pytesseract's configured command
+    when the current one isn't resolvable as-is, so it never clobbers a
+    path something else already configured correctly. `getattr(...,
+    "pytesseract", pytesseract_module)` tolerates simplified test doubles
+    that don't mirror the real package's `pytesseract.pytesseract`
+    submodule structure.
+    """
+    config_target = getattr(pytesseract_module, "pytesseract", pytesseract_module)
+    current_cmd = getattr(config_target, "tesseract_cmd", "tesseract")
+    if shutil.which(current_cmd):
+        return
+    resolved = _resolve_tesseract_cmd()
+    if resolved:
+        try:
+            config_target.tesseract_cmd = resolved
+        except AttributeError:
+            pass
+
+
 def detect_ocr_support(input_type: str = OCR_INPUT_TYPE_IMAGE) -> dict[str, object]:
     """Detect optional local OCR dependencies without raising on absence."""
     if input_type not in (OCR_INPUT_TYPE_IMAGE, OCR_INPUT_TYPE_PDF):
@@ -169,6 +221,7 @@ def detect_ocr_support(input_type: str = OCR_INPUT_TYPE_IMAGE) -> dict[str, obje
             warning=OCR_WARNING_DEPENDENCY_MISSING,
         )
 
+    _configure_tesseract_cmd(pytesseract_module)
     try:
         pytesseract_module.get_tesseract_version()
     except Exception as error:

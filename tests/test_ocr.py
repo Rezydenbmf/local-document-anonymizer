@@ -10,6 +10,7 @@ from unittest.mock import patch
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
+import ocr
 from anonymizer import anonymize_batch, anonymize_file, anonymize_image_file
 from ocr import (
     OCR_INPUT_TYPE_IMAGE,
@@ -119,6 +120,36 @@ class OcrFoundationTests(unittest.TestCase):
 
         self.assertEqual(status["status"], OCR_STATUS_ENGINE_NOT_FOUND)
         self.assertEqual(status["warning"], OCR_WARNING_ENGINE_NOT_FOUND)
+
+    def test_detection_succeeds_via_fallback_when_installed_but_not_on_path(self) -> None:
+        # The exact real-world case that motivated the fallback: Tesseract
+        # is genuinely installed, just not discoverable through PATH.
+        class FakePytesseract:
+            class pytesseract:
+                tesseract_cmd = "tesseract"
+
+            @staticmethod
+            def get_tesseract_version():
+                if FakePytesseract.pytesseract.tesseract_cmd == "tesseract":
+                    raise FileNotFoundError("tesseract")
+                return "5.5.3"
+
+        with (
+            patch("ocr._pytesseract_module", return_value=FakePytesseract),
+            patch("ocr._image_module", return_value=object()),
+            patch("ocr.shutil.which", return_value=None),
+            patch(
+                "ocr._resolve_tesseract_cmd",
+                return_value="C:\\Program Files\\Tesseract-OCR\\tesseract.exe",
+            ),
+        ):
+            status = detect_ocr_support(OCR_INPUT_TYPE_IMAGE)
+
+        self.assertEqual(status["status"], OCR_STATUS_AVAILABLE)
+        self.assertEqual(
+            FakePytesseract.pytesseract.tesseract_cmd,
+            "C:\\Program Files\\Tesseract-OCR\\tesseract.exe",
+        )
 
     def test_image_ocr_path_uses_existing_anonymization_pipeline_safely(self) -> None:
         raw_ocr_text = "Contact safe@example.test on 2026-06-01."
@@ -261,6 +292,102 @@ class OcrFoundationTests(unittest.TestCase):
             self.assertIn("error: OCR unavailable for image-based input", summary_text)
             self.assertIn("OCR status: dependency_missing", summary_text)
             self.assertNotIn(str(source_dir), summary_text)
+
+
+class ResolveTesseractCmdTests(unittest.TestCase):
+    """Fallback discovery for a Tesseract install that isn't on PATH -
+    the real-world case that motivated this: the official Windows
+    installer doesn't reliably add itself to PATH."""
+
+    def test_prefers_path_when_resolvable(self) -> None:
+        with patch("ocr.shutil.which", return_value="C:\\on\\path\\tesseract.exe"):
+            self.assertEqual(ocr._resolve_tesseract_cmd(), "C:\\on\\path\\tesseract.exe")
+
+    def test_falls_back_to_default_windows_install_location(self) -> None:
+        def fake_is_file(path):
+            return str(path) == ocr._TESSERACT_WINDOWS_CANDIDATES[0]
+
+        with (
+            patch("ocr.shutil.which", return_value=None),
+            patch("ocr.sys.platform", "win32"),
+            patch.object(Path, "is_file", fake_is_file, create=True),
+        ):
+            self.assertEqual(
+                ocr._resolve_tesseract_cmd(), ocr._TESSERACT_WINDOWS_CANDIDATES[0]
+            )
+
+    def test_returns_none_when_nothing_found(self) -> None:
+        with (
+            patch("ocr.shutil.which", return_value=None),
+            patch("ocr.sys.platform", "win32"),
+            patch.object(Path, "is_file", return_value=False),
+        ):
+            self.assertIsNone(ocr._resolve_tesseract_cmd())
+
+    def test_no_fallback_search_on_non_windows(self) -> None:
+        with (
+            patch("ocr.shutil.which", return_value=None),
+            patch("ocr.sys.platform", "linux"),
+        ):
+            self.assertIsNone(ocr._resolve_tesseract_cmd())
+
+
+class ConfigureTesseractCmdTests(unittest.TestCase):
+    def test_leaves_working_command_untouched(self) -> None:
+        class FakePytesseract:
+            tesseract_cmd = "tesseract"
+
+        class FakeModule:
+            pytesseract = FakePytesseract
+
+        with patch("ocr.shutil.which", return_value="C:\\already\\fine\\tesseract.exe"):
+            ocr._configure_tesseract_cmd(FakeModule)
+
+        self.assertEqual(FakePytesseract.tesseract_cmd, "tesseract")
+
+    def test_overrides_with_resolved_fallback_when_not_on_path(self) -> None:
+        class FakePytesseract:
+            tesseract_cmd = "tesseract"
+
+        class FakeModule:
+            pytesseract = FakePytesseract
+
+        with (
+            patch("ocr.shutil.which", return_value=None),
+            patch("ocr._resolve_tesseract_cmd", return_value="C:\\found\\tesseract.exe"),
+        ):
+            ocr._configure_tesseract_cmd(FakeModule)
+
+        self.assertEqual(FakePytesseract.tesseract_cmd, "C:\\found\\tesseract.exe")
+
+    def test_leaves_command_alone_when_nothing_resolvable(self) -> None:
+        class FakePytesseract:
+            tesseract_cmd = "tesseract"
+
+        class FakeModule:
+            pytesseract = FakePytesseract
+
+        with (
+            patch("ocr.shutil.which", return_value=None),
+            patch("ocr._resolve_tesseract_cmd", return_value=None),
+        ):
+            ocr._configure_tesseract_cmd(FakeModule)
+
+        self.assertEqual(FakePytesseract.tesseract_cmd, "tesseract")
+
+    def test_tolerates_test_doubles_without_a_pytesseract_submodule(self) -> None:
+        # detect_ocr_support's own tests pass a bare class with no nested
+        # `.pytesseract` attribute - this must not raise.
+        class FakePytesseract:
+            @staticmethod
+            def get_tesseract_version():
+                raise FileNotFoundError("tesseract")
+
+        with (
+            patch("ocr.shutil.which", return_value=None),
+            patch("ocr._resolve_tesseract_cmd", return_value=None),
+        ):
+            ocr._configure_tesseract_cmd(FakePytesseract)
 
 
 if __name__ == "__main__":
