@@ -1051,6 +1051,32 @@ their content beyond noticing they existed). Full suite: 372 tests (one
 updated for the renamed default folder). Lint unchanged against
 baseline.
 
+Stage 2 of the DocShield redesign, same day: tabs inside the existing
+`SettingsDialog` (`ctk.CTkTabview`), matching what the user specifically
+called out from the mockups as something worth adding. Stays a modal -
+the mockups' single visible settings screenshot showed the "Wykrywanie
+danych" tab's content including an OCR row, while the mockup's own tab
+list also names a separate "OCR i AI" tab; rather than guess at content
+for a fifth tab the reference material never actually shows, the app's
+existing controls were split into four non-overlapping tabs instead:
+**Wykrywanie danych** (a new always-on "Podstawowe wykrywanie" info row -
+the regex/PESEL/NIP/etc. baseline was never previously mentioned
+anywhere in the UI - plus the existing NER toggle, LLM toggle, and OCR
+status row), **Dokumenty PDF** (the existing PDF output format radio
+buttons), **Słownik** (the existing private dictionary file picker), and
+**Ogólne** (the existing auto-open-on-approve toggle). No settings
+control changed behavior, save semantics, or the underlying `*_var`
+wiring - purely a layout reorganization via new `_build_detection_tab` /
+`_build_pdf_tab` / `_build_dictionary_tab` / `_build_general_tab`
+methods, plus one new `_build_static_info_row` helper matching the
+existing toggle/status row visual family for the always-on entry.
+Verified functionally and visually against the real GUI: the dialog
+opens tabbed, switching to the "Słownik" tab programmatically (`.set()`)
+shows that tab's own content correctly. Full suite: 372 tests (no
+behavior changed, so no new tests needed - this was already covered by
+existing Settings-behavior tests, none of which touch layout). Lint
+unchanged against baseline.
+
 ## What Exists
 
 - Repository structure.
@@ -1490,31 +1516,33 @@ page heading plus a small handwritten-style personal note the user
 specifically called out as their favorite element from the mockups, and
 a refined palette (a new dark-navy brand color alongside a
 indigo-shifted interactive accent; the existing status colors were
-already correct and are unchanged). Stages 2-5 (Settings tabs, a
-stat-cards-and-table review screen, and a sidebar tool panel in the
-comparison window) are the next work.
+already correct and are unchanged). Stage 2 (same day): tabs inside the
+existing `SettingsDialog` (Wykrywanie danych / Dokumenty PDF / Słownik /
+Ogólne - four, not the mockup's five, since the reference material never
+actually shows non-overlapping content for a fifth "OCR i AI" tab),
+purely a layout reorganization of existing controls, no behavior change.
+A stat-cards-and-table review screen and a sidebar tool panel in the
+comparison window are the next work.
 
 ```text
-e425537 Rebrand to DocShield: sidebar nav, icon, and refreshed palette
+fd5dfda DocShield Stage 2: tabs inside the Settings dialog
 ```
 
 ## Next Logical Step
 
-**Immediate priority**: continue the DocShield visual redesign, Stages 2-5,
-each its own tested/shipped increment (see the Stage 1 narrative above for
-the full brief and the confirmed scope decisions): (2) tabs inside the
-existing `SettingsDialog` (Wykrywanie danych / Dokumenty PDF / OCR i AI /
-Słownik / Ogólne per the mockups), reorganizing controls that already
-exist rather than adding new ones, staying a modal; (3) the review screen
-redesigned around stat cards (counts by status) plus a data table
-(replacing the current card-list), with bulk select/approve/reject/export
-actions; (4) the comparison window's magic pen controls moved from the
-top toolbar into a right-hand sidebar panel ("Korekta anonimizacji" +
-"Kategorie danych" checklist) - this touches the toolbar/pane-alignment
-work from earlier the same day, so needs care not to regress the pixel
-alignment or the save-button-clipping fix. Reference mockups live in
-`pomysly/` (not part of the app, not `.gitignore`d - the user's own
-working reference, left alone unless asked to touch it).
+**Immediate priority**: continue the DocShield visual redesign (see the
+Stage 1 narrative above for the full brief and the confirmed scope
+decisions). Stages 1 (branding/icon/sidebar/palette) and 2 (Settings
+tabs) are done. Remaining: (3) the review screen redesigned around stat
+cards (counts by status) plus a data table (replacing the current
+card-list), with bulk select/approve/reject/export actions; (4) the
+comparison window's magic pen controls moved from the top toolbar into a
+right-hand sidebar panel ("Korekta anonimizacji" + "Kategorie danych"
+checklist) - this touches the toolbar/pane-alignment work from earlier
+the same day, so needs care not to regress the pixel alignment or the
+save-button-clipping fix. Reference mockups live in `pomysly/` (not part
+of the app, not `.gitignore`d - the user's own working reference, left
+alone unless asked to touch it).
 
 The next candidates, not yet started: (a) relocating the PDF-derived
 `_ANON.txt` companion and `_ANON_REVIEW.pdf` into the internal folder too
