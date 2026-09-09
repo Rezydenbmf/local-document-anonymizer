@@ -30,7 +30,9 @@ try:
     )
     from .audit import AUDIT_CATEGORY_ORDER
     from .environment_check import (
+        ENV_ITEM_LLM,
         ENV_ITEM_NER,
+        ENV_ITEM_OCR,
         INSTALL_ACTION_OPEN_URL,
         INSTALL_ACTION_SPACY_MODEL,
         check_environment,
@@ -90,7 +92,9 @@ except ImportError:
     )
     from audit import AUDIT_CATEGORY_ORDER
     from environment_check import (
+        ENV_ITEM_LLM,
         ENV_ITEM_NER,
+        ENV_ITEM_OCR,
         INSTALL_ACTION_OPEN_URL,
         INSTALL_ACTION_SPACY_MODEL,
         check_environment,
@@ -919,6 +923,16 @@ def format_batch_error_items(batch_result: BatchResult) -> list[tuple[str, str]]
         for result in batch_result.results
         if result.get("status") != "success"
     ]
+
+
+def environment_status_lookup(items: Sequence | None) -> dict[str, bool]:
+    """Return {item_id: ok} from a list of EnvironmentCheckItem, or an
+    empty dict if the background check hasn't completed yet (items is
+    None) - callers should treat a missing key as "not yet known" rather
+    than "unavailable"."""
+    if items is None:
+        return {}
+    return {item.item: item.ok for item in items}
 
 
 def format_review_summary_line(approved_count: int, total_count: int) -> str:
@@ -2290,6 +2304,7 @@ class SettingsDialog:
         self.pdf_mode_var = tk.StringVar(value=app.pdf_output_label)
         self.auto_open_var = tk.StringVar(value=app.auto_open_mode)
         self.sensitive_terms_path = app.sensitive_terms_path
+        self.environment_status = environment_status_lookup(app.environment_items)
 
         self._build()
 
@@ -2322,12 +2337,20 @@ class SettingsDialog:
             "Rozpoznawanie AI (NER)",
             "Wykrywa imiona, firmy i miejsca",
             self.ner_var,
+            status_ok=self.environment_status.get(ENV_ITEM_NER),
         )
         self._build_toggle_section(
             body,
             "Dodatkowa weryfikacja AI (LLM)",
             "Opcjonalne, wymaga lokalnego Ollama",
             self.llm_var,
+            status_ok=self.environment_status.get(ENV_ITEM_LLM),
+        )
+        self._build_status_row(
+            body,
+            "OCR (skany, obrazy)",
+            "Automatyczne, wymaga lokalnego Tesseracta",
+            status_ok=self.environment_status.get(ENV_ITEM_OCR),
         )
 
         dict_section = self._section_frame(body)
@@ -2424,25 +2447,50 @@ class SettingsDialog:
         frame.pack(fill="x", pady=6)
         return frame
 
+    def _build_status_dot(self, parent: ctk.CTkFrame, status_ok: bool | None) -> None:
+        """A small, deliberately subtle status dot - green when the
+        underlying dependency is confirmed available, muted gray when
+        it's confirmed missing, nothing at all while still unknown (the
+        background check hasn't completed yet)."""
+        if status_ok is None:
+            return
+        dot = ctk.CTkLabel(
+            parent,
+            text="●",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+            text_color=COLOR_OK if status_ok else COLOR_ICON_IDLE,
+            width=12,
+        )
+        dot.pack(side="left", padx=(0, 6))
+        IconTooltip(
+            dot,
+            "Dostępne" if status_ok else "Niedostępne - patrz Ustawienia > sprawdzenie środowiska",
+        )
+
     def _build_toggle_section(
         self,
         parent: ctk.CTkFrame,
         title: str,
         subtitle: str,
         variable: tk.BooleanVar,
+        *,
+        status_ok: bool | None = None,
     ) -> None:
         frame = self._section_frame(parent)
         row = ctk.CTkFrame(frame, fg_color="transparent")
         row.pack(fill="x", padx=14, pady=12)
         text_col = ctk.CTkFrame(row, fg_color="transparent")
         text_col.pack(side="left", fill="x", expand=True)
+        title_row = ctk.CTkFrame(text_col, fg_color="transparent")
+        title_row.pack(fill="x")
+        self._build_status_dot(title_row, status_ok)
         ctk.CTkLabel(
-            text_col,
+            title_row,
             text=title,
             font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
             text_color=COLOR_TEXT,
             anchor="w",
-        ).pack(fill="x")
+        ).pack(side="left", fill="x")
         ctk.CTkLabel(
             text_col,
             text=subtitle,
@@ -2453,6 +2501,39 @@ class SettingsDialog:
         ctk.CTkSwitch(
             row, text="", variable=variable, progress_color=COLOR_ACCENT
         ).pack(side="right")
+
+    def _build_status_row(
+        self,
+        parent: ctk.CTkFrame,
+        title: str,
+        subtitle: str,
+        *,
+        status_ok: bool | None = None,
+    ) -> None:
+        """Same visual family as _build_toggle_section, for a dependency
+        that has no on/off toggle of its own (OCR runs automatically)."""
+        frame = self._section_frame(parent)
+        row = ctk.CTkFrame(frame, fg_color="transparent")
+        row.pack(fill="x", padx=14, pady=12)
+        text_col = ctk.CTkFrame(row, fg_color="transparent")
+        text_col.pack(side="left", fill="x", expand=True)
+        title_row = ctk.CTkFrame(text_col, fg_color="transparent")
+        title_row.pack(fill="x")
+        self._build_status_dot(title_row, status_ok)
+        ctk.CTkLabel(
+            title_row,
+            text=title,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+            text_color=COLOR_TEXT,
+            anchor="w",
+        ).pack(side="left", fill="x")
+        ctk.CTkLabel(
+            text_col,
+            text=subtitle,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLOR_TEXT_MUTED,
+            anchor="w",
+        ).pack(fill="x")
 
     def _dict_hint_text(self) -> str:
         if self.sensitive_terms_path is None:

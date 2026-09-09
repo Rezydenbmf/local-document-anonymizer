@@ -690,6 +690,24 @@ completes, renders correctly listing exactly the missing pieces once it
 does, and the dismiss button correctly hides it. Full suite: 339 tests,
 lint unchanged against baseline for every touched file.
 
+Immediate follow-up: the user liked the banner but also wanted a subtle,
+always-visible confirmation for the good case (it previously showed
+nothing at all when everything was fine). A small status dot now sits
+next to "Rozpoznawanie AI (NER)" and "Dodatkowa weryfikacja AI (LLM)" in
+Settings (reusing/extending the existing `_build_toggle_section`, plus a
+new read-only `_build_status_row` for OCR, which has no on/off toggle of
+its own) - green when confirmed available, muted gray when confirmed
+missing, and simply absent (not red, not a placeholder) while the
+background check hasn't completed yet, via a new pure
+`environment_status_lookup(items)` that turns the check-result list into
+an `{item_id: ok}` dict SettingsDialog can `.get()` against safely. Also
+addressed directly: the user pointed out that any *future* optional
+dependency needs its own check added to `check_environment()` or it will
+silently miss both the startup warning and this new status dot - a
+maintenance-note docstring was added directly on that function as the
+explicit reminder, since a comment living right where the list is defined
+is far more likely to be seen than a rule living only in this file.
+
 ## What Exists
 
 - Repository structure.
@@ -1068,7 +1086,8 @@ python -m unittest discover -s tests
 Stage 26: magic pen manual PDF redaction editor (and its first-pilot
 follow-up: a batch-error review-screen banner plus a real `.gitignore`
 collision-numbering gap fix, then a startup environment check for
-optional dependencies with one-click fixes), a same-day self-review
+optional dependencies with one-click fixes and subtle status dots in
+Settings), a same-day self-review
 fixing a toggle bug/unsafe overwrite/stale cursor, a fix for a `fitz`
 deprecation warning the earlier Stage 25.1 fix missed, a resizable/
 maximizable comparison window with independent or linked per-pane zoom, a
@@ -1080,7 +1099,7 @@ a new auto-open-result Settings option), and moving internal/diagnostic
 output files into a hidden `_wewnetrzne` output subfolder.
 
 ```text
-5568499 Add startup environment check for optional dependencies (NER/OCR/LLM)
+43a8ceb Add subtle status dots for NER/OCR/LLM in Settings
 ```
 
 ## Next Logical Step
