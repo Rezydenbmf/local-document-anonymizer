@@ -476,7 +476,7 @@ class GuiWorkflowTests(unittest.TestCase):
         result = default_output_directory()
 
         self.assertEqual(result.parent.name, "Documents")
-        self.assertEqual(result.name, "Anonimizer - wyniki")
+        self.assertEqual(result.name, "DocShield - wyniki")
 
     def test_gui_review_status_label_pl_covers_every_status(self) -> None:
         self.assertEqual(review_status_label_pl(REVIEW_STATUS_APPROVED), "zatwierdzony")
