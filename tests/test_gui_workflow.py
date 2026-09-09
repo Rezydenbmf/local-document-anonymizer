@@ -5,6 +5,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -35,6 +36,7 @@ from gui import (
     canvas_point_to_pdf_point,
     category_label_pl,
     clamp_zoom_level,
+    ctk_widget_scaling_factor,
     default_output_directory,
     environment_status_lookup,
     file_type_badge,
@@ -642,6 +644,18 @@ class GuiWorkflowTests(unittest.TestCase):
 
     def test_canvas_point_to_pdf_point_guards_against_zero_zoom(self) -> None:
         self.assertEqual(canvas_point_to_pdf_point(10, 10, 0), (10.0, 10.0))
+
+    def test_ctk_widget_scaling_factor_returns_tracker_value(self) -> None:
+        with patch("gui.ctk.ScalingTracker.get_widget_scaling", return_value=1.25):
+            self.assertEqual(ctk_widget_scaling_factor(object()), 1.25)
+
+    def test_ctk_widget_scaling_factor_falls_back_to_one_on_error(self) -> None:
+        # Cosmetic-only lookup: any failure (e.g. a widget the tracker
+        # never registered) must never crash the preview.
+        with patch(
+            "gui.ctk.ScalingTracker.get_widget_scaling", side_effect=KeyError("boom")
+        ):
+            self.assertEqual(ctk_widget_scaling_factor(object()), 1.0)
 
     def test_normalize_drag_rect_handles_any_drag_direction(self) -> None:
         self.assertEqual(normalize_drag_rect(50, 60, 10, 20), (10, 20, 50, 60))

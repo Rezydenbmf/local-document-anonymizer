@@ -2653,6 +2653,21 @@ def pdf_page_zoom(page_width_pt: float, target_width: int) -> float:
     return target_width / safe_width
 
 
+def ctk_widget_scaling_factor(widget: object) -> float:
+    """Return the current CustomTkinter DPI scaling factor for ``widget``.
+
+    CTkImage applies this automatically; code that draws directly onto a
+    plain Tk widget (like the magic pen's tk.Canvas) has to apply it by
+    hand to render at a matching on-screen size. Always falls back to 1.0
+    (no scaling) rather than raising - a display-scaling mismatch is a
+    cosmetic issue, never worth crashing the preview over.
+    """
+    try:
+        return float(ctk.ScalingTracker.get_widget_scaling(widget))
+    except Exception:  # noqa: BLE001 - cosmetic fallback, must never crash
+        return 1.0
+
+
 def canvas_point_to_pdf_point(cx: float, cy: float, zoom: float) -> tuple[float, float]:
     """Convert a canvas pixel coordinate back to PDF point coordinates."""
     safe_zoom = zoom if zoom else 1.0
@@ -3288,12 +3303,24 @@ class ComparisonWindow:
 
     def _build_magic_pen_pane(self, parent: ctk.CTkBaseClass) -> None:
         target_width = int(BASE_PREVIEW_WIDTH * self.result_zoom)
+        # The "Oryginał" pane renders through CTkImage, which silently
+        # scales by the display's DPI factor (customtkinter's own
+        # get_widget_scaling) so it looks crisp on a scaled display. This
+        # pane draws straight onto a plain tk.Canvas for the magic pen's
+        # click/drag overlay, which has no such awareness - without
+        # matching that factor here, the two pages visibly render at
+        # different sizes on any non-100% display (confirmed: 125% on the
+        # pilot machine). Multiplying it into the render zoom, and storing
+        # that same effective zoom in self._page_zoom, keeps every later
+        # coordinate conversion (click/drag/overlay) correctly aligned
+        # without touching any of that code.
+        dpi_scale = ctk_widget_scaling_factor(parent)
         try:
             import pymupdf as fitz
 
             with fitz.open(self.result_path) as document:
                 for page_index, page in enumerate(document, start=1):
-                    zoom = pdf_page_zoom(max(page.rect.width, 1), target_width)
+                    zoom = pdf_page_zoom(max(page.rect.width, 1), target_width) * dpi_scale
                     pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom))
                     pil_image = Image.frombytes(
                         "RGB", (pix.width, pix.height), pix.samples

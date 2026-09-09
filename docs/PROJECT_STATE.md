@@ -833,6 +833,35 @@ own status banner is now completely empty - all three optional
 dependencies detected with zero PATH edits. Full suite: 367 tests (9 new),
 lint unchanged against baseline.
 
+Fixed a real, reported rendering bug in the magic pen comparison window:
+the "Oryginał" and "Po anonimizacji" pages did not render at the same
+apparent size, and the user's first hypothesis - that PDF redaction
+rebuilding changes page scale - was checked directly (opened the original
+and `_ANON_VISUAL.pdf` for a real pilot document with PyMuPDF: identical
+`page.rect`, identical `mediabox`/`cropbox`, identical rotation) and
+ruled out. The real cause was a display-DPI-scaling mismatch between the
+two rendering paths: the left pane renders through `CTkImage`, which
+customtkinter silently scales by the display's detected DPI factor
+(`ScalingTracker.get_widget_scaling`) so it looks crisp on a scaled
+monitor; the magic pen's right pane draws straight onto a plain
+`tk.Canvas` (needed for its click/drag overlay) via `ImageTk.PhotoImage`,
+which has no such awareness and always renders at the literal pixel size
+- confirmed on the pilot machine, whose Windows display scaling is 125%,
+by rendering both pages at the same `target_width` and finding the left
+pane's on-screen width was exactly 1.25x the right pane's. Fixed with a
+new `ctk_widget_scaling_factor(widget)` (wraps `ScalingTracker`, always
+falls back to 1.0 rather than raising - a display-scaling mismatch is
+cosmetic, never worth crashing the preview over), folded directly into
+the zoom used to build the magic pen's pixmap in `_build_magic_pen_pane`.
+Since every click/drag/overlay coordinate conversion already reads the
+same stored `self._page_zoom[page_index]` rather than recomputing zoom
+independently, this one change keeps hit-testing correctly aligned with
+no other code paths to touch. Verified for real (no mocks), reusing the
+same pilot invoice PDF pair: both panes now render at an identical 575px
+width (460 x 1.25) on the pilot machine, confirmed both numerically and
+with a side-by-side screenshot. Full suite: 369 tests (2 new), lint
+unchanged against baseline.
+
 ## What Exists
 
 - Repository structure.
@@ -1234,10 +1263,14 @@ PATH-staleness bug that made a freshly-installed Ollama/Tesseract keep
 reporting as missing until the whole app was restarted, and then a
 same-day fully-automatic fallback that finds a Tesseract install at its
 default Windows location even when it was never added to PATH at all -
-no manual PATH edit required from the user in either case.
+no manual PATH edit required from the user in either case - and a
+same-day fix for a real magic pen rendering bug where the two comparison
+panes rendered at visibly different sizes on a scaled display (a
+CTkImage-vs-plain-Canvas DPI-scaling mismatch, not a PDF-rebuild issue as
+first suspected - confirmed both ways directly on the pilot machine).
 
 ```text
-496ffd1 Find Tesseract at its default install path when not on PATH
+f5996a6 Fix magic pen pane size mismatch on scaled displays
 ```
 
 ## Next Logical Step
