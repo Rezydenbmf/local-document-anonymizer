@@ -2577,31 +2577,85 @@ class SettingsDialog:
             command=self.window.destroy,
         ).pack(side="right")
 
-        body = ctk.CTkFrame(self.window, fg_color="transparent")
-        body.pack(fill="both", expand=True, padx=20)
+        tabview = ctk.CTkTabview(
+            self.window,
+            fg_color=COLOR_BG,
+            segmented_button_fg_color=COLOR_CARD,
+            segmented_button_selected_color=COLOR_ACCENT,
+            segmented_button_selected_hover_color=COLOR_ACCENT_HOVER,
+            segmented_button_unselected_color=COLOR_CARD,
+            segmented_button_unselected_hover_color=COLOR_ICON_IDLE,
+            text_color=COLOR_TEXT,
+        )
+        tabview.pack(fill="both", expand=True, padx=20, pady=(0, 6))
 
+        self._build_detection_tab(tabview.add("Wykrywanie danych"))
+        self._build_pdf_tab(tabview.add("Dokumenty PDF"))
+        self._build_dictionary_tab(tabview.add("Słownik"))
+        self._build_general_tab(tabview.add("Ogólne"))
+
+        ctk.CTkButton(
+            self.window,
+            text="Zapisz i zamknij",
+            height=42,
+            corner_radius=8,
+            fg_color=COLOR_ACCENT,
+            hover_color=COLOR_ACCENT_HOVER,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+            command=self._save_and_close,
+        ).pack(fill="x", padx=20, pady=16)
+
+    def _build_detection_tab(self, tab: ctk.CTkFrame) -> None:
+        self._build_static_info_row(
+            tab,
+            "Podstawowe wykrywanie",
+            "Zawsze aktywne - PESEL, NIP, REGON, numery kont, telefony, "
+            "e-maile, daty, podstawowe wzorce",
+        )
         self._build_toggle_section(
-            body,
+            tab,
             "Rozpoznawanie AI (NER)",
             "Wykrywa imiona, firmy i miejsca",
             self.ner_var,
             status_ok=self.environment_status.get(ENV_ITEM_NER),
         )
         self._build_toggle_section(
-            body,
+            tab,
             "Dodatkowa weryfikacja AI (LLM)",
             "Opcjonalne, wymaga lokalnego Ollama",
             self.llm_var,
             status_ok=self.environment_status.get(ENV_ITEM_LLM),
         )
         self._build_status_row(
-            body,
+            tab,
             "OCR (skany, obrazy)",
             "Automatyczne, wymaga lokalnego Tesseracta",
             status_ok=self.environment_status.get(ENV_ITEM_OCR),
         )
 
-        dict_section = self._section_frame(body)
+    def _build_pdf_tab(self, tab: ctk.CTkFrame) -> None:
+        pdf_section = self._section_frame(tab)
+        pdf_inner = ctk.CTkFrame(pdf_section, fg_color="transparent")
+        pdf_inner.pack(fill="x", padx=14, pady=12)
+        ctk.CTkLabel(
+            pdf_inner,
+            text="Format wyjściowy PDF",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+            text_color=COLOR_TEXT,
+            anchor="w",
+        ).pack(fill="x", pady=(0, 8))
+        for label in PDF_OUTPUT_SETTINGS_BY_LABEL:
+            ctk.CTkRadioButton(
+                pdf_inner,
+                text=PDF_OUTPUT_SHORT_LABELS.get(label, label),
+                value=label,
+                variable=self.pdf_mode_var,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                text_color=COLOR_TEXT,
+            ).pack(anchor="w", pady=3)
+
+    def _build_dictionary_tab(self, tab: ctk.CTkFrame) -> None:
+        dict_section = self._section_frame(tab)
         dict_row = ctk.CTkFrame(dict_section, fg_color="transparent")
         dict_row.pack(fill="x", padx=14, pady=12)
         text_col = ctk.CTkFrame(dict_row, fg_color="transparent")
@@ -2633,43 +2687,13 @@ class SettingsDialog:
             command=self._pick_sensitive_terms_file,
         ).pack(side="right")
 
-        pdf_section = self._section_frame(body)
-        pdf_inner = ctk.CTkFrame(pdf_section, fg_color="transparent")
-        pdf_inner.pack(fill="x", padx=14, pady=12)
-        ctk.CTkLabel(
-            pdf_inner,
-            text="Format wyjściowy PDF",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
-            text_color=COLOR_TEXT,
-            anchor="w",
-        ).pack(fill="x", pady=(0, 8))
-        for label in PDF_OUTPUT_SETTINGS_BY_LABEL:
-            ctk.CTkRadioButton(
-                pdf_inner,
-                text=PDF_OUTPUT_SHORT_LABELS.get(label, label),
-                value=label,
-                variable=self.pdf_mode_var,
-                font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-                text_color=COLOR_TEXT,
-            ).pack(anchor="w", pady=3)
-
+    def _build_general_tab(self, tab: ctk.CTkFrame) -> None:
         self._build_toggle_section(
-            body,
+            tab,
             "Otwórz automatycznie po zatwierdzeniu",
             "Otwiera plik dopiero gdy klikniesz ✓ Zatwierdzony, nie od razu po anonimizacji",
             self.auto_open_var,
         )
-
-        ctk.CTkButton(
-            self.window,
-            text="Zapisz i zamknij",
-            height=42,
-            corner_radius=8,
-            fg_color=COLOR_ACCENT,
-            hover_color=COLOR_ACCENT_HOVER,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
-            command=self._save_and_close,
-        ).pack(fill="x", padx=20, pady=16)
 
     def _section_frame(self, parent: ctk.CTkFrame) -> ctk.CTkFrame:
         frame = ctk.CTkFrame(
@@ -2768,6 +2792,43 @@ class SettingsDialog:
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
             text_color=COLOR_TEXT_MUTED,
             anchor="w",
+        ).pack(fill="x")
+
+    def _build_static_info_row(
+        self, parent: ctk.CTkFrame, title: str, subtitle: str
+    ) -> None:
+        """Same visual family as the toggle/status rows, for a layer that
+        is neither optional nor a dependency to check - just always on
+        and worth being upfront about (the regex/dictionary baseline)."""
+        frame = self._section_frame(parent)
+        row = ctk.CTkFrame(frame, fg_color="transparent")
+        row.pack(fill="x", padx=14, pady=12)
+        text_col = ctk.CTkFrame(row, fg_color="transparent")
+        text_col.pack(side="left", fill="x", expand=True)
+        title_row = ctk.CTkFrame(text_col, fg_color="transparent")
+        title_row.pack(fill="x")
+        ctk.CTkLabel(
+            title_row,
+            text="●",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+            text_color=COLOR_OK,
+            width=12,
+        ).pack(side="left", padx=(0, 6))
+        ctk.CTkLabel(
+            title_row,
+            text=title,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+            text_color=COLOR_TEXT,
+            anchor="w",
+        ).pack(side="left", fill="x")
+        ctk.CTkLabel(
+            text_col,
+            text=subtitle,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLOR_TEXT_MUTED,
+            anchor="w",
+            wraplength=420,
+            justify="left",
         ).pack(fill="x")
 
     def _dict_hint_text(self) -> str:
