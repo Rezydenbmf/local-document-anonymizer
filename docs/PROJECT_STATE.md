@@ -978,6 +978,27 @@ this is real OS window-manager behavior no headless/mocked test would
 meaningfully catch, verified functionally instead, same as the rest of
 `_bring_window_to_front`'s history).
 
+Fixed a real layout bug the user caught: in a non-maximized (narrowed)
+comparison window, once there were pending manual edits, "Zapisz zmiany"
+itself could get clipped away entirely. Root cause: Tk's `pack()` hands
+out a row's width in the order widgets are packed, not left-to-right
+visual order - whatever is packed last is the first to be squeezed out
+when the row runs out of room. `pen_status_label` was packed *before*
+the save/cancel buttons, and it grows from empty to "Niezapisane zmiany:
+N" exactly once there is something pending to save - which was enough
+extra width, at a narrow-enough window size, to squeeze "Zapisz zmiany"
+(packed last) out of the row entirely. `_build_magic_pen_toolbar` now
+packs the save/cancel buttons *first*, before the tool chips and status
+label, so they always get first claim on the row's width; the chips and
+status label losing room first if the window gets narrow enough is an
+acceptable trade-off, the save button disappearing is not. Verified
+functionally against the real GUI: added a pending edit (reproducing
+the user's exact trigger), then narrowed the window step by step down to
+340px - "Zapisz zmiany" stayed fully visible and correctly sized at
+every width tested, with the chips visibly compressing first instead.
+Lint unchanged against baseline; full suite still 372 (same reasoning as
+above - real layout/geometry behavior, verified functionally).
+
 ## What Exists
 
 - Repository structure.
@@ -1399,10 +1420,15 @@ a reported regression where the comparison window opened behind the main
 app again - root-caused to Windows silently refusing a foreground-focus
 request from a background process, fixed with a briefly-forced, then
 delayed-released `-topmost`, confirmed experimentally that the delay
-before releasing it matters as much as forcing it in the first place.
+before releasing it matters as much as forcing it in the first place,
+and one more same-day fix: a narrowed (non-maximized) comparison window
+with pending manual edits could clip "Zapisz zmiany" off entirely -
+Tk's `pack()` hands out row width in packing order, not visual order, so
+the save/cancel buttons are now packed first, guaranteeing them priority
+over the tool chips and status label when space runs short.
 
 ```text
-87038b3 Fix comparison window opening behind the main app again
+4a80cc8 Stop the magic pen save button from being clipped when narrow
 ```
 
 ## Next Logical Step
