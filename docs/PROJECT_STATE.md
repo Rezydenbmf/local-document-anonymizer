@@ -729,6 +729,45 @@ anonymizing, the file opens exactly when "Zatwierdzony" is clicked, and
 toggling the setting off correctly suppresses the open-on-approve too.
 Full suite: 335 tests, lint unchanged against baseline.
 
+Startup library-update check: the user asked for a fully silent,
+user-friendly way to know when the app's own pip-managed libraries have a
+newer version, without ever having to open a browser, download a file, or
+run an installer by hand - one click, one confirmation, done. Scoped
+deliberately to the packages that live inside the app's own venv (see
+`requirements.txt`): a new `src/dependency_updates.py` checks each
+package's installed version (`importlib.metadata.version`) against the
+newest version on PyPI (`https://pypi.org/pypi/<name>/json`, a bare
+version-number lookup - no personal or document data leaves the machine),
+compares them with `packaging.version.Version` (falling back to a plain
+string inequality if a version string doesn't parse), and, for a chosen
+package, runs `pip install --upgrade <package>` as a subprocess in this
+same interpreter's environment - the same contained, no-admin-rights
+shape as the existing NER model installer. All eight checks run
+concurrently (`ThreadPoolExecutor`) off the GUI thread, staggered 250ms
+after the existing environment check so the two don't compete for thread
+start at the same instant; a failed/offline lookup for one package never
+blocks the others or crashes the check. `gui.py` gained a second,
+info-styled (blue, not the warning-orange used for missing dependencies)
+dismissible banner on the start screen - `_build_update_banner` - listing
+only packages with a real update available, each with its own "Aktualizuj"
+button; clicking it shows one `messagebox.askyesno` confirmation naming
+the package and both version numbers, then installs in the background and
+re-runs the full check afterward to confirm the install actually worked
+rather than assuming success. Tesseract and Ollama are deliberately out
+of scope - they are external system installers, not pip packages, and
+safely automating their install (download, verify, run an elevated
+installer silently) is a materially different problem; they keep using
+the existing "Pobierz" (open download page) flow. Same maintenance-note
+pattern as `environment_check.py`: `DEFAULT_PACKAGES` is an explicit list,
+not auto-derived from `requirements.txt`, so a future added/removed
+dependency needs the same edit made in both places. Verified functionally
+against the real GUI with mocked PyPI/pip calls: the banner shows only the
+outdated package with its version arrow, clicking "Aktualizuj" triggers
+exactly one `pip install --upgrade` call for that package, and the banner
+correctly hides that package (and disappears entirely once nothing is
+left) after a successful re-check. Full suite: 354 tests (19 new), lint
+unchanged against baseline.
+
 ## What Exists
 
 - Repository structure.
@@ -1120,12 +1159,13 @@ a new auto-open-result Settings option), moving internal/diagnostic
 output files into a hidden `_wewnetrzne` output subfolder, and, from
 first pilot use, a batch-error review-screen banner, a `.gitignore`
 collision-numbering gap fix, a startup environment check with one-click
-fixes and status dots in Settings, and a fix so the result file opens
-only when the user clicks "Zatwierdzony" instead of right after
-anonymizing.
+fixes and status dots in Settings, a fix so the result file opens only
+when the user clicks "Zatwierdzony" instead of right after anonymizing,
+and a startup check for newer versions of the app's pip-managed
+libraries with a fully silent, one-click, one-confirmation update path.
 
 ```text
-f5232b0 Open result on approve, not right after anonymizing
+6c784d0 Add silent, one-click update check for pip-managed libraries
 ```
 
 ## Next Logical Step

@@ -11,7 +11,7 @@ import webbrowser
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
-from tkinter import filedialog
+from tkinter import filedialog, messagebox
 
 import customtkinter as ctk
 from PIL import Image, ImageTk
@@ -29,6 +29,10 @@ try:
         anonymize_batch,
     )
     from .audit import AUDIT_CATEGORY_ORDER
+    from .dependency_updates import (
+        check_dependency_updates,
+        install_package_update,
+    )
     from .environment_check import (
         ENV_ITEM_LLM,
         ENV_ITEM_NER,
@@ -91,6 +95,10 @@ except ImportError:
         anonymize_batch,
     )
     from audit import AUDIT_CATEGORY_ORDER
+    from dependency_updates import (
+        check_dependency_updates,
+        install_package_update,
+    )
     from environment_check import (
         ENV_ITEM_LLM,
         ENV_ITEM_NER,
@@ -1092,6 +1100,10 @@ class AnonymizerApp:
         self.environment_banner_dismissed = False
         self.environment_installing: set[str] = set()
 
+        self.dependency_updates: list | None = None
+        self.update_banner_dismissed = False
+        self.package_updates_installing: set[str] = set()
+
         ctk.set_appearance_mode("light")
         ctk.set_default_color_theme("blue")
 
@@ -1100,6 +1112,10 @@ class AnonymizerApp:
         # Off the GUI thread: importing spaCy alone costs ~1-2s, and this
         # must never make the window feel slow to open.
         self.root.after(150, self._start_environment_check)
+        # Slightly staggered after the (local, fast) environment check -
+        # this one makes network calls to PyPI and can legitimately take a
+        # few seconds, especially when offline and every lookup times out.
+        self.root.after(400, self._start_update_check)
 
     # ------------------------------------------------------------------
     # Shell
@@ -1317,6 +1333,147 @@ class AnonymizerApp:
         ).pack(anchor="e", pady=(10, 0))
 
     # ------------------------------------------------------------------
+    # Startup dependency-update check (pip-managed libraries)
+    # ------------------------------------------------------------------
+
+    def _start_update_check(self) -> None:
+        def worker() -> None:
+            items = check_dependency_updates()
+            self.root.after(0, lambda: self._on_update_check_done(items))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_update_check_done(self, items: list) -> None:
+        self.dependency_updates = items
+        if self.active_screen == "start":
+            self.show_start_screen()
+
+    def _dismiss_update_banner(self) -> None:
+        self.update_banner_dismissed = True
+        if self.active_screen == "start":
+            self.show_start_screen()
+
+    def _update_package_clicked(self, package: str) -> None:
+        if package in self.package_updates_installing:
+            return
+        installed_version = None
+        latest_version = None
+        for item in self.dependency_updates or []:
+            if item.package == package:
+                installed_version, latest_version = item.installed_version, item.latest_version
+                break
+        confirmed = messagebox.askyesno(
+            "Aktualizacja biblioteki",
+            f"Zainstalować aktualizację {package} "
+            f"({installed_version} → {latest_version})?",
+        )
+        if not confirmed:
+            return
+
+        self.package_updates_installing.add(package)
+        if self.active_screen == "start":
+            self.show_start_screen()
+
+        def worker() -> None:
+            install_package_update(package)
+            self.root.after(0, lambda: self._on_package_update_done(package))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_package_update_done(self, package: str) -> None:
+        self.package_updates_installing.discard(package)
+        # Re-run the full check rather than assuming success - confirms the
+        # install actually worked instead of just hiding the button.
+        self._start_update_check()
+
+    def _build_update_banner(self, parent: ctk.CTkFrame) -> None:
+        if self.update_banner_dismissed or not self.dependency_updates:
+            return
+        updates = [
+            item
+            for item in self.dependency_updates
+            if item.ok and item.update_available
+        ]
+        if not updates:
+            return
+
+        card = ctk.CTkFrame(
+            parent,
+            fg_color=COLOR_ACCENT_SOFT,
+            corner_radius=10,
+            border_width=1,
+            border_color=COLOR_ACCENT,
+        )
+        card.pack(fill="x", pady=(0, 12))
+        inner = ctk.CTkFrame(card, fg_color="transparent")
+        inner.pack(fill="x", padx=14, pady=10)
+
+        header_row = ctk.CTkFrame(inner, fg_color="transparent")
+        header_row.pack(fill="x")
+        ctk.CTkLabel(
+            header_row,
+            text="⬆ Dostępne aktualizacje bibliotek:",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
+            text_color=COLOR_ACCENT_HOVER,
+            anchor="w",
+        ).pack(side="left")
+        ctk.CTkButton(
+            header_row,
+            text="✕",
+            width=24,
+            height=24,
+            corner_radius=12,
+            fg_color="transparent",
+            hover_color=COLOR_ICON_IDLE,
+            text_color=COLOR_ACCENT_HOVER,
+            command=self._dismiss_update_banner,
+        ).pack(side="right")
+
+        for item in updates:
+            row = ctk.CTkFrame(inner, fg_color="transparent")
+            row.pack(fill="x", pady=(8, 0))
+            ctk.CTkLabel(
+                row,
+                text=f"{item.package}: {item.installed_version} → {item.latest_version}",
+                font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                text_color=COLOR_TEXT,
+                anchor="w",
+            ).pack(side="left", fill="x", expand=True)
+
+            if item.package in self.package_updates_installing:
+                ctk.CTkLabel(
+                    row,
+                    text="Instaluję...",
+                    font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+                    text_color=COLOR_TEXT_MUTED,
+                ).pack(side="right", padx=(8, 0))
+            else:
+                ctk.CTkButton(
+                    row,
+                    text="Aktualizuj",
+                    width=100,
+                    height=26,
+                    corner_radius=8,
+                    fg_color=COLOR_ACCENT,
+                    hover_color=COLOR_ACCENT_HOVER,
+                    font=ctk.CTkFont(family=FONT_FAMILY, size=10, weight="bold"),
+                    command=lambda name=item.package: self._update_package_clicked(name),
+                ).pack(side="right", padx=(8, 0))
+
+        ctk.CTkButton(
+            inner,
+            text="Sprawdź ponownie",
+            width=140,
+            height=24,
+            corner_radius=8,
+            fg_color="transparent",
+            hover_color=COLOR_ICON_IDLE,
+            text_color=COLOR_TEXT_MUTED,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+            command=self._start_update_check,
+        ).pack(anchor="e", pady=(10, 0))
+
+    # ------------------------------------------------------------------
     # Start screen (drag & drop)
     # ------------------------------------------------------------------
 
@@ -1325,6 +1482,7 @@ class AnonymizerApp:
         self._clear_content()
 
         self._build_environment_banner(self.content)
+        self._build_update_banner(self.content)
 
         drop_frame = ctk.CTkFrame(
             self.content,
