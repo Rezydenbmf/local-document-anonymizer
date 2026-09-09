@@ -16,6 +16,7 @@ run it off the GUI thread rather than during window construction.
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -123,6 +124,51 @@ def check_llm_environment() -> EnvironmentCheckItem:
     )
 
 
+def refresh_path_from_registry() -> None:
+    """On Windows, merge the current User+Machine PATH from the registry
+    into this process's `os.environ["PATH"]`.
+
+    Installing Tesseract or Ollama updates the registry immediately, but
+    an already-running process - including this app, if it was open
+    during the install - keeps the PATH snapshot it started with. Without
+    this, clicking "Sprawdz ponownie" could never find a tool installed
+    after the app opened; only a full app restart would pick it up. This
+    makes the re-check button actually work in that case. Safe no-op on
+    any error or a non-Windows platform - it never blocks or fails the
+    check that calls it, it only ever adds entries, never removes any.
+    """
+    if sys.platform != "win32":
+        return
+    try:
+        import winreg
+    except ImportError:  # pragma: no cover - always present on win32
+        return
+
+    def _read(hive: int, subkey: str) -> str:
+        try:
+            with winreg.OpenKey(hive, subkey) as key:
+                value, _ = winreg.QueryValueEx(key, "Path")
+                return str(value or "")
+        except OSError:
+            return ""
+
+    machine_path = _read(
+        winreg.HKEY_LOCAL_MACHINE,
+        r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment",
+    )
+    user_path = _read(winreg.HKEY_CURRENT_USER, "Environment")
+
+    entries = [p for p in os.environ.get("PATH", "").split(os.pathsep) if p]
+    seen = {p.casefold() for p in entries}
+    for extra in (machine_path, user_path):
+        for entry in extra.split(os.pathsep):
+            entry = entry.strip()
+            if entry and entry.casefold() not in seen:
+                entries.append(entry)
+                seen.add(entry.casefold())
+    os.environ["PATH"] = os.pathsep.join(entries)
+
+
 def check_environment(model_name: str = DEFAULT_NER_MODEL) -> list[EnvironmentCheckItem]:
     """Run every startup check and return one item per optional dependency.
 
@@ -134,6 +180,7 @@ def check_environment(model_name: str = DEFAULT_NER_MODEL) -> list[EnvironmentCh
     startup warning + one-click fix for it, exactly the gap this module
     was built to close in the first place.
     """
+    refresh_path_from_registry()
     return [
         check_ner_environment(model_name),
         check_ocr_environment(),
@@ -182,4 +229,5 @@ __all__ = [
     "check_ner_environment",
     "check_ocr_environment",
     "install_ner_model",
+    "refresh_path_from_registry",
 ]

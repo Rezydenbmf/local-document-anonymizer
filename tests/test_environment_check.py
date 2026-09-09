@@ -1,5 +1,6 @@
 """Tests for the startup optional-dependency environment checks."""
 
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -158,6 +159,77 @@ class InstallNerModelTests(unittest.TestCase):
 
         self.assertFalse(success)
         self.assertTrue(message)
+
+
+class _FakeRegistryKey:
+    """Minimal context-manager stand-in for a winreg key handle."""
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+
+class RefreshPathFromRegistryTests(unittest.TestCase):
+    def test_noop_on_non_windows(self) -> None:
+        with (
+            patch("environment_check.sys.platform", "linux"),
+            patch.dict(os.environ, {"PATH": "C:\\already\\here"}, clear=False),
+        ):
+            before = os.environ["PATH"]
+            ec.refresh_path_from_registry()
+            self.assertEqual(os.environ["PATH"], before)
+
+    def test_merges_new_entries_from_registry(self) -> None:
+        def fake_open_key(hive, subkey):
+            return _FakeRegistryKey()
+
+        def fake_query_value(key, name):
+            return ("C:\\NewTool", 1)
+
+        with (
+            patch("environment_check.sys.platform", "win32"),
+            patch.dict(os.environ, {"PATH": "C:\\already\\here"}, clear=False),
+            patch("winreg.OpenKey", side_effect=fake_open_key),
+            patch("winreg.QueryValueEx", side_effect=fake_query_value),
+        ):
+            ec.refresh_path_from_registry()
+            # Assertions must stay inside the block: patch.dict restores the
+            # real PATH the moment it exits, and refresh_path_from_registry
+            # deliberately mutates os.environ for real (that mutation is the
+            # whole point), so it would be gone by the time we checked it.
+            entries = os.environ["PATH"].split(os.pathsep)
+            self.assertIn("C:\\already\\here", entries)
+            self.assertIn("C:\\NewTool", entries)
+
+    def test_does_not_duplicate_existing_entry_case_insensitively(self) -> None:
+        def fake_open_key(hive, subkey):
+            return _FakeRegistryKey()
+
+        def fake_query_value(key, name):
+            return ("C:\\Already\\Here", 1)
+
+        with (
+            patch("environment_check.sys.platform", "win32"),
+            patch.dict(os.environ, {"PATH": "C:\\already\\here"}, clear=False),
+            patch("winreg.OpenKey", side_effect=fake_open_key),
+            patch("winreg.QueryValueEx", side_effect=fake_query_value),
+        ):
+            ec.refresh_path_from_registry()
+            entries = os.environ["PATH"].split(os.pathsep)
+            self.assertEqual(entries.count("C:\\already\\here"), 1)
+            self.assertNotIn("C:\\Already\\Here", entries)
+
+    def test_missing_registry_key_is_safe(self) -> None:
+        with (
+            patch("environment_check.sys.platform", "win32"),
+            patch.dict(os.environ, {"PATH": "C:\\already\\here"}, clear=False),
+            patch("winreg.OpenKey", side_effect=OSError("not found")),
+        ):
+            before = os.environ["PATH"]
+            ec.refresh_path_from_registry()
+            self.assertEqual(os.environ["PATH"], before)
 
 
 if __name__ == "__main__":
