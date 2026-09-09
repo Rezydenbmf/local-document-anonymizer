@@ -76,6 +76,7 @@ from gui import (
     risk_style_key,
     save_recent_folders,
     save_seen_hints,
+    scroll_sync_units,
     ui_hints_config_path,
     zoom_link_glyph,
     zoom_link_tooltip_text,
@@ -704,6 +705,24 @@ class GuiWorkflowTests(unittest.TestCase):
     def test_zoom_step_from_scroll_event_handles_x11_button_numbers(self) -> None:
         self.assertEqual(zoom_step_from_scroll_event(FakeWheelEvent(num=4)), 1)
         self.assertEqual(zoom_step_from_scroll_event(FakeWheelEvent(num=5)), -1)
+
+    def test_scroll_sync_units_matches_ctk_scrollable_frame_windows_formula(self) -> None:
+        # -int(delta / 6), exactly CTkScrollableFrame's own internal
+        # formula on Windows - unit parity is the whole point, otherwise
+        # a linked pane would gradually drift out of sync with the one
+        # the cursor is actually over.
+        self.assertEqual(scroll_sync_units(FakeWheelEvent(delta=120)), -20)
+        self.assertEqual(scroll_sync_units(FakeWheelEvent(delta=-120)), 20)
+        self.assertEqual(scroll_sync_units(FakeWheelEvent(delta=0)), 0)
+
+    def test_scroll_sync_units_handles_x11_button_numbers(self) -> None:
+        self.assertEqual(scroll_sync_units(FakeWheelEvent(num=4)), -1)
+        self.assertEqual(scroll_sync_units(FakeWheelEvent(num=5)), 1)
+
+    def test_scroll_sync_units_handles_macos_delta(self) -> None:
+        with patch("gui.sys.platform", "darwin"):
+            self.assertEqual(scroll_sync_units(FakeWheelEvent(delta=3)), -3)
+            self.assertEqual(scroll_sync_units(FakeWheelEvent(delta=-3)), 3)
 
     def test_zoom_link_glyph_shows_closed_padlock_when_linked(self) -> None:
         self.assertEqual(zoom_link_glyph(True), "🔒")

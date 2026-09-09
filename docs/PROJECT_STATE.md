@@ -862,6 +862,45 @@ width (460 x 1.25) on the pilot machine, confirmed both numerically and
 with a side-by-side screenshot. Full suite: 369 tests (2 new), lint
 unchanged against baseline.
 
+Requested follow-up, framed as a "verification mode": while the two
+comparison panes are locked together (the existing padlock), plain
+scrolling (no Ctrl) on either pane should now also scroll the other one
+in lockstep, matching how Ctrl+scroll zoom already behaves when linked;
+unlinking frees each pane to scroll independently, same as it already
+does for zoom; and re-locking should snap both back to one predictable
+default view (100% zoom, scrolled to top) rather than just syncing to
+whatever the left pane happened to be at. `gui.py` gained a new
+`_on_scroll_sync` bound to plain `<MouseWheel>`/`<Button-4>`/`<Button-5>`
+at the window level (mirroring the existing Ctrl-scroll bindings) that,
+only while `zoom_linked`, scrolls the *other* pane's canvas by the exact
+same unit count CTkScrollableFrame's own internal handler uses for the
+pane the cursor is actually over (`scroll_sync_units`, a new pure
+function deliberately duplicating that private formula rather than
+reusing the coarser `mousewheel_scroll_units` used elsewhere - unit
+parity is the whole point, otherwise a linked pane would gradually drift
+out of sync). `_toggle_zoom_link` now resets both zoom levels to
+`ZOOM_DEFAULT` and scrolls both panes to the top whenever re-locking.
+While building this, found and fixed a real latent bug in
+`_pane_side_for_widget` (shared by both the new scroll sync and the
+existing Ctrl-scroll zoom): it only matched `self.left_frame`/
+`self.right_frame` walking up a widget's `.master` chain, but
+CTkScrollableFrame embeds its content Frame *inside* its own internal
+scrolling Canvas via `canvas.create_window` - the opposite of a normal
+parent/child relationship - so a cursor sitting over blank canvas space
+rather than directly over rendered page content (e.g. past the bottom of
+a short page) resolved to neither pane and silently did nothing; now
+also matches each frame's private `_parent_canvas`/`_parent_frame`.
+Verified functionally against the real GUI with the same pilot invoice
+PDF pair (screen-coordinate `winfo_containing` hit-testing proved flaky
+in this non-interactive scripted context - confirmed separately that it
+can resolve to an unrelated window when nothing has given this one real
+OS focus - so the check patches it to return the exact widget a real
+click would hit, isolating the test to the logic being changed): linked
+scroll moves both panes' top edge together, unlinking stops that and
+each scrolls on its own again, and re-locking resets both to 100% zoom
+and the top of the page. Full suite: 372 tests (3 new), lint unchanged
+against baseline.
+
 ## What Exists
 
 - Repository structure.
@@ -1267,10 +1306,16 @@ no manual PATH edit required from the user in either case - and a
 same-day fix for a real magic pen rendering bug where the two comparison
 panes rendered at visibly different sizes on a scaled display (a
 CTkImage-vs-plain-Canvas DPI-scaling mismatch, not a PDF-rebuild issue as
-first suspected - confirmed both ways directly on the pilot machine).
+first suspected - confirmed both ways directly on the pilot machine), and
+a same-day "verification mode" follow-up: locked panes now scroll
+together (not just zoom together), unlinking frees them to scroll
+independently same as zoom already did, re-locking resets both to a
+clean default view, and a latent widget-resolution bug shared with the
+existing Ctrl-scroll zoom (a cursor over blank canvas space matching
+neither pane) is fixed too.
 
 ```text
-f5996a6 Fix magic pen pane size mismatch on scaled displays
+4c9bec3 Sync scrolling between locked comparison panes; reset on re-lock
 ```
 
 ## Next Logical Step

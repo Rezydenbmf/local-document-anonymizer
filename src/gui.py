@@ -2723,6 +2723,27 @@ def zoom_step_from_scroll_event(event: object) -> int:
     return 0
 
 
+def scroll_sync_units(event: object) -> int:
+    """Return the exact canvas ``yview scroll`` unit count CustomTkinter's
+    own CTkScrollableFrame uses internally for one wheel event.
+
+    Deliberately mirrors that library's private ``_mouse_wheel_all``
+    formula (not the more forgiving ``mousewheel_scroll_units`` used
+    elsewhere) so a linked pane scrolls in exact lockstep with the pane
+    the cursor is actually over, instead of gradually drifting out of
+    sync from using a different step size.
+    """
+    event_num = getattr(event, "num", None)
+    if event_num == 4:
+        return -1
+    if event_num == 5:
+        return 1
+    delta = int(getattr(event, "delta", 0) or 0)
+    if sys.platform == "darwin":
+        return -delta
+    return -int(delta / 6)
+
+
 def zoom_link_glyph(linked: bool) -> str:
     """Return the padlock glyph for the zoom-link toggle's current state.
 
@@ -2940,6 +2961,13 @@ class ComparisonWindow:
         window.bind("<Control-MouseWheel>", self._on_ctrl_scroll)
         window.bind("<Control-Button-4>", self._on_ctrl_scroll)
         window.bind("<Control-Button-5>", self._on_ctrl_scroll)
+        # Plain (no Ctrl) scroll: while panes are locked together, mirror
+        # it onto the other pane too, so scrolling either one moves both -
+        # each CTkScrollableFrame already scrolls itself via its own
+        # internal bind_all, this only adds the *other* pane's half.
+        window.bind("<MouseWheel>", self._on_scroll_sync)
+        window.bind("<Button-4>", self._on_scroll_sync)
+        window.bind("<Button-5>", self._on_scroll_sync)
         window.protocol("WM_DELETE_WINDOW", self._close)
 
         ctk.CTkLabel(
@@ -3100,21 +3128,93 @@ class ComparisonWindow:
             return
         self._adjust_zoom(side, zoom_step_from_scroll_event(event))
 
+    def _on_scroll_sync(self, event: object) -> None:
+        """Mirror plain (no Ctrl) scrolling onto the other pane while the
+        two are locked together. The pane under the cursor already scrolls
+        itself via CTkScrollableFrame's own internal binding - this only
+        scrolls the *other* one, by the same amount, so both move as one.
+        A no-op once unlinked: each pane is then free to scroll on its own.
+        """
+        if not self.zoom_linked:
+            return
+        widget = self.window.winfo_containing(event.x_root, event.y_root)
+        side = self._pane_side_for_widget(widget)
+        if side is None:
+            return
+        other_frame = self.right_frame if side == "original" else self.left_frame
+        self._scroll_pane_by(other_frame, scroll_sync_units(event))
+
+    def _scroll_pane_by(self, frame: ctk.CTkScrollableFrame | None, units: int) -> None:
+        """Scroll one pane's canvas by ``units``. Reaches into
+        CTkScrollableFrame's private ``_parent_canvas`` - there is no
+        public API for programmatic scrolling - so this stays defensive
+        and silently does nothing on any error rather than risk crashing
+        the preview over a cosmetic scroll-sync feature.
+        """
+        if frame is None or units == 0:
+            return
+        canvas = getattr(frame, "_parent_canvas", None)
+        if canvas is None:
+            return
+        try:
+            if canvas.yview() != (0.0, 1.0):
+                canvas.yview_scroll(units, "units")
+        except tk.TclError:
+            pass
+
+    def _scroll_pane_to_top(self, frame: ctk.CTkScrollableFrame | None) -> None:
+        canvas = getattr(frame, "_parent_canvas", None) if frame is not None else None
+        if canvas is None:
+            return
+        try:
+            canvas.yview_moveto(0.0)
+        except tk.TclError:
+            pass
+
     def _pane_side_for_widget(self, widget: object) -> str | None:
+        """Identify which pane (if either) a widget belongs to.
+
+        CTkScrollableFrame embeds its actual content Frame *inside* an
+        internal scrolling Canvas (via ``canvas.create_window``), not the
+        other way around - so ``self.left_frame`` never appears in that
+        canvas's own ``.master`` chain. Without also matching its private
+        ``_parent_canvas``/``_parent_frame``, a cursor sitting over blank
+        canvas space rather than directly over rendered page content (e.g.
+        past the bottom of a short page, or in the padding around it)
+        would resolve to neither pane and silently do nothing.
+        """
+        left_widgets = {
+            self.left_frame,
+            getattr(self.left_frame, "_parent_canvas", None),
+            getattr(self.left_frame, "_parent_frame", None),
+        }
+        right_widgets = {
+            self.right_frame,
+            getattr(self.right_frame, "_parent_canvas", None),
+            getattr(self.right_frame, "_parent_frame", None),
+        }
         node = widget
         while node is not None:
-            if node is self.left_frame:
+            if node in left_widgets:
                 return "original"
-            if node is self.right_frame:
+            if node in right_widgets:
                 return "result"
             node = getattr(node, "master", None)
         return None
 
     def _toggle_zoom_link(self) -> None:
         self.zoom_linked = not self.zoom_linked
-        if self.zoom_linked and self.result_zoom != self.original_zoom:
-            self.result_zoom = self.original_zoom
+        if self.zoom_linked:
+            # Re-locking is a full reset to the default view for both
+            # panes - not just syncing to whatever zoom/scroll position
+            # the left pane happened to be at - so "back to automatic"
+            # is one predictable state every time, not a moving target.
+            self.original_zoom = ZOOM_DEFAULT
+            self.result_zoom = ZOOM_DEFAULT
+            self._rebuild_original_pane()
             self._rebuild_result_pane()
+            self._scroll_pane_to_top(self.left_frame)
+            self._scroll_pane_to_top(self.right_frame)
         self._update_zoom_controls()
 
     def _adjust_zoom(self, side: str, step: int) -> None:
