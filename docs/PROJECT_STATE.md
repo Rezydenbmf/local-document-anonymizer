@@ -901,6 +901,46 @@ each scrolls on its own again, and re-locking resets both to 100% zoom
 and the top of the page. Full suite: 372 tests (3 new), lint unchanged
 against baseline.
 
+Same-day magic pen toolbar polish, from the user's own running notes
+file: (a) the LPM/PPM toolbar now sits *above* the "Po anonimizacji"
+header (title + zoom/lock) instead of between it and the page, so the
+row directly bordering the actual document - scale and padlock - looks
+the same on both sides; reordering alone doesn't change the *total*
+header height on the right though, so a matching invisible spacer of
+the same height was added above "Oryginał" too, keeping both pages
+starting at the exact same height (verified: both panes' content start
+at an identical rooty, confirmed on the pilot machine both before and
+after the window is fully realized). The spacer's height is a fixed,
+unscaled constant (`MAGIC_PEN_TOOLBAR_HEIGHT`) rather than measured off
+the real toolbar at runtime and kept in sync - that was tried first and
+turned into its own can of worms, a freshly built widget's true height
+isn't reliably known for a while after construction, and re-measuring on
+every `<Configure>` risked an expensive cascade as the resize itself kept
+re-triggering more `<Configure>` events (confirmed: over a hundred firings
+during one settle). customtkinter already scales every widget's
+configured height by the same per-display DPI factor internally, so a
+plain fixed value tracks the toolbar's real on-screen height on any
+display without any of that. (b) The LPM/PPM chips are real buttons now,
+not a static legend: clicking one pins LMB to that single action (a
+"manual" mode for anyone who'd rather pick a tool explicitly than
+remember which button does what - clicking the same chip again returns
+to the modeless default); independently of pinning, a chip also lights
+up for as long as its action is actually in progress (LMB held down
+mid-drag, or a brief flash on an RMB click, since a click has no natural
+"held" duration the way a drag does) - so the buttons double as a live
+"this is what's happening" indicator, not just a static legend. Pinning
+only ever changes what LMB does; RMB keeps working as erase regardless
+of the pinned tool, so pinning to "draw" never takes the RMB shortcut
+away. Verified functionally against the real GUI with the same pilot
+invoice PDF pair: the toolbar row is confirmed first in the right
+container's packing order, both panes' content start at an identical
+height, the draw chip lights up only while LMB is actually held and
+returns to gray on release, an RMB click flashes the erase chip and it
+fades back on its own, clicking a chip pins it (persistent highlight,
+`pinned_tool` set) and clicking it again returns to automatic, and an
+LMB press while pinned to "erase" performs the toggle-remove directly
+without starting a draw-drag. Lint unchanged against baseline.
+
 ## What Exists
 
 - Repository structure.
@@ -1312,10 +1352,15 @@ together (not just zoom together), unlinking frees them to scroll
 independently same as zoom already did, re-locking resets both to a
 clean default view, and a latent widget-resolution bug shared with the
 existing Ctrl-scroll zoom (a cursor over blank canvas space matching
-neither pane) is fixed too.
+neither pane) is fixed too, and finally a same-day toolbar polish pass
+(from the user's own running to-do notes): the LPM/PPM row now sits
+above the header/zoom row with both pages kept pixel-aligned by a
+matching spacer, the two chips became real toggle buttons that pin LMB
+to a single "manual" tool, and each chip now visibly lights up for as
+long as its action is actually happening.
 
 ```text
-4c9bec3 Sync scrolling between locked comparison panes; reset on re-lock
+5904806 Magic pen toolbar: reorder, pixel-align panes, and live tool chips
 ```
 
 ## Next Logical Step

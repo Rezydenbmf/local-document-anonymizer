@@ -2694,6 +2694,12 @@ ZOOM_MAX = 3.0
 ZOOM_STEP = 0.1
 ZOOM_DEFAULT = 1.0
 ZOOM_LINK_HINT_ID = "zoom_link_toggle"
+# The magic pen toolbar's natural (unscaled) height: its tallest row is a
+# tool chip, a default-height (28) CTkLabel with 4px pady above and below.
+# Used to size an invisible spacer above "Oryginał" so both pages start at
+# the same height - see the comment where it's used for why this is a
+# fixed value instead of one measured off the real toolbar at runtime.
+MAGIC_PEN_TOOLBAR_HEIGHT = 36
 
 
 def clamp_zoom_level(
@@ -2929,6 +2935,17 @@ class ComparisonWindow:
         self.save_button: ctk.CTkButton | None = None
         self.cancel_button: ctk.CTkButton | None = None
         self.pen_status_label: ctk.CTkLabel | None = None
+        # Manual-mode tool pinning: None means the modeless default (LMB
+        # draws, RMB always erases). Pinning to "draw" or "erase" locks
+        # LMB to that one action - RMB keeps working as erase regardless,
+        # so pinning never takes away the existing shortcut, only adds a
+        # single-button way to work for anyone who'd rather pick a tool
+        # explicitly. _transient_tool tracks a chip lighting up because
+        # its action is actually happening right now (independent of
+        # pinning), cleared the moment that press/click ends.
+        self.pinned_tool: str | None = None
+        self._transient_tool: str | None = None
+        self._tool_chips: dict[str, tuple[ctk.CTkFrame, ctk.CTkLabel, ctk.CTkLabel]] = {}
         self.left_frame: ctk.CTkScrollableFrame | None = None
         self.right_frame: ctk.CTkScrollableFrame | None = None
         self.original_zoom = ZOOM_DEFAULT
@@ -2999,12 +3016,37 @@ class ComparisonWindow:
         self._build_pane_header(left_container, "Oryginał", "original").pack(
             fill="x", pady=(0, 6)
         )
+
+        # The magic pen toolbar sits above the "Po anonimizacji" header
+        # (rather than below it, between the header and the page itself)
+        # so the row directly bordering the actual document - the scale
+        # and lock-icon row - looks the same on both sides. On its own
+        # that still leaves the right page starting lower than the left
+        # one, since the toolbar's own height still has to go somewhere -
+        # so an invisible spacer of the same height is added above
+        # "Oryginał" too, keeping both pages starting at the same height.
+        # MAGIC_PEN_TOOLBAR_HEIGHT is a fixed, unscaled value rather than
+        # something measured off the real toolbar at runtime: customtkinter
+        # scales every widget's configured height by the same per-display
+        # DPI factor internally (confirmed: this project already leans on
+        # that for the magic pen canvas itself, see
+        # ctk_widget_scaling_factor), so a plain CTkFrame(height=...) here
+        # tracks the toolbar's real on-screen height on any display without
+        # ever needing to read the toolbar back and resync - which turned
+        # out to be its own can of worms (a freshly built widget's true
+        # height isn't reliably known for a while, and re-measuring on
+        # every <Configure> risks a expensive cascade as the resize itself
+        # keeps re-triggering more <Configure> events).
+        if self.magic_pen_available:
+            self._build_magic_pen_toolbar(right_container).pack(fill="x", pady=(0, 6))
+            spacer = ctk.CTkFrame(
+                left_container, fg_color="transparent", height=MAGIC_PEN_TOOLBAR_HEIGHT
+            )
+            spacer.pack(fill="x", pady=(0, 6))
+            spacer.pack_propagate(False)
         self._build_pane_header(right_container, "Po anonimizacji", "result").pack(
             fill="x", pady=(0, 6)
         )
-
-        if self.magic_pen_available:
-            self._build_magic_pen_toolbar(right_container).pack(fill="x", pady=(0, 6))
 
         left_frame = ctk.CTkScrollableFrame(
             left_container, fg_color=COLOR_CARD, corner_radius=10, label_text=""
@@ -3325,27 +3367,22 @@ class ComparisonWindow:
 
     def _build_magic_pen_toolbar(self, parent: ctk.CTkFrame) -> ctk.CTkFrame:
         toolbar = ctk.CTkFrame(parent, fg_color="transparent")
-        # Modeless: LMB always draws a new redaction, RMB always toggles an
-        # existing one - no mode to switch first, so these are a static
-        # legend rather than clickable buttons.
-        for glyph, label in (
-            ("✏", "LPM: zaznacz do ukrycia"),
-            ("🧹", "PPM: usuń zaznaczenie"),
-        ):
-            chip = ctk.CTkFrame(toolbar, fg_color=COLOR_CARD, corner_radius=6)
-            chip.pack(side="left", padx=(0, 6))
-            ctk.CTkLabel(
-                chip,
-                text=glyph,
-                font=ctk.CTkFont(family=FONT_FAMILY, size=13),
-                text_color=COLOR_TEXT,
-            ).pack(side="left", padx=(8, 4), pady=4)
-            ctk.CTkLabel(
-                chip,
-                text=label,
-                font=ctk.CTkFont(family=FONT_FAMILY, size=10),
-                text_color=COLOR_TEXT_MUTED,
-            ).pack(side="left", padx=(0, 8), pady=4)
+        # Modeless by default: LMB draws a new redaction, RMB always
+        # toggles an existing one, no mode to switch first. These chips
+        # are now also clickable: clicking one pins LMB to that single
+        # action (a "manual" mode for anyone who'd rather pick a tool
+        # explicitly than remember which button does what) - clicking the
+        # same chip again returns to the modeless default. Independently
+        # of pinning, a chip also lights up for as long as its action is
+        # actually in progress (LMB held down / RMB clicked), so the
+        # buttons double as a live "this is what's happening" indicator.
+        self._tool_chips["draw"] = self._build_tool_chip(
+            toolbar, "✏", "LPM: zaznacz do ukrycia", "draw"
+        )
+        self._tool_chips["erase"] = self._build_tool_chip(
+            toolbar, "🧹", "PPM: usuń zaznaczenie", "erase"
+        )
+        self._refresh_tool_chip_visuals()
 
         self.pen_status_label = ctk.CTkLabel(
             toolbar,
@@ -3384,6 +3421,72 @@ class ComparisonWindow:
         )
         self.save_button.pack(side="right")
         return toolbar
+
+    def _build_tool_chip(
+        self, parent: ctk.CTkFrame, glyph: str, label: str, tool: str
+    ) -> tuple[ctk.CTkFrame, ctk.CTkLabel, ctk.CTkLabel]:
+        chip = ctk.CTkFrame(parent, fg_color=COLOR_CARD, corner_radius=6, cursor="hand2")
+        chip.pack(side="left", padx=(0, 6))
+        glyph_label = ctk.CTkLabel(
+            chip,
+            text=glyph,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13),
+            text_color=COLOR_TEXT,
+        )
+        glyph_label.pack(side="left", padx=(8, 4), pady=4)
+        text_label = ctk.CTkLabel(
+            chip,
+            text=label,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+            text_color=COLOR_TEXT_MUTED,
+        )
+        text_label.pack(side="left", padx=(0, 8), pady=4)
+        for widget in (chip, glyph_label, text_label):
+            widget.bind("<Button-1>", lambda _e, t=tool: self._toggle_pinned_tool(t))
+        IconTooltip(
+            chip,
+            "Kliknij, aby przypisać LPM tylko do tego narzędzia (tryb ręczny). "
+            "Kliknij ponownie, aby wrócić do trybu automatycznego.",
+        )
+        return (chip, glyph_label, text_label)
+
+    def _toggle_pinned_tool(self, tool: str) -> None:
+        self.pinned_tool = None if self.pinned_tool == tool else tool
+        self._refresh_tool_chip_visuals()
+
+    def _flash_tool_chip(self, tool: str) -> None:
+        """Briefly light up a chip for a one-shot action (a right-click has
+        no natural "held" duration the way a LMB drag does)."""
+        self._transient_tool = tool
+        self._refresh_tool_chip_visuals()
+        self.window.after(250, self._clear_transient_tool)
+
+    def _clear_transient_tool(self) -> None:
+        self._transient_tool = None
+        self._refresh_tool_chip_visuals()
+
+    def _refresh_tool_chip_visuals(self) -> None:
+        for tool, chip_widgets in self._tool_chips.items():
+            self._set_tool_chip_active(
+                chip_widgets,
+                active=(self.pinned_tool == tool or self._transient_tool == tool),
+            )
+
+    def _set_tool_chip_active(
+        self,
+        chip_widgets: tuple[ctk.CTkFrame, ctk.CTkLabel, ctk.CTkLabel],
+        *,
+        active: bool,
+    ) -> None:
+        chip, glyph_label, text_label = chip_widgets
+        if active:
+            chip.configure(fg_color=COLOR_ACCENT)
+            glyph_label.configure(text_color="#FFFFFF")
+            text_label.configure(text_color="#FFFFFF")
+        else:
+            chip.configure(fg_color=COLOR_CARD)
+            glyph_label.configure(text_color=COLOR_TEXT)
+            text_label.configure(text_color=COLOR_TEXT_MUTED)
 
     # -- magic pen: rendering -------------------------------------------------
 
@@ -3505,19 +3608,37 @@ class ComparisonWindow:
         return list(self.visible_rects) + pending
 
     def _on_pane_press(self, event: tk.Event, page_number: int) -> None:
-        """Left button always starts drawing a new redaction rectangle."""
+        """LMB draws a new redaction by default; pinned to "erase" it
+        instead toggles the rectangle under the cursor immediately, the
+        same one-click action RMB always performs. Either way, the
+        matching tool chip lights up for as long as the button is held.
+        """
+        active_tool = self.pinned_tool or "draw"
+        self._transient_tool = active_tool
+        self._refresh_tool_chip_visuals()
+        if active_tool == "erase":
+            self._erase_at_point(event.x, event.y, page_number)
+            return
         self._drag_start = (event.x, event.y)
         self._drag_rect_id = None
 
     def _on_pane_right_click(self, event: tk.Event, page_number: int) -> None:
-        """Right button always toggles the rectangle under the cursor."""
+        """Right button always toggles the rectangle under the cursor,
+        regardless of the pinned tool - pinning to "draw" only locks in
+        what LMB does, it never takes this shortcut away."""
+        self._flash_tool_chip("erase")
+        self._erase_at_point(event.x, event.y, page_number)
+
+    def _erase_at_point(self, x: float, y: float, page_number: int) -> None:
         zoom = self._page_zoom.get(page_number, 1.0)
-        px, py = canvas_point_to_pdf_point(event.x, event.y, zoom)
+        px, py = canvas_point_to_pdf_point(x, y, zoom)
         hit = find_rect_at_point(self._hit_test_pool(), page_number, px, py)
         if hit is not None:
             self._toggle_pending_remove(hit)
 
     def _on_pane_drag(self, event: tk.Event, page_number: int) -> None:
+        if self.pinned_tool == "erase":
+            return
         if self._drag_start is None:
             return
         canvas = self._page_canvases.get(page_number)
@@ -3531,6 +3652,10 @@ class ComparisonWindow:
         )
 
     def _on_pane_release(self, event: tk.Event, page_number: int) -> None:
+        self._transient_tool = None
+        self._refresh_tool_chip_visuals()
+        if self.pinned_tool == "erase":
+            return
         if self._drag_start is None:
             return
         canvas = self._page_canvases.get(page_number)
