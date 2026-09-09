@@ -803,6 +803,36 @@ to PATH at all; no in-process refresh can fix an entry that was never
 written, so that case still needs the existing "Pobierz" flow or a manual
 PATH edit. Full suite: 358 tests (4 new), lint unchanged against baseline.
 
+Immediate follow-up closing that Tesseract gap without any manual PATH
+edit: the user asked for automation instead of asking a regular user to
+edit environment variables by hand - correctly, since that is well beyond
+what most users can be expected to do. `ocr.py` gained
+`_resolve_tesseract_cmd()` (tries `shutil.which("tesseract")` first, then
+falls back to the two locations the official Windows installer itself
+ever writes to - `C:\Program Files\Tesseract-OCR\tesseract.exe` and the
+`(x86)` variant, no-op on non-Windows) and `_configure_tesseract_cmd()`,
+which points `pytesseract.pytesseract.tesseract_cmd` directly at whatever
+was found - only when the current command isn't already resolvable, so it
+never overrides a working setup. Called once at the top of
+`detect_ocr_support()`; since it mutates pytesseract's own module-level
+state, the later `image_to_string()` calls in `extract_text_from_image`/
+`extract_text_from_pdf` pick it up automatically within the same process,
+no extra call sites needed. This sidesteps PATH entirely rather than
+trying to fix it - no system settings touched, nothing for the user to
+do. Deliberately Windows-only for now (the only platform this pilot runs
+on and the only one with a known fixed install location); Ollama detection
+was left as-is since its actual generation calls already go over HTTP to
+`127.0.0.1:11434`, not through the `ollama` CLI - only its lightweight
+`ollama --version`/`ollama list` detection uses PATH, and that path was
+already fixed by the registry-refresh change above once Ollama itself
+puts the entry there, which it reliably did. Verified for real (no mocks)
+on the pilot machine, where Tesseract truly isn't on PATH:
+`_resolve_tesseract_cmd()` found the real binary at the default location,
+`detect_ocr_support()` now reports `available`, and the running app's
+own status banner is now completely empty - all three optional
+dependencies detected with zero PATH edits. Full suite: 367 tests (9 new),
+lint unchanged against baseline.
+
 ## What Exists
 
 - Repository structure.
@@ -1199,12 +1229,15 @@ when the user clicks "Zatwierdzony" instead of right after anonymizing,
 and a startup check for newer versions of the app's pip-managed
 libraries with a fully silent, one-click, one-confirmation update path,
 plus a same-day pilot-use follow-up merging the missing-dependency and
-library-update cards into one compact banner and fixing a real Windows
+library-update cards into one compact banner, fixing a real Windows
 PATH-staleness bug that made a freshly-installed Ollama/Tesseract keep
-reporting as missing until the whole app was restarted.
+reporting as missing until the whole app was restarted, and then a
+same-day fully-automatic fallback that finds a Tesseract install at its
+default Windows location even when it was never added to PATH at all -
+no manual PATH edit required from the user in either case.
 
 ```text
-55fadb2 Merge status banners and fix stale-PATH dependency detection
+496ffd1 Find Tesseract at its default install path when not on PATH
 ```
 
 ## Next Logical Step
