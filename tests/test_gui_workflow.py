@@ -18,6 +18,7 @@ from anonymizer import (
     anonymize_file,
     anonymize_file_with_audit,
 )
+from environment_check import EnvironmentCheckItem
 from gui import (
     LLM_MODELS_FOUND_HINT,
     LLM_NO_MODELS_HINT,
@@ -36,6 +37,7 @@ from gui import (
     category_label_pl,
     clamp_zoom_level,
     default_output_directory,
+    environment_status_lookup,
     file_type_badge,
     filter_supported_paths,
     find_rect_at_point,
@@ -800,6 +802,21 @@ class GuiWorkflowTests(unittest.TestCase):
         )
 
         self.assertEqual(format_batch_error_items(batch_result), [])
+
+    def test_environment_status_lookup_maps_item_to_ok(self) -> None:
+        items = [
+            EnvironmentCheckItem("ner", True, "NER", "Dostępne."),
+            EnvironmentCheckItem("ocr", False, "OCR", "Brak."),
+        ]
+
+        self.assertEqual(
+            environment_status_lookup(items), {"ner": True, "ocr": False}
+        )
+
+    def test_environment_status_lookup_none_is_empty_not_unavailable(self) -> None:
+        # None means "not checked yet", distinct from a known-missing item -
+        # an empty dict lets callers tell the two apart via .get(key) is None.
+        self.assertEqual(environment_status_lookup(None), {})
 
 
 if __name__ == "__main__":

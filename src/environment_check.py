@@ -124,7 +124,16 @@ def check_llm_environment() -> EnvironmentCheckItem:
 
 
 def check_environment(model_name: str = DEFAULT_NER_MODEL) -> list[EnvironmentCheckItem]:
-    """Run every startup check and return one item per optional dependency."""
+    """Run every startup check and return one item per optional dependency.
+
+    MAINTENANCE NOTE: this list is not auto-discovered - it is the
+    complete, explicit set of optional local dependencies the app knows
+    to check. Any future optional dependency (another OCR/LLM backend,
+    a second NER model, a new local engine, ...) needs its own
+    check_*_environment() added here, or the user will silently lose the
+    startup warning + one-click fix for it, exactly the gap this module
+    was built to close in the first place.
+    """
     return [
         check_ner_environment(model_name),
         check_ocr_environment(),
