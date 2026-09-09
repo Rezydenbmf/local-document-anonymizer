@@ -768,6 +768,41 @@ correctly hides that package (and disappears entirely once nothing is
 left) after a successful re-check. Full suite: 354 tests (19 new), lint
 unchanged against baseline.
 
+Follow-up from real use of the two features above, in one pass: (a) the
+missing-dependency card and the library-update card stacked as two full
+separate boxes, each with its own header/footer chrome, eating more
+vertical space above the drop zone than either needed alone - `gui.py`'s
+`_build_environment_banner`/`_build_update_banner` are merged into one
+`_build_status_banner` (one shared `status_banner_dismissed` flag, one
+"Sprawdź ponownie" that re-runs both checks via a new `_recheck_status`),
+with tighter row/card padding on top of the merge; warning styling wins
+over the info styling when both issues and updates are present, since a
+missing dependency is more actionable. (b) The user installed Ollama and
+Tesseract while the app was already running, then found the environment
+banner still reported both missing even after "Sprawdź ponownie" - traced
+to a real Windows behavior, not a placebo re-check: installing something
+updates the User/Machine PATH in the registry immediately, but an
+already-running process (this app included) keeps the PATH snapshot it
+started with, so `ollama`/`tesseract` stayed unresolvable no matter how
+many times the check re-ran; only a full app restart would have picked it
+up. `environment_check.py` gained `refresh_path_from_registry()`, called
+at the start of every `check_environment()` run: on Windows it reads the
+current User and Machine `Path` values straight from the registry via
+`winreg` and merges any not-yet-present entries into this process's
+`os.environ["PATH"]` (case-insensitive de-duplication, additive only,
+never removes anything) - a safe no-op on any error or a non-Windows
+platform. Verified for real (no mocks) on the pilot machine: a subprocess
+launched with Ollama's install directory stripped from its inherited PATH
+reported `ollama_not_found` before the call and `available` immediately
+after, with no restart. Confirmed against the real, currently-running app
+too: after this fix, Ollama (genuinely installed and on the registry PATH)
+now shows as available without a restart, while Tesseract correctly still
+shows as missing, because - confirmed directly by reading the Machine and
+User `Path` registry values - that particular install never added itself
+to PATH at all; no in-process refresh can fix an entry that was never
+written, so that case still needs the existing "Pobierz" flow or a manual
+PATH edit. Full suite: 358 tests (4 new), lint unchanged against baseline.
+
 ## What Exists
 
 - Repository structure.
@@ -1162,10 +1197,14 @@ collision-numbering gap fix, a startup environment check with one-click
 fixes and status dots in Settings, a fix so the result file opens only
 when the user clicks "Zatwierdzony" instead of right after anonymizing,
 and a startup check for newer versions of the app's pip-managed
-libraries with a fully silent, one-click, one-confirmation update path.
+libraries with a fully silent, one-click, one-confirmation update path,
+plus a same-day pilot-use follow-up merging the missing-dependency and
+library-update cards into one compact banner and fixing a real Windows
+PATH-staleness bug that made a freshly-installed Ollama/Tesseract keep
+reporting as missing until the whole app was restarted.
 
 ```text
-6c784d0 Add silent, one-click update check for pip-managed libraries
+55fadb2 Merge status banners and fix stale-PATH dependency detection
 ```
 
 ## Next Logical Step

@@ -1097,12 +1097,16 @@ class AnonymizerApp:
 
         self.active_screen = "start"
         self.environment_items: list | None = None
-        self.environment_banner_dismissed = False
         self.environment_installing: set[str] = set()
 
         self.dependency_updates: list | None = None
-        self.update_banner_dismissed = False
         self.package_updates_installing: set[str] = set()
+
+        # One shared dismiss flag: missing-dependency issues and available
+        # library updates render as a single combined banner (see
+        # _build_status_banner) so they never stack as two separate cards
+        # eating extra vertical space above the drop zone.
+        self.status_banner_dismissed = False
 
         ctk.set_appearance_mode("light")
         ctk.set_default_color_theme("blue")
@@ -1184,7 +1188,10 @@ class AnonymizerApp:
             widget.destroy()
 
     # ------------------------------------------------------------------
-    # Startup environment check (NER model / OCR / local LLM availability)
+    # Startup checks: NER/OCR/LLM availability and pip-library updates.
+    # Both render into one combined banner (_build_status_banner) so a
+    # missing-dependency card and an updates-available card never stack as
+    # two separate boxes eating extra vertical space above the drop zone.
     # ------------------------------------------------------------------
 
     def _start_environment_check(self) -> None:
@@ -1199,10 +1206,26 @@ class AnonymizerApp:
         if self.active_screen == "start":
             self.show_start_screen()
 
-    def _dismiss_environment_banner(self) -> None:
-        self.environment_banner_dismissed = True
+    def _start_update_check(self) -> None:
+        def worker() -> None:
+            items = check_dependency_updates()
+            self.root.after(0, lambda: self._on_update_check_done(items))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_update_check_done(self, items: list) -> None:
+        self.dependency_updates = items
         if self.active_screen == "start":
             self.show_start_screen()
+
+    def _dismiss_status_banner(self) -> None:
+        self.status_banner_dismissed = True
+        if self.active_screen == "start":
+            self.show_start_screen()
+
+    def _recheck_status(self) -> None:
+        self._start_environment_check()
+        self._start_update_check()
 
     def _install_ner_model_clicked(self, model_name: str) -> None:
         if ENV_ITEM_NER in self.environment_installing:
@@ -1223,48 +1246,98 @@ class AnonymizerApp:
         # install actually worked instead of just hiding the button.
         self._start_environment_check()
 
-    def _build_environment_banner(self, parent: ctk.CTkFrame) -> None:
-        if self.environment_banner_dismissed or self.environment_items is None:
+    def _update_package_clicked(self, package: str) -> None:
+        if package in self.package_updates_installing:
             return
-        issues = [item for item in self.environment_items if not item.ok]
-        if not issues:
+        installed_version = None
+        latest_version = None
+        for item in self.dependency_updates or []:
+            if item.package == package:
+                installed_version, latest_version = item.installed_version, item.latest_version
+                break
+        confirmed = messagebox.askyesno(
+            "Aktualizacja biblioteki",
+            f"Zainstalować aktualizację {package} "
+            f"({installed_version} → {latest_version})?",
+        )
+        if not confirmed:
             return
+
+        self.package_updates_installing.add(package)
+        if self.active_screen == "start":
+            self.show_start_screen()
+
+        def worker() -> None:
+            install_package_update(package)
+            self.root.after(0, lambda: self._on_package_update_done(package))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_package_update_done(self, package: str) -> None:
+        self.package_updates_installing.discard(package)
+        # Re-run the full check rather than assuming success - confirms the
+        # install actually worked instead of just hiding the button.
+        self._start_update_check()
+
+    def _build_status_banner(self, parent: ctk.CTkFrame) -> None:
+        if self.status_banner_dismissed:
+            return
+        issues = [item for item in (self.environment_items or []) if not item.ok]
+        updates = [
+            item
+            for item in (self.dependency_updates or [])
+            if item.ok and item.update_available
+        ]
+        if not issues and not updates:
+            return
+
+        # Missing/broken dependencies are more actionable than "a newer
+        # version exists" - the warning styling wins when both are present.
+        is_warning = bool(issues)
+        header_text = (
+            "⚠ Niektóre funkcje mogą nie działać w pełni:"
+            if is_warning
+            else "⬆ Dostępne aktualizacje bibliotek:"
+        )
+        bg_color = COLOR_WARNING_SOFT if is_warning else COLOR_ACCENT_SOFT
+        border_color = COLOR_WARNING if is_warning else COLOR_ACCENT
+        header_color = COLOR_WARNING_TEXT if is_warning else COLOR_ACCENT_HOVER
 
         card = ctk.CTkFrame(
             parent,
-            fg_color=COLOR_WARNING_SOFT,
+            fg_color=bg_color,
             corner_radius=10,
             border_width=1,
-            border_color=COLOR_WARNING,
+            border_color=border_color,
         )
-        card.pack(fill="x", pady=(0, 12))
+        card.pack(fill="x", pady=(0, 10))
         inner = ctk.CTkFrame(card, fg_color="transparent")
-        inner.pack(fill="x", padx=14, pady=10)
+        inner.pack(fill="x", padx=14, pady=8)
 
         header_row = ctk.CTkFrame(inner, fg_color="transparent")
         header_row.pack(fill="x")
         ctk.CTkLabel(
             header_row,
-            text="⚠ Niektóre funkcje mogą nie działać w pełni:",
+            text=header_text,
             font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
-            text_color=COLOR_WARNING_TEXT,
+            text_color=header_color,
             anchor="w",
         ).pack(side="left")
         ctk.CTkButton(
             header_row,
             text="✕",
-            width=24,
-            height=24,
-            corner_radius=12,
+            width=22,
+            height=22,
+            corner_radius=11,
             fg_color="transparent",
             hover_color=COLOR_ICON_IDLE,
-            text_color=COLOR_WARNING_TEXT,
-            command=self._dismiss_environment_banner,
+            text_color=header_color,
+            command=self._dismiss_status_banner,
         ).pack(side="right")
 
         for item in issues:
             row = ctk.CTkFrame(inner, fg_color="transparent")
-            row.pack(fill="x", pady=(8, 0))
+            row.pack(fill="x", pady=(6, 0))
             text_col = ctk.CTkFrame(row, fg_color="transparent")
             text_col.pack(side="left", fill="x", expand=True)
             ctk.CTkLabel(
@@ -1319,119 +1392,18 @@ class AnonymizerApp:
                     command=lambda url=item.install_target: webbrowser.open(url),
                 ).pack(side="right", padx=(8, 0))
 
-        ctk.CTkButton(
-            inner,
-            text="Sprawdź ponownie",
-            width=140,
-            height=24,
-            corner_radius=8,
-            fg_color="transparent",
-            hover_color=COLOR_ICON_IDLE,
-            text_color=COLOR_TEXT_MUTED,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
-            command=self._start_environment_check,
-        ).pack(anchor="e", pady=(10, 0))
-
-    # ------------------------------------------------------------------
-    # Startup dependency-update check (pip-managed libraries)
-    # ------------------------------------------------------------------
-
-    def _start_update_check(self) -> None:
-        def worker() -> None:
-            items = check_dependency_updates()
-            self.root.after(0, lambda: self._on_update_check_done(items))
-
-        threading.Thread(target=worker, daemon=True).start()
-
-    def _on_update_check_done(self, items: list) -> None:
-        self.dependency_updates = items
-        if self.active_screen == "start":
-            self.show_start_screen()
-
-    def _dismiss_update_banner(self) -> None:
-        self.update_banner_dismissed = True
-        if self.active_screen == "start":
-            self.show_start_screen()
-
-    def _update_package_clicked(self, package: str) -> None:
-        if package in self.package_updates_installing:
-            return
-        installed_version = None
-        latest_version = None
-        for item in self.dependency_updates or []:
-            if item.package == package:
-                installed_version, latest_version = item.installed_version, item.latest_version
-                break
-        confirmed = messagebox.askyesno(
-            "Aktualizacja biblioteki",
-            f"Zainstalować aktualizację {package} "
-            f"({installed_version} → {latest_version})?",
-        )
-        if not confirmed:
-            return
-
-        self.package_updates_installing.add(package)
-        if self.active_screen == "start":
-            self.show_start_screen()
-
-        def worker() -> None:
-            install_package_update(package)
-            self.root.after(0, lambda: self._on_package_update_done(package))
-
-        threading.Thread(target=worker, daemon=True).start()
-
-    def _on_package_update_done(self, package: str) -> None:
-        self.package_updates_installing.discard(package)
-        # Re-run the full check rather than assuming success - confirms the
-        # install actually worked instead of just hiding the button.
-        self._start_update_check()
-
-    def _build_update_banner(self, parent: ctk.CTkFrame) -> None:
-        if self.update_banner_dismissed or not self.dependency_updates:
-            return
-        updates = [
-            item
-            for item in self.dependency_updates
-            if item.ok and item.update_available
-        ]
-        if not updates:
-            return
-
-        card = ctk.CTkFrame(
-            parent,
-            fg_color=COLOR_ACCENT_SOFT,
-            corner_radius=10,
-            border_width=1,
-            border_color=COLOR_ACCENT,
-        )
-        card.pack(fill="x", pady=(0, 12))
-        inner = ctk.CTkFrame(card, fg_color="transparent")
-        inner.pack(fill="x", padx=14, pady=10)
-
-        header_row = ctk.CTkFrame(inner, fg_color="transparent")
-        header_row.pack(fill="x")
-        ctk.CTkLabel(
-            header_row,
-            text="⬆ Dostępne aktualizacje bibliotek:",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
-            text_color=COLOR_ACCENT_HOVER,
-            anchor="w",
-        ).pack(side="left")
-        ctk.CTkButton(
-            header_row,
-            text="✕",
-            width=24,
-            height=24,
-            corner_radius=12,
-            fg_color="transparent",
-            hover_color=COLOR_ICON_IDLE,
-            text_color=COLOR_ACCENT_HOVER,
-            command=self._dismiss_update_banner,
-        ).pack(side="right")
+        if issues and updates:
+            ctk.CTkLabel(
+                inner,
+                text="Dostępne aktualizacje bibliotek:",
+                font=ctk.CTkFont(family=FONT_FAMILY, size=10, weight="bold"),
+                text_color=COLOR_TEXT_MUTED,
+                anchor="w",
+            ).pack(fill="x", pady=(8, 0))
 
         for item in updates:
             row = ctk.CTkFrame(inner, fg_color="transparent")
-            row.pack(fill="x", pady=(8, 0))
+            row.pack(fill="x", pady=(6, 0))
             ctk.CTkLabel(
                 row,
                 text=f"{item.package}: {item.installed_version} → {item.latest_version}",
@@ -1470,8 +1442,8 @@ class AnonymizerApp:
             hover_color=COLOR_ICON_IDLE,
             text_color=COLOR_TEXT_MUTED,
             font=ctk.CTkFont(family=FONT_FAMILY, size=10),
-            command=self._start_update_check,
-        ).pack(anchor="e", pady=(10, 0))
+            command=self._recheck_status,
+        ).pack(anchor="e", pady=(8, 0))
 
     # ------------------------------------------------------------------
     # Start screen (drag & drop)
@@ -1481,8 +1453,7 @@ class AnonymizerApp:
         self.active_screen = "start"
         self._clear_content()
 
-        self._build_environment_banner(self.content)
-        self._build_update_banner(self.content)
+        self._build_status_banner(self.content)
 
         drop_frame = ctk.CTkFrame(
             self.content,
