@@ -12,3 +12,6 @@ spacy
 # GUI: modern flat theming and native drag-and-drop for the desktop app.
 customtkinter
 tkinterdnd2
+
+# Version comparison for the startup library-update check (dependency_updates.py).
+packaging
