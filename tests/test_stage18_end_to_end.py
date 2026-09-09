@@ -1,12 +1,12 @@
 """Stage 18 end-to-end MVP workflow validation tests."""
 
-from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 
 from docx import Document
-
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
@@ -21,7 +21,6 @@ from review import (
     export_approved_workspace,
     save_review_files,
 )
-
 
 UNSAFE_PATTERNS = (
     "safe@example.test",
@@ -331,14 +330,43 @@ class Stage18EndToEndWorkflowTests(unittest.TestCase):
             "data/",
             "*.log",
             ".env",
-            "*_ANON.*",
-            "*_RAPORT.*",
+            "*_ANON*.*",
+            "*_RAPORT*.*",
             "*_BATCH_SUMMARY*.txt",
             "_REVIEW_STATUS*.json",
             "_REVIEW_SUMMARY*.txt",
             "_APPROVED_INDEX*.txt",
         ):
             self.assertIn(pattern, gitignore_text)
+
+    def test_collision_numbered_generated_outputs_remain_gitignored(self) -> None:
+        """Regression test: *_ANON.* / *_RAPORT.* alone did not match the
+        _2/_3/... collision-safe variants build_collision_safe_path()
+        produces, so a real user's numbered output/report was one
+        `git add -A` away from being committed. Verified against the real
+        git ignore rules (not just string presence), since that gap was
+        only actually caught by running git check-ignore, not by reading
+        the patterns."""
+        with workspace_temp_dir() as temp_dir:
+            candidate_paths = [
+                Path(temp_dir) / "document_ANON_2.txt",
+                Path(temp_dir) / "_wewnetrzne" / "document_RAPORT_2.txt",
+            ]
+            for path in candidate_paths:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("synthetic", encoding="utf-8")
+
+                result = subprocess.run(
+                    ["git", "check-ignore", "--quiet", str(path)],
+                    cwd=PROJECT_ROOT,
+                    check=False,
+                )
+
+                self.assertEqual(
+                    result.returncode,
+                    0,
+                    f"{path.name} (collision-numbered) must be gitignored",
+                )
 
 
 if __name__ == "__main__":

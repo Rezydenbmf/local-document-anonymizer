@@ -31,6 +31,7 @@ from gui import (
     REVIEW_STATUS_REJECTED,
     ReviewItem,
     auto_open_output_names,
+    batch_error_label_pl,
     canvas_point_to_pdf_point,
     category_label_pl,
     clamp_zoom_level,
@@ -42,6 +43,7 @@ from gui import (
     format_approved_export_status,
     format_audit_result,
     format_batch_audit_result,
+    format_batch_error_items,
     format_batch_status,
     format_dictionary_result,
     format_drop_result,
@@ -748,6 +750,56 @@ class GuiWorkflowTests(unittest.TestCase):
     def test_auto_open_output_names_unknown_mode_falls_back_to_last(self) -> None:
         names = ["a.pdf", "b.pdf"]
         self.assertEqual(auto_open_output_names(names, "bogus"), ["b.pdf"])
+
+    def test_batch_error_label_pl_translates_known_codes(self) -> None:
+        self.assertIn(
+            "OCR", batch_error_label_pl("OCR unavailable for image-based input")
+        )
+        self.assertIn("Tesseract", batch_error_label_pl("OCR unavailable for image-based input"))
+
+    def test_batch_error_label_pl_falls_back_to_raw_code(self) -> None:
+        self.assertEqual(batch_error_label_pl("something new"), "something new")
+
+    def test_format_batch_error_items_lists_only_failed_files(self) -> None:
+        batch_result = BatchResult(
+            summary_path=Path("output") / "_wewnetrzne" / "_BATCH_SUMMARY.txt",
+            input_count=2,
+            success_count=1,
+            error_count=1,
+            counters={},
+            audit_status_counts={},
+            risk_level_counts={},
+            audit_category_counters={},
+            results=[
+                {"input_name": "ok.txt", "status": "success"},
+                {
+                    "input_name": "scan.pdf",
+                    "status": "error",
+                    "error": "OCR unavailable for image-based input",
+                },
+            ],
+        )
+
+        items = format_batch_error_items(batch_result)
+
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0][0], "scan.pdf")
+        self.assertIn("OCR", items[0][1])
+
+    def test_format_batch_error_items_empty_when_all_succeeded(self) -> None:
+        batch_result = BatchResult(
+            summary_path=Path("output") / "_wewnetrzne" / "_BATCH_SUMMARY.txt",
+            input_count=1,
+            success_count=1,
+            error_count=0,
+            counters={},
+            audit_status_counts={},
+            risk_level_counts={},
+            audit_category_counters={},
+            results=[{"input_name": "ok.txt", "status": "success"}],
+        )
+
+        self.assertEqual(format_batch_error_items(batch_result), [])
 
 
 if __name__ == "__main__":

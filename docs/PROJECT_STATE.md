@@ -630,6 +630,34 @@ still correctly copies the deliverable and report into `approved/`. All
 updated to match, not reverted. Full suite: 321 tests, lint unchanged (84
 pre-existing errors, same before and after).
 
+The user's own first real pilot document (a scanned invoice PDF) exposed
+two things immediately. First, a real pre-existing `.gitignore` gap,
+unrelated to the day's other work: `*_ANON.*` and `*_RAPORT.*` lack a
+wildcard before the extension, so they never matched
+`build_collision_safe_path()`'s numbered variants (`_ANON_2.txt`,
+`_RAPORT_2.txt`, ...) - confirmed with `git add -A --dry-run`, which
+would have staged the user's real numbered output/report (containing
+their real invoice filename) the moment a second file collided on name.
+Fixed by adding the missing wildcard (`*_ANON*.*` / `*_RAPORT*.*`); added
+a regression test that runs real `git check-ignore` against a numbered
+filename rather than only checking the pattern text is present in
+`.gitignore`, since string-presence alone had not caught this. Second, a
+real UX gap: the scanned PDF had no text layer and needs local OCR
+(Tesseract), which was not installed - the batch correctly failed the
+file internally, but the review screen only ever showed a silent, blank
+"Brak wykrytych wyników" with no indication anything had gone wrong or
+why (`format_batch_status`, which does describe batch errors, turned out
+to be dead code - built but never actually called anywhere in the app).
+A new red error card on the review screen now lists which input files
+failed and a plain-Polish reason, built from `format_batch_error_items()`
+and a `BATCH_ERROR_LABELS_PL` translation of the small fixed set of safe
+`BATCH_ERROR_*` strings the pipeline already produces (never raw
+exception text). `last_batch_result` is now cleared on "Wybierz inny
+folder"/History navigation so the banner never shows stale errors from an
+unrelated previous batch. Also renamed the "Nowy batch" button (English
+word left over in Polish UI, flagged by the user) to "Nowe pliki". Full
+suite: 326 tests.
+
 ## What Exists
 
 - Repository structure.
@@ -1005,8 +1033,10 @@ python -m unittest discover -s tests
 
 ## Last Completed Committed Stage
 
-Stage 26: magic pen manual PDF redaction editor, a same-day self-review
-fixing a toggle bug/unsafe overwrite/stale cursor, a fix for a `fitz`
+Stage 26: magic pen manual PDF redaction editor (and its first-pilot
+follow-up: a batch-error review-screen banner plus a real `.gitignore`
+collision-numbering gap fix), a same-day self-review fixing a toggle
+bug/unsafe overwrite/stale cursor, a fix for a `fitz`
 deprecation warning the earlier Stage 25.1 fix missed, a resizable/
 maximizable comparison window with independent or linked per-pane zoom, a
 follow-up fixing the maximize button itself plus a padlock-based,
@@ -1017,7 +1047,7 @@ a new auto-open-result Settings option), and moving internal/diagnostic
 output files into a hidden `_wewnetrzne` output subfolder.
 
 ```text
-07f273b Move internal/diagnostic artifacts into a hidden output subfolder
+08fb4c6 Surface batch errors on the review screen; fix a real .gitignore gap
 ```
 
 ## Next Logical Step
