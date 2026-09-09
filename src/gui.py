@@ -3384,31 +3384,17 @@ class ComparisonWindow:
 
     def _build_magic_pen_toolbar(self, parent: ctk.CTkFrame) -> ctk.CTkFrame:
         toolbar = ctk.CTkFrame(parent, fg_color="transparent")
-        # Modeless by default: LMB draws a new redaction, RMB always
-        # toggles an existing one, no mode to switch first. These chips
-        # are now also clickable: clicking one pins LMB to that single
-        # action (a "manual" mode for anyone who'd rather pick a tool
-        # explicitly than remember which button does what) - clicking the
-        # same chip again returns to the modeless default. Independently
-        # of pinning, a chip also lights up for as long as its action is
-        # actually in progress (LMB held down / RMB clicked), so the
-        # buttons double as a live "this is what's happening" indicator.
-        self._tool_chips["draw"] = self._build_tool_chip(
-            toolbar, "✏", "LPM: zaznacz do ukrycia", "draw"
-        )
-        self._tool_chips["erase"] = self._build_tool_chip(
-            toolbar, "🧹", "PPM: usuń zaznaczenie", "erase"
-        )
-        self._refresh_tool_chip_visuals()
-
-        self.pen_status_label = ctk.CTkLabel(
-            toolbar,
-            text="",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-            text_color=COLOR_TEXT_MUTED,
-        )
-        self.pen_status_label.pack(side="left", padx=10)
-
+        # Tk's pack() hands out space in the order widgets are packed, not
+        # left-to-right visual order - whatever is packed first gets first
+        # claim on the row's width, and whatever is packed last is the
+        # first to be squeezed out when the window gets narrow. "Zapisz
+        # zmiany" is packed before the chips/status label for exactly
+        # that reason: it must never be the one that disappears when the
+        # window is shrunk (confirmed as a real bug - it was packed last,
+        # and pen_status_label growing from empty to "Niezapisane zmiany:
+        # N" once there was something to save was enough to squeeze it
+        # out entirely). The chips and status label losing room first is
+        # an acceptable trade-off; the save button is not.
         self.cancel_button = ctk.CTkButton(
             toolbar,
             text="Anuluj zmiany",
@@ -3437,6 +3423,31 @@ class ComparisonWindow:
             command=self._save_pending_changes,
         )
         self.save_button.pack(side="right")
+
+        # Modeless by default: LMB draws a new redaction, RMB always
+        # toggles an existing one, no mode to switch first. These chips
+        # are now also clickable: clicking one pins LMB to that single
+        # action (a "manual" mode for anyone who'd rather pick a tool
+        # explicitly than remember which button does what) - clicking the
+        # same chip again returns to the modeless default. Independently
+        # of pinning, a chip also lights up for as long as its action is
+        # actually in progress (LMB held down / RMB clicked), so the
+        # buttons double as a live "this is what's happening" indicator.
+        self._tool_chips["draw"] = self._build_tool_chip(
+            toolbar, "✏", "LPM: zaznacz do ukrycia", "draw"
+        )
+        self._tool_chips["erase"] = self._build_tool_chip(
+            toolbar, "🧹", "PPM: usuń zaznaczenie", "erase"
+        )
+        self._refresh_tool_chip_visuals()
+
+        self.pen_status_label = ctk.CTkLabel(
+            toolbar,
+            text="",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLOR_TEXT_MUTED,
+        )
+        self.pen_status_label.pack(side="left", padx=10)
         return toolbar
 
     def _build_tool_chip(
