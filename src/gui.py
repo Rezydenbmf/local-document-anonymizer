@@ -197,38 +197,6 @@ SUPPORTED_EXTENSIONS = (
 )
 DEFAULT_OUTPUT_SUBDIR_NAME = "Anonimizer - wyniki"
 
-AUTO_OPEN_MODE_FIRST = "first"
-AUTO_OPEN_MODE_LAST = "last"
-AUTO_OPEN_MODE_ALL = "all"
-AUTO_OPEN_MODE_NONE = "none"
-AUTO_OPEN_MODE_DEFAULT = AUTO_OPEN_MODE_LAST
-AUTO_OPEN_ALL_MAX = 10
-AUTO_OPEN_MODE_LABELS = {
-    AUTO_OPEN_MODE_FIRST: "Pierwszy w kolejce",
-    AUTO_OPEN_MODE_LAST: "Ostatni w kolejce (domyślnie)",
-    AUTO_OPEN_MODE_ALL: f"Wszystkie (maks. {AUTO_OPEN_ALL_MAX} plików)",
-    AUTO_OPEN_MODE_NONE: "Nie otwieraj automatycznie",
-}
-
-
-def auto_open_output_names(
-    output_names: Sequence[str], mode: str, max_all: int = AUTO_OPEN_ALL_MAX
-) -> list[str]:
-    """Return which successfully produced batch outputs to auto-open.
-
-    ``output_names`` is expected in batch/processing order. Unknown modes
-    fall back to the same behavior as AUTO_OPEN_MODE_LAST.
-    """
-    names = list(output_names)
-    if not names or mode == AUTO_OPEN_MODE_NONE:
-        return []
-    if mode == AUTO_OPEN_MODE_FIRST:
-        return [names[0]]
-    if mode == AUTO_OPEN_MODE_ALL:
-        return names[:max_all]
-    return [names[-1]]
-
-
 def default_output_directory() -> Path:
     """Return the default output folder under the user's Documents folder."""
     return Path.home() / "Documents" / DEFAULT_OUTPUT_SUBDIR_NAME
@@ -1094,7 +1062,7 @@ class AnonymizerApp:
         self.use_llm_review = False
         self.llm_model_name = ""
         self.pdf_output_label = PDF_OUTPUT_LABEL_VISUAL_REDACTION
-        self.auto_open_mode = AUTO_OPEN_MODE_DEFAULT
+        self.auto_open_on_approve = True
 
         self.review_dir: Path | None = None
         self.review_items: list[ReviewItem] = []
@@ -1799,24 +1767,7 @@ class AnonymizerApp:
             self.review_items, batch_result.results
         )
         self._remember_recent_folder(self.output_dir)
-        self._auto_open_batch_results(batch_result)
         self.show_review_screen()
-
-    def _auto_open_batch_results(self, batch_result: BatchResult) -> None:
-        if self.output_dir is None:
-            return
-        output_names = [
-            str(result["output_name"])
-            for result in batch_result.results
-            if result.get("status") == "success" and result.get("output_name")
-        ]
-        for output_name in auto_open_output_names(output_names, self.auto_open_mode):
-            try:
-                open_path_with_default_app(
-                    preferred_review_output_path(self.output_dir, output_name)
-                )
-            except OSError:
-                pass
 
     def _remember_recent_folder(self, folder: Path) -> None:
         timestamp = datetime.now(timezone.utc).isoformat()
@@ -2198,6 +2149,21 @@ class AnonymizerApp:
         self._refresh_review_cards()
         self._update_export_button_state()
         self._flash_status_saved(status)
+        if status == REVIEW_STATUS_APPROVED:
+            self._open_on_approve(item)
+
+    def _open_on_approve(self, item: ReviewItem) -> None:
+        """Open the final file once the user actually approves it - not
+        right after anonymizing, since at that point they haven't looked
+        at it yet and it may still need edits or rejection."""
+        if not self.auto_open_on_approve or self.review_dir is None:
+            return
+        try:
+            open_path_with_default_app(
+                preferred_review_output_path(self.review_dir, item.output_name)
+            )
+        except OSError:
+            pass
 
     def _flash_status_saved(self, status: str) -> None:
         if self.review_summary_label is None:
@@ -2302,7 +2268,7 @@ class SettingsDialog:
         self.llm_var = tk.BooleanVar(value=app.use_llm_review)
         self.llm_model_var = tk.StringVar(value=app.llm_model_name)
         self.pdf_mode_var = tk.StringVar(value=app.pdf_output_label)
-        self.auto_open_var = tk.StringVar(value=app.auto_open_mode)
+        self.auto_open_var = tk.BooleanVar(value=app.auto_open_on_approve)
         self.sensitive_terms_path = app.sensitive_terms_path
         self.environment_status = environment_status_lookup(app.environment_items)
 
@@ -2405,25 +2371,12 @@ class SettingsDialog:
                 text_color=COLOR_TEXT,
             ).pack(anchor="w", pady=3)
 
-        auto_open_section = self._section_frame(body)
-        auto_open_inner = ctk.CTkFrame(auto_open_section, fg_color="transparent")
-        auto_open_inner.pack(fill="x", padx=14, pady=12)
-        ctk.CTkLabel(
-            auto_open_inner,
-            text="Automatyczne otwieranie wyniku po zakończeniu",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
-            text_color=COLOR_TEXT,
-            anchor="w",
-        ).pack(fill="x", pady=(0, 8))
-        for mode, label in AUTO_OPEN_MODE_LABELS.items():
-            ctk.CTkRadioButton(
-                auto_open_inner,
-                text=label,
-                value=mode,
-                variable=self.auto_open_var,
-                font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-                text_color=COLOR_TEXT,
-            ).pack(anchor="w", pady=3)
+        self._build_toggle_section(
+            body,
+            "Otwórz automatycznie po zatwierdzeniu",
+            "Otwiera plik dopiero gdy klikniesz ✓ Zatwierdzony, nie od razu po anonimizacji",
+            self.auto_open_var,
+        )
 
         ctk.CTkButton(
             self.window,
@@ -2554,7 +2507,7 @@ class SettingsDialog:
         self.app.use_ner = self.ner_var.get()
         self.app.use_llm_review = self.llm_var.get()
         self.app.pdf_output_label = self.pdf_mode_var.get()
-        self.app.auto_open_mode = self.auto_open_var.get()
+        self.app.auto_open_on_approve = self.auto_open_var.get()
         self.app.sensitive_terms_path = self.sensitive_terms_path
         if self.app.use_llm_review and not self.app.llm_model_name:
             status, models = list_installed_models()
