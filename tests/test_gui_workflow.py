@@ -77,6 +77,7 @@ from gui import (
     save_recent_folders,
     save_seen_hints,
     scroll_sync_units,
+    truncate_filename_middle,
     ui_hints_config_path,
     zoom_link_glyph,
     zoom_link_tooltip_text,
@@ -625,6 +626,29 @@ class GuiWorkflowTests(unittest.TestCase):
 
         self.assertEqual(len(updated), 15)
         self.assertEqual(updated[0]["path"], "C:\\newest")
+
+    def test_truncate_filename_middle_leaves_short_names_alone(self) -> None:
+        self.assertEqual(truncate_filename_middle("short.pdf"), "short.pdf")
+
+    def test_truncate_filename_middle_elides_the_middle_not_the_end(self) -> None:
+        result = truncate_filename_middle(
+            "2_faktura_vat_FIKCYJNA_ANON_4.txt", max_length=26
+        )
+
+        self.assertLessEqual(len(result), 26)
+        self.assertIn("…", result)
+        # Keeps the start (most distinguishing between similar files)
+        # and the tail (extension/markers), not just a plain end-cut.
+        self.assertTrue(result.startswith("2_faktura_vat"))
+        self.assertTrue(result.endswith(".txt"))
+
+    def test_truncate_filename_middle_guards_against_tiny_budgets(self) -> None:
+        # max_length too small to sensibly truncate - return as-is rather
+        # than producing a nonsensical near-empty result.
+        self.assertEqual(
+            truncate_filename_middle("a_very_long_filename.pdf", max_length=3),
+            "a_very_long_filename.pdf",
+        )
 
     def test_gui_formats_recent_folder_timestamp(self) -> None:
         result = format_recent_folder_timestamp("2026-09-08T14:32:00+00:00")

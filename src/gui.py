@@ -673,6 +673,23 @@ def format_batch_dictionary_result(
     return "Dictionary status: selected; no successful file reported dictionary status"
 
 
+def truncate_filename_middle(name: str, max_length: int = 26) -> str:
+    """Shorten a filename for display, eliding the middle rather than the
+    end - keeps the start (usually the most distinguishing part between
+    similarly-named files) and the tail (extension, "_ANON" markers)
+    visible, which a plain end-cut would otherwise hide. A fixed pixel
+    width budget doesn't scale to how long real generated output names
+    get (multiple existing category/collision suffixes), so this is a
+    text-level truncation rather than trying to win back a few more
+    pixels of column width.
+    """
+    if len(name) <= max_length or max_length <= 5:
+        return name
+    keep_end = min(10, max_length // 3)
+    keep_start = max_length - keep_end - 1
+    return f"{name[:keep_start]}…{name[-keep_end:]}"
+
+
 def file_type_badge(path: Path) -> str:
     """Return a short upper-case file-type badge label for a file card."""
     suffix = path.suffix.lower().lstrip(".")
@@ -1126,6 +1143,10 @@ class AnonymizerApp:
         self.review_cards_frame: ctk.CTkFrame | None = None
         self.review_summary_label: ctk.CTkLabel | None = None
         self.export_button: ctk.CTkButton | None = None
+        self.selected_review_output_names: set[str] = set()
+        self.selection_count_label: ctk.CTkLabel | None = None
+        self.bulk_approve_button: ctk.CTkButton | None = None
+        self.bulk_reject_button: ctk.CTkButton | None = None
 
         self.active_screen = "start"
         self._nav_buttons: dict[str, ctk.CTkButton] = {}
@@ -2080,6 +2101,7 @@ class AnonymizerApp:
     # ------------------------------------------------------------------
 
     def _load_review_folder(self) -> None:
+        self.selected_review_output_names = set()
         if self.review_dir is None:
             self.review_items = []
             self.review_batch_summary_names = []
@@ -2124,6 +2146,8 @@ class AnonymizerApp:
         ).pack(side="right")
 
         self._build_batch_errors_card(self.content)
+        self._build_review_stat_cards(self.content)
+        self._build_selection_bar(self.content)
 
         scroll = ctk.CTkScrollableFrame(
             self.content, fg_color="transparent", label_text=""
@@ -2207,6 +2231,162 @@ class AnonymizerApp:
                 wraplength=640,
                 justify="left",
             ).pack(fill="x", padx=(10, 0), pady=(4, 0))
+
+    def _build_review_stat_cards(self, parent: ctk.CTkFrame) -> None:
+        """Four at-a-glance counts, always the same four regardless of
+        folder: the three manual-review statuses plus the total. Batch
+        processing failures (files that never even produced a result)
+        are a different concept, already covered by the more useful
+        named-files-and-reasons banner from _build_batch_errors_card, so
+        they are not duplicated here as a bare count.
+        """
+        counts = {
+            REVIEW_STATUS_APPROVED: 0,
+            REVIEW_STATUS_NEEDS_REVIEW: 0,
+            REVIEW_STATUS_REJECTED: 0,
+        }
+        for item in self.review_items:
+            counts[item.status] = counts.get(item.status, 0) + 1
+
+        row = ctk.CTkFrame(parent, fg_color="transparent")
+        row.pack(fill="x", pady=(0, 10))
+        stats = (
+            ("Zatwierdzone", counts[REVIEW_STATUS_APPROVED], COLOR_OK, COLOR_OK_SOFT, "✓"),
+            (
+                "Wymaga przeglądu",
+                counts[REVIEW_STATUS_NEEDS_REVIEW],
+                COLOR_NEEDS_REVIEW,
+                COLOR_NEEDS_REVIEW_SOFT,
+                "!",
+            ),
+            (
+                "Odrzucone",
+                counts[REVIEW_STATUS_REJECTED],
+                COLOR_HIGH_RISK,
+                COLOR_HIGH_RISK_SOFT,
+                "✕",
+            ),
+            (
+                "Wszystkie pliki",
+                len(self.review_items),
+                COLOR_TEXT,
+                COLOR_ICON_IDLE,
+                "\U0001f4c4",
+            ),
+        )
+        for index, (label, count, color, soft, glyph) in enumerate(stats):
+            card = ctk.CTkFrame(
+                row,
+                fg_color=COLOR_CARD,
+                corner_radius=10,
+                border_width=1,
+                border_color=COLOR_BORDER,
+            )
+            card.pack(
+                side="left",
+                fill="x",
+                expand=True,
+                padx=(0, 8) if index < len(stats) - 1 else 0,
+            )
+            inner = ctk.CTkFrame(card, fg_color="transparent")
+            inner.pack(fill="x", padx=14, pady=12)
+            ctk.CTkLabel(
+                inner,
+                text=glyph,
+                width=32,
+                height=32,
+                corner_radius=16,
+                fg_color=soft,
+                text_color=color,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+            ).pack(side="left", padx=(0, 10))
+            text_col = ctk.CTkFrame(inner, fg_color="transparent")
+            text_col.pack(side="left")
+            ctk.CTkLabel(
+                text_col,
+                text=str(count),
+                font=ctk.CTkFont(family=FONT_FAMILY, size=20, weight="bold"),
+                text_color=COLOR_TEXT,
+                anchor="w",
+            ).pack(anchor="w")
+            ctk.CTkLabel(
+                text_col,
+                text=label,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                text_color=COLOR_TEXT_MUTED,
+                anchor="w",
+            ).pack(anchor="w")
+
+    def _build_selection_bar(self, parent: ctk.CTkFrame) -> None:
+        bar = ctk.CTkFrame(parent, fg_color="transparent")
+        bar.pack(fill="x", pady=(0, 6))
+        self.selection_count_label = ctk.CTkLabel(
+            bar,
+            text=self._selection_summary_text(),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLOR_TEXT_MUTED,
+        )
+        self.selection_count_label.pack(side="left")
+        self.bulk_reject_button = ctk.CTkButton(
+            bar,
+            text="Odrzuć zaznaczone",
+            width=150,
+            height=28,
+            corner_radius=8,
+            fg_color="transparent",
+            hover_color=COLOR_HIGH_RISK_SOFT,
+            text_color=COLOR_HIGH_RISK,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            state="disabled",
+            command=lambda: self._bulk_set_status(REVIEW_STATUS_REJECTED),
+        )
+        self.bulk_reject_button.pack(side="right", padx=(6, 0))
+        self.bulk_approve_button = ctk.CTkButton(
+            bar,
+            text="Zatwierdź zaznaczone",
+            width=160,
+            height=28,
+            corner_radius=8,
+            fg_color="transparent",
+            hover_color=COLOR_OK_SOFT,
+            text_color=COLOR_OK,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            state="disabled",
+            command=lambda: self._bulk_set_status(REVIEW_STATUS_APPROVED),
+        )
+        self.bulk_approve_button.pack(side="right")
+
+    def _selection_summary_text(self) -> str:
+        return f"{len(self.selected_review_output_names)} zaznaczonych"
+
+    def _toggle_review_selection(self, item: ReviewItem, checked: bool) -> None:
+        if checked:
+            self.selected_review_output_names.add(item.output_name)
+        else:
+            self.selected_review_output_names.discard(item.output_name)
+        self._update_bulk_action_state()
+
+    def _update_bulk_action_state(self) -> None:
+        if self.selection_count_label is not None:
+            self.selection_count_label.configure(text=self._selection_summary_text())
+        has_selection = bool(self.selected_review_output_names)
+        for button in (self.bulk_approve_button, self.bulk_reject_button):
+            if button is not None:
+                button.configure(state="normal" if has_selection else "disabled")
+
+    def _bulk_set_status(self, status: str) -> None:
+        targets = [
+            item
+            for item in self.review_items
+            if item.output_name in self.selected_review_output_names
+        ]
+        for item in targets:
+            self.set_review_status(item, status)
+        # Clear the selection once acted on, rather than leaving the same
+        # files pre-selected for a second, likely-accidental bulk action.
+        self.selected_review_output_names = set()
+        self._refresh_review_cards()
+        self._update_bulk_action_state()
 
     def _build_legend_row(self, parent: ctk.CTkFrame) -> None:
         legend_card = ctk.CTkFrame(
@@ -2304,92 +2484,142 @@ class AnonymizerApp:
             ).pack(pady=20)
             return
 
+        self._build_review_table_header(self.review_cards_frame)
         for item in self.review_items:
-            self._build_review_card(item)
+            self._build_review_table_row(item)
 
-    def _build_review_card(self, item: ReviewItem) -> None:
+    def _build_review_table_header(self, parent: ctk.CTkFrame) -> None:
+        header = ctk.CTkFrame(parent, fg_color="transparent")
+        header.pack(fill="x", padx=6, pady=(0, 4))
+        header.grid_columnconfigure(1, weight=1, minsize=220)
+        ctk.CTkLabel(header, text="", width=24).grid(row=0, column=0)
+        for column, text, width in (
+            (1, "Nazwa pliku", None),
+            (2, "Status", 130),
+            (3, "Ryzyko", 60),
+            (4, "Akcje", 160),
+        ):
+            ctk.CTkLabel(
+                header,
+                text=text,
+                width=width or 0,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=11, weight="bold"),
+                text_color=COLOR_TEXT_MUTED,
+                anchor="w",
+            ).grid(row=0, column=column, sticky="w", padx=6)
+
+    def _build_review_table_row(self, item: ReviewItem) -> None:
         assert self.review_cards_frame is not None
-        card = ctk.CTkFrame(
+        row = ctk.CTkFrame(
             self.review_cards_frame,
-            corner_radius=12,
+            corner_radius=8,
             fg_color=COLOR_CARD,
             border_width=1,
             border_color=COLOR_BORDER,
         )
-        card.pack(fill="x", pady=6)
+        row.pack(fill="x", pady=3, padx=4)
 
-        row = ctk.CTkFrame(card, fg_color="transparent")
-        row.pack(fill="x", padx=14, pady=12)
+        inner = ctk.CTkFrame(row, fg_color="transparent")
+        inner.pack(fill="x", padx=10, pady=8)
+        inner.grid_columnconfigure(1, weight=1, minsize=220)
 
+        checkbox_var = tk.BooleanVar(
+            value=item.output_name in self.selected_review_output_names
+        )
+        ctk.CTkCheckBox(
+            inner,
+            text="",
+            variable=checkbox_var,
+            width=20,
+            checkbox_width=18,
+            checkbox_height=18,
+            fg_color=COLOR_ACCENT,
+            hover_color=COLOR_ACCENT_HOVER,
+            command=lambda: self._toggle_review_selection(item, checkbox_var.get()),
+        ).grid(row=0, column=0, padx=(0, 6))
+
+        name_col = ctk.CTkFrame(inner, fg_color="transparent")
+        name_col.grid(row=0, column=1, sticky="ew", padx=6)
         badge_text = file_type_badge(Path(item.output_name))
         ctk.CTkLabel(
-            row,
+            name_col,
             text=badge_text,
-            width=44,
-            height=26,
-            corner_radius=6,
+            width=40,
+            height=22,
+            corner_radius=5,
             fg_color=FILE_TYPE_COLORS.get(badge_text, COLOR_TEXT_MUTED),
             text_color="#FFFFFF",
             font=ctk.CTkFont(family=FONT_FAMILY, size=10, weight="bold"),
-        ).pack(side="left", padx=(0, 10))
-
-        ctk.CTkLabel(
-            row,
-            text=item.output_name,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+        ).pack(side="left", padx=(0, 8))
+        name_label = ctk.CTkLabel(
+            name_col,
+            text=truncate_filename_middle(item.output_name),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
             text_color=COLOR_TEXT,
-        ).pack(side="left")
+            anchor="w",
+            width=190,
+        )
+        name_label.pack(side="left", fill="x", expand=True)
+        if len(item.output_name) > 26:
+            IconTooltip(name_label, item.output_name)
+
+        status_styles = {
+            REVIEW_STATUS_APPROVED: (COLOR_OK, COLOR_OK_SOFT),
+            REVIEW_STATUS_REJECTED: (COLOR_HIGH_RISK, COLOR_HIGH_RISK_SOFT),
+            REVIEW_STATUS_NEEDS_REVIEW: (COLOR_NEEDS_REVIEW, COLOR_NEEDS_REVIEW_SOFT),
+        }
+        status_color, status_soft = status_styles.get(
+            item.status, (COLOR_TEXT_MUTED, COLOR_ICON_IDLE)
+        )
+        ctk.CTkLabel(
+            inner,
+            text=review_status_label_pl(item.status),
+            width=130,
+            corner_radius=6,
+            fg_color=status_soft,
+            text_color=status_color,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11, weight="bold"),
+        ).grid(row=0, column=2, padx=6)
 
         risk_key = risk_style_key(item.risk_level)
         risk_color, risk_soft, risk_glyph = RISK_STYLES[risk_key]
         ctk.CTkLabel(
-            row,
+            inner,
             text=risk_glyph,
-            width=22,
-            height=22,
-            corner_radius=11,
+            width=24,
+            height=24,
+            corner_radius=12,
             fg_color=risk_soft,
             text_color=risk_color,
             font=ctk.CTkFont(family=FONT_FAMILY, size=11, weight="bold"),
-        ).pack(side="left", padx=10)
+        ).grid(row=0, column=3, padx=6)
 
-        actions = ctk.CTkFrame(row, fg_color="transparent")
-        actions.pack(side="right")
+        actions = ctk.CTkFrame(inner, fg_color="transparent")
+        actions.grid(row=0, column=4, padx=(6, 0))
 
         self._build_status_icon_button(
-            actions, "\U0001f441", "Por\u00f3wnaj orygina\u0142 i wynik", COLOR_TEXT_MUTED, False,
+            actions, "👁", "Porównaj oryginał i wynik", COLOR_TEXT_MUTED, False,
             lambda: self.open_comparison(item),
         )
         self._build_status_icon_button(
-            actions, "\u2713", "Zatwierd\u017a", COLOR_OK,
+            actions, "✓", "Zatwierdź", COLOR_OK,
             item.status == REVIEW_STATUS_APPROVED,
             lambda: self.set_review_status(item, REVIEW_STATUS_APPROVED),
         )
         self._build_status_icon_button(
-            actions, "!", "Wymaga przegl\u0105du", COLOR_NEEDS_REVIEW,
+            actions, "!", "Wymaga przeglądu", COLOR_NEEDS_REVIEW,
             item.status == REVIEW_STATUS_NEEDS_REVIEW,
             lambda: self.set_review_status(item, REVIEW_STATUS_NEEDS_REVIEW),
         )
         self._build_status_icon_button(
-            actions, "\u2715", "Odrzu\u0107", COLOR_HIGH_RISK,
+            actions, "✕", "Odrzuć", COLOR_HIGH_RISK,
             item.status == REVIEW_STATUS_REJECTED,
             lambda: self.set_review_status(item, REVIEW_STATUS_REJECTED),
         )
-
-        details = ctk.CTkFrame(card, fg_color="transparent")
-        details.pack(fill="x", padx=14, pady=(0, 10))
-        ctk.CTkButton(
-            details,
-            text="ℹ Szczegóły",
-            width=110,
-            height=24,
-            corner_radius=6,
-            fg_color="transparent",
-            hover_color=COLOR_ICON_IDLE,
-            text_color=COLOR_ACCENT,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-            command=lambda: self.open_summary(item),
-        ).pack(side="left")
+        self._build_status_icon_button(
+            actions, "ℹ", "Szczegóły", COLOR_ACCENT, False,
+            lambda: self.open_summary(item),
+        )
 
     def _build_status_icon_button(
         self,
@@ -2403,16 +2633,16 @@ class AnonymizerApp:
         button = ctk.CTkButton(
             parent,
             text=glyph,
-            width=32,
-            height=32,
-            corner_radius=16,
+            width=28,
+            height=28,
+            corner_radius=14,
             fg_color=active_color if active else COLOR_ICON_IDLE,
             hover_color=active_color,
             text_color="#FFFFFF" if active else COLOR_TEXT_MUTED,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=13),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             command=command,
         )
-        button.pack(side="left", padx=3)
+        button.pack(side="left", padx=2)
         IconTooltip(button, tooltip)
 
     def set_review_status(self, item: ReviewItem, status: str) -> None:
