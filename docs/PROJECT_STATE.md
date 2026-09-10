@@ -1785,28 +1785,111 @@ baseline.
 c5f6755 Pilot feedback Stage A: real bugs + quick UI fixes
 ```
 
+Pilot feedback Stage B: the mockup visual-fidelity items deferred out of
+Stage A. (2) `COLOR_BG` shifted to a visibly bluer `#EBF0FB` (was the
+almost-neutral `#F7F9FC`), and the start screen's drop zone now fills with
+`COLOR_ACCENT_SOFT` instead of plain white - `COLOR_PRIMARY`/
+`COLOR_PRIMARY_SOFT`, defined back in Stage 1 but never actually used
+until now, stayed unused; this was a plain color-token change instead.
+(3) File-type badges are now small generated icons (`_draw_file_type_icon`/
+`get_file_type_icon`, cached per type+size) - a rounded colored tile with
+a white folded-corner document shape, drawn procedurally via PIL rather
+than shipping bespoke image assets per type - used on both the start
+screen's file cards and the review table. (5) A new "O programie" sidebar
+entry opens `AboutDialog` (name, version, the same local-only privacy
+line shown elsewhere - deliberately no personal author info); a small
+`v0.1.0` (`APP_VERSION`) now also sits at the bottom of the sidebar,
+matching the mockup. (6) The output-folder row was rebuilt to match the
+mockup - a bordered field (folder glyph + path) beside a "Zmień" button,
+under its own "Folder wynikowy" heading - and the anonymize button's own
+label now includes the live selected count ("Anonimizuj 3 pliki" via a
+new pure `format_anonymize_button_text`), matching the mockup's button
+text directly instead of a plain "Anonimizuj".
+
+(8) A new quick-settings panel on the start screen
+(`_build_quick_settings_panel`) mirrors the mockup's "Domyślne ustawienia"
+card, but only wraps settings that are real, already-wired toggles
+(`self.use_ner`, `self.use_llm_review`) rather than inventing new ones the
+mockup implies - OCR has no on/off switch anywhere in this app (it runs
+automatically when available), so that row stays the same read-only
+status-dot pattern already used in the full Settings dialog instead of a
+checkbox that would not actually control anything; the dictionary row
+shows the current file (or "Nie wybrano") with a "Zmień" shortcut that
+opens the full Settings dialog straight on its "Słownik" tab (`SettingsDialog`
+gained an `initial_tab` parameter for this). Found and fixed while wiring
+this in: checking `self.root.winfo_width()` to decide whether the window
+is wide enough for this panel returned an unrealized placeholder size
+(~200px) the very first time it ran, during `AnonymizerApp.__init__`,
+before the window had ever been mapped - silently hiding the panel
+forever on every normal launch regardless of actual window width, since
+nothing else ever re-triggers that check. Fixed with one `self.root.update()`
+right after `_build_shell()`, before the first `show_start_screen()`.
+(11) The review screen gained the page heading it was missing entirely
+("Wyniki anonimizacji" + a new pure `format_review_heading_subtitle`, e.g.
+"3 dokumenty zostały przetworzone.") above the existing nav-links row: the
+stat cards/table/legend structure already matched the mockup's intent
+from Stage 3 (including the deliberate decision to keep review-workflow
+status separate from the mockup's `Znalezione dane` column - still not
+added, still a real functionality gap, not a visual one), so this stayed
+a small, targeted addition rather than a rebuild.
+
+(13) The comparison window's pane headers gained the mockup's hand/lupa
+tools: a shared `self.active_pointer_tool` ("hand"/"zoom"/None, one state
+for the whole window, toggle buttons in both headers kept in sync the
+same way the zoom-link buttons already are). "Łapka" wires standard Tk
+`scan_mark`/`scan_dragto` drag-to-pan onto every descendant of a pane via
+a new recursive `_bind_pane_panning`, deliberately *not* applied to the
+magic pen's own PDF page canvases (`self._page_canvases`) - those already
+have their own full LMB-draw/RMB-erase semantics, and layering pan
+bindings on top risked the exact kind of subtle interaction bug the
+Stage 26 magic pen self-review was built to catch; verified directly that
+no pan binding ever reaches those canvases. "Lupa" makes plain scroll
+zoom the same as Ctrl+scroll while active (`_on_scroll_sync` now checks
+`active_pointer_tool == "zoom"` first) - Ctrl+scroll itself keeps working
+unconditionally either way, exactly as asked. Esc clears whichever tool
+is active. The zoom percentage display in each pane header is now an
+editable `CTkEntry` (`_commit_zoom_entry`) instead of a plain label -
+typing a value and pressing Enter (or clicking away) sets zoom directly,
+invalid text just resets the field back to the current zoom rather than
+raising. New hover tooltips explain both tools and mention the
+Ctrl+scroll shortcut; a new "Pokazuj podpowiedzi o obsłudze" Settings
+toggle (`self.show_usage_hints`, default on) can turn these (and the
+existing zoom-link tooltip) off - `IconTooltip` gained an `enabled` flag
+for this rather than adding a second tooltip class. (14) Legend styling
+was already close to the mockup from earlier same-day work and needed no
+further change.
+
+Deliberately not carried over from the mockup images referenced this
+pass, consistent with the Stage A/B split's own opening call: the
+combined "Zapisz i zatwierdź" magic-pen button (still separate save/
+cancel - this reappeared in the reference image again but was not asked
+for in this feedback batch) and per-category manual-redaction labels
+(still one generic "RECZNE"). Page-by-page PDF pagination shown in the
+mockup's toolbar was also not added - the app still renders every page in
+one continuously-scrollable pane, a separate, larger interaction-design
+change from the hand/zoom tools actually requested. Full suite: 377 tests
+(2 new: `format_anonymize_button_text`, `format_review_heading_subtitle`),
+lint unchanged against baseline.
+
+```text
+4a43463 Pilot feedback Stage B: mockup visual-fidelity pass
+```
+
 ## Next Logical Step
 
-Immediate next step: Stage B of the pilot-feedback batch above - the
-mockup visual-fidelity items deliberately deferred out of Stage A
-(sidebar/drop-zone tint, file-type badge icons, an "O programie" entry,
-matching the mockup's folder-row/button design, a new start-screen
-quick-settings panel, the review screen's visual overhaul, the comparison
-toolbar's hand/zoom tools, legend polish). Two things noticed while
-reading the mockups for Stage B need an explicit call before touching
-code, the same discipline used throughout the DocShield redesign: the
-mockup's magic-pen panel shows a combined "Zapisz i zatwierdź" button,
-which resurfaces the "merge save with approve" idea already deliberately
-deferred at the end of Stage 4 (see its narrative above) - not requested
-again in this feedback batch, so Stage B should keep save/cancel as
-separate actions unless the user asks for the merge explicitly, not fold
-it in silently just because it appears in the reference image. The
-richer "Kategorie danych" legend labels shown in the same mockup image
-(Osoba/Adres/Firma/Miejscowość alongside the existing PESEL/NIP/REGON
-style) read as a labeling/wording polish of the *existing* legend, not
-new per-category manual-redaction functionality (the other deferred
-Stage 4 item, still one generic "RECZNE" label) - safe to carry over as
-visual polish.
+The pilot-feedback batch's Stage B (mockup visual-fidelity pass) is done -
+see its narrative above. Both scope calls flagged before starting it held:
+the combined "Zapisz i zatwierdź" magic-pen button and per-category
+manual-redaction labels stayed deliberately deferred (not asked for again
+in this batch), while the richer legend wording was safe to fold in as
+plain visual polish (it turned out the legend needed no change at all,
+already close enough from earlier same-day work).
+
+Both halves of the pilot-feedback batch (Stage A's real bugs, Stage B's
+visual-fidelity pass) are now shipped. As with the DocShield redesign
+itself: use the app in real pilot use next and make further changes from
+what that surfaces, rather than starting another mockup-matching pass
+without a fresh, explicit user decision to do so.
 
 The DocShield visual redesign itself is done: Stage 1
 (branding/icon/sidebar/palette), 2 (Settings tabs), 3 (review screen

@@ -14,7 +14,7 @@ from pathlib import Path
 from tkinter import filedialog, messagebox
 
 import customtkinter as ctk
-from PIL import Image, ImageTk
+from PIL import Image, ImageDraw, ImageTk
 from tkinterdnd2 import DND_FILES, TkinterDnD
 
 try:
@@ -158,6 +158,12 @@ APP_SUBTITLE = "Chroń dane wrażliwe. Szybko, bezpiecznie i lokalnie."
 # a script-style font so it reads as a handwritten note, not a generic
 # label (see the app's own design notes in pomysly/).
 APP_PERSONAL_NOTE = "Twoje dokumenty. Tylko u Ciebie."
+APP_VERSION = "0.1.0"
+APP_ABOUT_TEXT = (
+    "DocShield to lokalny anonimizator dokumentów: wykrywa i ukrywa dane "
+    "wrażliwe w plikach PDF, DOCX i TXT bez wysyłania niczego poza Twój "
+    "komputer - żadnego internetu, żadnej chmury, żadnego zewnętrznego API."
+)
 SCRIPT_FONT_FAMILY = "Segoe Script"
 APP_ICON_PATH = Path(__file__).resolve().parent.parent / "assets" / "icon.png"
 APP_ICON_ICO_PATH = Path(__file__).resolve().parent.parent / "assets" / "icon.ico"
@@ -184,6 +190,12 @@ FILE_LIST_MAX_HEIGHT = 168
 # _update_header_layout) once the window narrows past this content width,
 # so the handwritten-style personal note never gets clipped.
 HEADER_STACK_BREAKPOINT = 640
+# The start screen's quick-settings side panel is only shown above this
+# window width - checked once at build time (not re-flowed live like the
+# header, since this is a nice-to-have panel, not a control that must
+# always be reachable) so it never squeezes the main column unusably.
+QUICK_SETTINGS_MIN_WIDTH = 880
+QUICK_SETTINGS_PANEL_WIDTH = 240
 LLM_NO_MODELS_HINT = "No local Ollama models found. Install/pull a model first."
 LLM_MODELS_FOUND_HINT = "Select a local Ollama model for optional LLM review."
 PDF_OUTPUT_LABEL_VISUAL_REDACTION = (
@@ -816,6 +828,40 @@ def format_readiness_pl(input_file_count: int, has_output_dir: bool) -> str:
     return "Wybierz folder wynikowy."
 
 
+def _pl_document_word(count: int) -> str:
+    """Return the grammatically correct Polish word for "document(s)"."""
+    if count == 1:
+        return "dokument"
+    last_digit = count % 10
+    last_two = count % 100
+    if 2 <= last_digit <= 4 and not (12 <= last_two <= 14):
+        return "dokumenty"
+    return "dokumentów"
+
+
+def format_review_heading_subtitle(count: int) -> str:
+    """Subtitle under the review screen's "Wyniki anonimizacji" heading."""
+    if count == 1:
+        return "1 dokument został przetworzony."
+    word = _pl_document_word(count)
+    if word == "dokumenty":
+        # 2-4 (excluding 12-14): "zostały przetworzone", not the
+        # 5+/genitive "zostało przetworzonych" form.
+        return f"{count} dokumenty zostały przetworzone."
+    return f"{count} dokumentów zostało przetworzonych."
+
+
+def format_anonymize_button_text(input_file_count: int) -> str:
+    """Label the main action button with the selected count, matching the
+    mockup's "Anonimizuj 3 pliki" - falls back to the plain verb alone
+    when nothing is selected yet, since "Anonimizuj 0 plików" reads oddly
+    as an instruction.
+    """
+    if input_file_count <= 0:
+        return "Anonimizuj"
+    return f"Anonimizuj {input_file_count} {_pl_file_word(input_file_count)}"
+
+
 def format_short_path(path: Path, max_length: int = 48) -> str:
     """Shorten a long path for display, keeping the most relevant tail.
 
@@ -1000,7 +1046,7 @@ def restrict_review_items_to_batch(
 # Visual design tokens
 # ---------------------------------------------------------------------------
 
-COLOR_BG = "#F7F9FC"
+COLOR_BG = "#EBF0FB"
 COLOR_CARD = "#FFFFFF"
 COLOR_BORDER = "#D7DEEA"
 # Two blues, deliberately distinct: a dark navy/indigo for brand identity
@@ -1034,6 +1080,65 @@ FILE_TYPE_COLORS = {
     "JPG": "#8E5CE0",
     "TIF": "#8E5CE0",
 }
+_FILE_TYPE_ICON_CACHE: dict[tuple[str, int], "ctk.CTkImage"] = {}
+
+
+def _draw_file_type_icon(color: str, size: int = 40) -> Image.Image:
+    """Draw a small colored, document-shaped icon (rounded tile, white
+    page with a folded top-right corner) for one file type - closer to
+    the mockup's per-type icons than a plain colored rectangle of text,
+    without needing to ship bespoke image assets per type. Drawn at 4x
+    and downsampled for smooth edges.
+    """
+    scale = 4
+    canvas_size = size * scale
+    image = Image.new("RGBA", (canvas_size, canvas_size), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(image)
+    radius = canvas_size * 0.22
+    draw.rounded_rectangle(
+        (0, 0, canvas_size - 1, canvas_size - 1), radius=radius, fill=color
+    )
+
+    doc_w = canvas_size * 0.42
+    doc_h = canvas_size * 0.52
+    fold = doc_w * 0.3
+    left = (canvas_size - doc_w) / 2
+    top = (canvas_size - doc_h) / 2
+    right = left + doc_w
+    bottom = top + doc_h
+    draw.polygon(
+        [
+            (left, top),
+            (right - fold, top),
+            (right, top + fold),
+            (right, bottom),
+            (left, bottom),
+        ],
+        fill="#FFFFFF",
+    )
+    draw.polygon(
+        [(right - fold, top), (right, top + fold), (right - fold, top + fold)],
+        fill=color,
+    )
+    return image.resize((size, size), Image.LANCZOS)
+
+
+def get_file_type_icon(badge_text: str, size: int = 32) -> "ctk.CTkImage":
+    """Return a cached file-type icon image, generating it on first use.
+    Cached at module level (keyed by badge text + size, e.g. ("PDF", 32))
+    rather than per-widget since the same handful of icons is reused
+    across every file card and review row, at a couple of fixed sizes.
+    """
+    key = (badge_text, size)
+    if key not in _FILE_TYPE_ICON_CACHE:
+        color = FILE_TYPE_COLORS.get(badge_text, COLOR_TEXT_MUTED)
+        pil_image = _draw_file_type_icon(color, size=size)
+        _FILE_TYPE_ICON_CACHE[key] = ctk.CTkImage(
+            light_image=pil_image, size=(size, size)
+        )
+    return _FILE_TYPE_ICON_CACHE[key]
+
+
 RISK_STYLES = {
     "ok": (COLOR_OK, COLOR_OK_SOFT, "\u2713"),
     "warning": (COLOR_WARNING, COLOR_WARNING_SOFT, "\u26a0"),
@@ -1065,12 +1170,26 @@ class DnDCTk(ctk.CTk, TkinterDnD.DnDWrapper):
 class IconTooltip:
     """A small hover tooltip for an icon-only button."""
 
-    def __init__(self, widget: tk.Widget, text: str, delay_ms: int = 400) -> None:
+    def __init__(
+        self,
+        widget: tk.Widget,
+        text: str,
+        delay_ms: int = 400,
+        enabled: bool = True,
+    ) -> None:
         self.widget = widget
         self.text = text
         self.delay_ms = delay_ms
+        # Most tooltips (e.g. "Usuń z listy") label a control and should
+        # always work; a few newer ones are pure how-it-works hints that
+        # the "Pokazuj podpowiedzi o obsłudze" setting can turn off -
+        # enabled=False makes this a permanent no-op rather than
+        # conditionally binding/unbinding later.
+        self.enabled = enabled
         self._after_id: str | None = None
         self._tip_window: tk.Toplevel | None = None
+        if not enabled:
+            return
         widget.bind("<Enter>", self._schedule, add="+")
         widget.bind("<Leave>", self._hide, add="+")
         widget.bind("<Button-1>", self._hide, add="+")
@@ -1119,6 +1238,8 @@ class IconTooltip:
     def flash(self, duration_ms: int = 3500) -> None:
         """Show the tooltip immediately, without waiting for a hover, then
         auto-hide it - used for a one-time first-use hint."""
+        if not self.enabled:
+            return
         self._cancel()
         self._show()
         self.widget.after(duration_ms, self._hide)
@@ -1137,6 +1258,7 @@ class AnonymizerApp:
         self.llm_model_name = ""
         self.pdf_output_label = PDF_OUTPUT_LABEL_VISUAL_REDACTION
         self.auto_open_on_approve = True
+        self.show_usage_hints = True
 
         self.review_dir: Path | None = None
         self.review_items: list[ReviewItem] = []
@@ -1190,6 +1312,14 @@ class AnonymizerApp:
         ctk.set_default_color_theme("blue")
 
         self._build_shell()
+        # A real update() (not just update_idletasks()) so the window is
+        # actually mapped/realized before the first show_start_screen()
+        # measures widths - e.g. the quick-settings panel decides whether
+        # to show itself based on the window's real width, which without
+        # this is still an unrealized placeholder (observed ~200px)
+        # regardless of WINDOW_DEFAULT_SIZE, hiding the panel forever
+        # since nothing else ever re-triggers that check.
+        self.root.update()
         self.show_start_screen()
         # Off the GUI thread: importing spaCy alone costs ~1-2s, and this
         # must never make the window feel slow to open.
@@ -1318,6 +1448,7 @@ class AnonymizerApp:
                 "Wcześniej przetworzone foldery",
             ),
             ("settings", "⚙", "Ustawienia", self.open_settings, None),
+            ("about", "\U00002139", "O programie", self.open_about, None),
         )
         for key, glyph, label, command, tooltip in nav_items:
             button = ctk.CTkButton(
@@ -1366,6 +1497,13 @@ class AnonymizerApp:
             anchor="w",
         ).pack(fill="x", padx=12, pady=(0, 10))
 
+        ctk.CTkLabel(
+            sidebar,
+            text=f"v{APP_VERSION}",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=9),
+            text_color=COLOR_TEXT_MUTED,
+        ).pack(anchor="w", padx=18, pady=(0, 10))
+
         self._update_sidebar_active_state()
         return sidebar
 
@@ -1382,7 +1520,7 @@ class AnonymizerApp:
             return
         active_key = "history" if self.active_screen == "history" else "start"
         for key, button in self._nav_buttons.items():
-            if key == "settings":
+            if key in ("settings", "about"):
                 continue
             is_active = key == active_key
             button.configure(
@@ -1781,6 +1919,192 @@ class AnonymizerApp:
             command=self.show_review_screen,
         ).pack(side="right")
 
+    def _build_quick_settings_panel(self, parent: ctk.CTkFrame) -> ctk.CTkFrame:
+        """A start-screen shortcut to the most-used detection settings,
+        mirroring the mockup's "Domyślne ustawienia" card. Deliberately
+        only wraps settings that are real, already-wired toggles
+        (self.use_ner, self.use_llm_review) - OCR has no such toggle in
+        this app (it runs automatically when available, there is nothing
+        to switch off), so that row stays a read-only status like it
+        already is in the full Settings dialog, rather than adding a
+        checkbox that would not actually control anything.
+        """
+        panel = ctk.CTkFrame(
+            parent,
+            corner_radius=12,
+            fg_color=COLOR_CARD,
+            border_width=1,
+            border_color=COLOR_BORDER,
+            width=QUICK_SETTINGS_PANEL_WIDTH,
+        )
+        panel.pack_propagate(False)
+        inner = ctk.CTkFrame(panel, fg_color="transparent")
+        inner.pack(fill="both", expand=True, padx=14, pady=14)
+
+        header_row = ctk.CTkFrame(inner, fg_color="transparent", cursor="hand2")
+        header_row.pack(fill="x", pady=(0, 10))
+        header_row.bind("<Button-1>", lambda _e: self.open_settings())
+        ctk.CTkLabel(
+            header_row,
+            text="⚙",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13),
+            text_color=COLOR_ACCENT,
+            cursor="hand2",
+        ).pack(side="left", padx=(0, 6))
+        ctk.CTkLabel(
+            header_row,
+            text="Domyślne ustawienia",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
+            text_color=COLOR_TEXT,
+            cursor="hand2",
+        ).pack(side="left")
+
+        env_status = environment_status_lookup(self.environment_items)
+
+        ctk.CTkLabel(
+            inner,
+            text="Wykrywanie podstawowe",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11, weight="bold"),
+            text_color=COLOR_TEXT,
+            anchor="w",
+        ).pack(fill="x", pady=(0, 0))
+        ctk.CTkLabel(
+            inner,
+            text="PESEL, NIP, REGON, telefon, e-mail, daty (zawsze aktywne)",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+            text_color=COLOR_TEXT_MUTED,
+            anchor="w",
+            wraplength=QUICK_SETTINGS_PANEL_WIDTH - 40,
+            justify="left",
+        ).pack(fill="x", pady=(0, 10))
+
+        ner_var = tk.BooleanVar(value=self.use_ner)
+
+        def _on_ner_toggle() -> None:
+            self.use_ner = ner_var.get()
+
+        ctk.CTkCheckBox(
+            inner,
+            text="Rozszerzone wykrywanie (AI)",
+            variable=ner_var,
+            command=_on_ner_toggle,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLOR_TEXT,
+            fg_color=COLOR_ACCENT,
+            hover_color=COLOR_ACCENT_HOVER,
+        ).pack(anchor="w", pady=(0, 2))
+        ctk.CTkLabel(
+            inner,
+            text="Imiona, nazwiska, nazwy firm i miejscowości",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+            text_color=COLOR_TEXT_MUTED,
+            anchor="w",
+            wraplength=QUICK_SETTINGS_PANEL_WIDTH - 40,
+            justify="left",
+        ).pack(fill="x", padx=(24, 0), pady=(0, 10))
+
+        llm_var = tk.BooleanVar(value=self.use_llm_review)
+
+        def _on_llm_toggle() -> None:
+            self.use_llm_review = llm_var.get()
+
+        ctk.CTkCheckBox(
+            inner,
+            text="Dodatkowa kontrola wyniku (AI)",
+            variable=llm_var,
+            command=_on_llm_toggle,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLOR_TEXT,
+            fg_color=COLOR_ACCENT,
+            hover_color=COLOR_ACCENT_HOVER,
+        ).pack(anchor="w", pady=(0, 2))
+        ctk.CTkLabel(
+            inner,
+            text="Sprawdzenie, czy nic nie zostało pominięte (Ollama)",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+            text_color=COLOR_TEXT_MUTED,
+            anchor="w",
+            wraplength=QUICK_SETTINGS_PANEL_WIDTH - 40,
+            justify="left",
+        ).pack(fill="x", padx=(24, 0), pady=(0, 10))
+
+        ocr_row = ctk.CTkFrame(inner, fg_color="transparent")
+        ocr_row.pack(fill="x", pady=(0, 10))
+        ocr_ok = env_status.get(ENV_ITEM_OCR)
+        ctk.CTkLabel(
+            ocr_row,
+            text="●",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+            text_color=COLOR_OK if ocr_ok else COLOR_ICON_IDLE,
+            width=14,
+        ).pack(side="left", anchor="n", pady=(3, 0))
+        ocr_col = ctk.CTkFrame(ocr_row, fg_color="transparent")
+        ocr_col.pack(side="left", fill="x", expand=True)
+        ctk.CTkLabel(
+            ocr_col,
+            text="OCR dla skanów i zdjęć",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLOR_TEXT,
+            anchor="w",
+        ).pack(fill="x")
+        ctk.CTkLabel(
+            ocr_col,
+            text="Automatyczne, gdy dostępne" if ocr_ok else "Niedostępne - patrz Ustawienia",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+            text_color=COLOR_TEXT_MUTED,
+            anchor="w",
+        ).pack(fill="x")
+
+        dict_row = ctk.CTkFrame(inner, fg_color="transparent")
+        dict_row.pack(fill="x", pady=(0, 10))
+        dict_col = ctk.CTkFrame(dict_row, fg_color="transparent")
+        dict_col.pack(side="left", fill="x", expand=True)
+        ctk.CTkLabel(
+            dict_col,
+            text="Własny słownik",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLOR_TEXT,
+            anchor="w",
+        ).pack(fill="x")
+        ctk.CTkLabel(
+            dict_col,
+            text=(
+                self.sensitive_terms_path.name
+                if self.sensitive_terms_path is not None
+                else "Nie wybrano"
+            ),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+            text_color=COLOR_TEXT_MUTED,
+            anchor="w",
+        ).pack(fill="x")
+        ctk.CTkButton(
+            dict_row,
+            text="Zmień",
+            width=54,
+            height=24,
+            corner_radius=6,
+            fg_color="transparent",
+            border_width=1,
+            border_color=COLOR_BORDER,
+            hover_color=COLOR_ICON_IDLE,
+            text_color=COLOR_TEXT,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+            command=lambda: self.open_settings(initial_tab="Słownik"),
+        ).pack(side="right")
+
+        ctk.CTkButton(
+            inner,
+            text="Więcej ustawień →",
+            fg_color="transparent",
+            hover_color=COLOR_ICON_IDLE,
+            text_color=COLOR_ACCENT,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            anchor="w",
+            command=self.open_settings,
+        ).pack(fill="x", pady=(4, 0))
+
+        return panel
+
     def show_start_screen(self) -> None:
         self.active_screen = "start"
         self._update_sidebar_active_state()
@@ -1797,9 +2121,31 @@ class AnonymizerApp:
         # scrolled. The file list additionally gets its own small bounded
         # scroll area inside this outer one, so a long file list doesn't
         # by itself push the drop zone and header far out of view.
-        bottom_bar = ctk.CTkFrame(self.content, fg_color="transparent")
+        # A second, narrower column on the right holds the quick-settings
+        # panel (see _build_quick_settings_panel) - packed *before* the
+        # main column, and only above QUICK_SETTINGS_MIN_WIDTH, so it
+        # claims its fixed width first and never squeezes the main flow
+        # down to something unusable on a narrower window.
+        columns_row = ctk.CTkFrame(self.content, fg_color="transparent")
+        columns_row.pack(fill="both", expand=True)
+        # update_idletasks forces Tk to actually compute current geometry
+        # first - without it, winfo_width() can still report a stale/
+        # unrealized placeholder size (e.g. right at app startup, before
+        # the first real layout pass), which would wrongly hide this
+        # panel on a plenty-wide window and never show it again since
+        # nothing else re-triggers a rebuild.
+        self.root.update_idletasks()
+        show_quick_settings = self.root.winfo_width() >= QUICK_SETTINGS_MIN_WIDTH
+        if show_quick_settings:
+            self._build_quick_settings_panel(columns_row).pack(
+                side="right", fill="y", padx=(12, 0)
+            )
+        main_col = ctk.CTkFrame(columns_row, fg_color="transparent")
+        main_col.pack(side="left", fill="both", expand=True)
+
+        bottom_bar = ctk.CTkFrame(main_col, fg_color="transparent")
         bottom_bar.pack(side="bottom", fill="x")
-        scroll_region = ctk.CTkScrollableFrame(self.content, fg_color="transparent")
+        scroll_region = ctk.CTkScrollableFrame(main_col, fg_color="transparent")
         scroll_region.pack(side="top", fill="both", expand=True)
 
         self._build_header_row(scroll_region)
@@ -1810,7 +2156,7 @@ class AnonymizerApp:
         drop_frame = ctk.CTkFrame(
             scroll_region,
             corner_radius=16,
-            fg_color=COLOR_CARD,
+            fg_color=COLOR_ACCENT_SOFT,
             border_width=2,
             border_color=COLOR_BORDER,
         )
@@ -1848,29 +2194,48 @@ class AnonymizerApp:
         self.file_card_frame.pack(fill="x", pady=(0, 14))
         self._refresh_file_cards()
 
-        output_row = ctk.CTkFrame(bottom_bar, fg_color="transparent")
-        output_row.pack(fill="x", pady=(6, 6))
         ctk.CTkLabel(
+            bottom_bar,
+            text="Folder wynikowy",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
+            text_color=COLOR_TEXT,
+            anchor="w",
+        ).pack(fill="x", pady=(6, 4))
+        output_row = ctk.CTkFrame(bottom_bar, fg_color="transparent")
+        output_row.pack(fill="x", pady=(0, 6))
+        path_field = ctk.CTkFrame(
             output_row,
-            text="Folder wynikowy:",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
-            text_color=COLOR_TEXT_MUTED,
-        ).pack(side="left")
+            corner_radius=8,
+            fg_color=COLOR_CARD,
+            border_width=1,
+            border_color=COLOR_BORDER,
+        )
+        path_field.pack(side="left", fill="x", expand=True, padx=(0, 8))
+        path_field_inner = ctk.CTkFrame(path_field, fg_color="transparent")
+        path_field_inner.pack(fill="x", padx=10, pady=7)
+        ctk.CTkLabel(
+            path_field_inner,
+            text="\U0001f4c1",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13),
+        ).pack(side="left", padx=(0, 8))
         self.output_dir_value_label = ctk.CTkLabel(
-            output_row,
+            path_field_inner,
             text=self._output_dir_display_text(),
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             text_color=COLOR_TEXT,
+            anchor="w",
         )
-        self.output_dir_value_label.pack(side="left", padx=(8, 0))
+        self.output_dir_value_label.pack(side="left", fill="x", expand=True)
         ctk.CTkButton(
             output_row,
-            text="Wybierz folder",
-            width=130,
-            height=30,
+            text="Zmień",
+            width=90,
+            height=36,
             corner_radius=8,
-            fg_color=COLOR_ICON_IDLE,
-            hover_color=COLOR_BORDER,
+            fg_color="transparent",
+            border_width=1,
+            border_color=COLOR_BORDER,
+            hover_color=COLOR_ICON_IDLE,
             text_color=COLOR_TEXT,
             command=self.pick_output_dir,
         ).pack(side="right")
@@ -1926,16 +2291,7 @@ class AnonymizerApp:
         card.pack_propagate(False)
 
         badge_text = file_type_badge(path)
-        badge = ctk.CTkLabel(
-            card,
-            text=badge_text,
-            width=44,
-            height=26,
-            corner_radius=6,
-            fg_color=FILE_TYPE_COLORS.get(badge_text, COLOR_TEXT_MUTED),
-            text_color="#FFFFFF",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=10, weight="bold"),
-        )
+        badge = ctk.CTkLabel(card, image=get_file_type_icon(badge_text), text="")
         badge.pack(side="left", padx=(10, 10), pady=9)
 
         ctk.CTkLabel(
@@ -2022,6 +2378,9 @@ class AnonymizerApp:
             )
         if self.anonymize_button is not None:
             ready = bool(self.selected_paths) and self.output_dir is not None
+            self.anonymize_button.configure(
+                text=format_anonymize_button_text(len(self.selected_paths))
+            )
             if ready:
                 self.anonymize_button.configure(
                     state="normal",
@@ -2154,8 +2513,11 @@ class AnonymizerApp:
     # Settings modal
     # ------------------------------------------------------------------
 
-    def open_settings(self) -> None:
-        SettingsDialog(self)
+    def open_settings(self, initial_tab: str | None = None) -> None:
+        SettingsDialog(self, initial_tab=initial_tab)
+
+    def open_about(self) -> None:
+        AboutDialog(self)
 
     # ------------------------------------------------------------------
     # Processing screen
@@ -2305,8 +2667,25 @@ class AnonymizerApp:
         self._update_sidebar_active_state()
         self._clear_content()
 
+        title_row = ctk.CTkFrame(self.content, fg_color="transparent")
+        title_row.pack(fill="x", pady=(0, 4))
+        title_col = ctk.CTkFrame(title_row, fg_color="transparent")
+        title_col.pack(side="left")
+        ctk.CTkLabel(
+            title_col,
+            text="Wyniki anonimizacji",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=20, weight="bold"),
+            text_color=COLOR_TEXT,
+        ).pack(anchor="w")
+        ctk.CTkLabel(
+            title_col,
+            text=format_review_heading_subtitle(len(self.review_items)),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            text_color=COLOR_TEXT_MUTED,
+        ).pack(anchor="w")
+
         header = ctk.CTkFrame(self.content, fg_color="transparent")
-        header.pack(fill="x", pady=(0, 10))
+        header.pack(fill="x", pady=(6, 10))
         ctk.CTkButton(
             header,
             text="\u2b05 Nowe pliki",
@@ -2727,14 +3106,7 @@ class AnonymizerApp:
         name_col.grid(row=0, column=1, sticky="ew", padx=6)
         badge_text = file_type_badge(Path(item.output_name))
         ctk.CTkLabel(
-            name_col,
-            text=badge_text,
-            width=40,
-            height=22,
-            corner_radius=5,
-            fg_color=FILE_TYPE_COLORS.get(badge_text, COLOR_TEXT_MUTED),
-            text_color="#FFFFFF",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=10, weight="bold"),
+            name_col, image=get_file_type_icon(badge_text, size=24), text=""
         ).pack(side="left", padx=(0, 8))
         name_label = ctk.CTkLabel(
             name_col,
@@ -2951,7 +3323,7 @@ class AnonymizerApp:
 class SettingsDialog:
     """Modal settings window for advanced anonymization options."""
 
-    def __init__(self, app: AnonymizerApp) -> None:
+    def __init__(self, app: AnonymizerApp, initial_tab: str | None = None) -> None:
         self.app = app
         self.window = ctk.CTkToplevel(app.root)
         self.window.title("Ustawienia")
@@ -2966,12 +3338,13 @@ class SettingsDialog:
         self.llm_model_var = tk.StringVar(value=app.llm_model_name)
         self.pdf_mode_var = tk.StringVar(value=app.pdf_output_label)
         self.auto_open_var = tk.BooleanVar(value=app.auto_open_on_approve)
+        self.show_hints_var = tk.BooleanVar(value=app.show_usage_hints)
         self.sensitive_terms_path = app.sensitive_terms_path
         self.environment_status = environment_status_lookup(app.environment_items)
 
-        self._build()
+        self._build(initial_tab)
 
-    def _build(self) -> None:
+    def _build(self, initial_tab: str | None = None) -> None:
         header = ctk.CTkFrame(self.window, fg_color="transparent")
         header.pack(fill="x", padx=20, pady=(18, 10))
         ctk.CTkLabel(
@@ -3008,6 +3381,11 @@ class SettingsDialog:
         self._build_pdf_tab(tabview.add("Dokumenty PDF"))
         self._build_dictionary_tab(tabview.add("Słownik"))
         self._build_general_tab(tabview.add("Ogólne"))
+        if initial_tab is not None:
+            try:
+                tabview.set(initial_tab)
+            except ValueError:
+                pass
 
         ctk.CTkButton(
             self.window,
@@ -3108,6 +3486,12 @@ class SettingsDialog:
             "Otwórz automatycznie po zatwierdzeniu",
             "Otwiera plik dopiero gdy klikniesz ✓ Zatwierdzony, nie od razu po anonimizacji",
             self.auto_open_var,
+        )
+        self._build_toggle_section(
+            tab,
+            "Pokazuj podpowiedzi o obsłudze",
+            "Dymki tłumaczące np. narzędzia łapki/lupy w podglądzie porównania",
+            self.show_hints_var,
         )
 
     def _section_frame(self, parent: ctk.CTkFrame) -> ctk.CTkFrame:
@@ -3266,6 +3650,7 @@ class SettingsDialog:
         self.app.use_llm_review = self.llm_var.get()
         self.app.pdf_output_label = self.pdf_mode_var.get()
         self.app.auto_open_on_approve = self.auto_open_var.get()
+        self.app.show_usage_hints = self.show_hints_var.get()
         self.app.sensitive_terms_path = self.sensitive_terms_path
         if self.app.use_llm_review and not self.app.llm_model_name:
             status, models = list_installed_models()
@@ -3574,10 +3959,17 @@ class ComparisonWindow:
         self.original_zoom = ZOOM_DEFAULT
         self.result_zoom = ZOOM_DEFAULT
         self.zoom_linked = True
-        self.original_zoom_label: ctk.CTkLabel | None = None
-        self.result_zoom_label: ctk.CTkLabel | None = None
+        self.original_zoom_label: ctk.CTkEntry | None = None
+        self.result_zoom_label: ctk.CTkEntry | None = None
         self._link_buttons: list[ctk.CTkButton] = []
         self._link_tooltips: list[IconTooltip] = []
+        # "Łapka" (hand/pan) and "lupa" (zoom-on-scroll) are one shared
+        # tool state for the whole window, not per-pane - toggle buttons
+        # exist in both pane headers for convenience, kept in sync via
+        # these lists, matching the existing zoom-link button pattern.
+        self.active_pointer_tool: str | None = None
+        self._hand_buttons: list[ctk.CTkButton] = []
+        self._zoom_tool_buttons: list[ctk.CTkButton] = []
 
         self.magic_pen_available = bool(
             original_path is not None
@@ -3608,6 +4000,7 @@ class ComparisonWindow:
         window.bind("<MouseWheel>", self._on_scroll_sync)
         window.bind("<Button-4>", self._on_scroll_sync)
         window.bind("<Button-5>", self._on_scroll_sync)
+        window.bind("<Escape>", self._clear_pointer_tool)
         window.protocol("WM_DELETE_WINDOW", self._close)
 
         ctk.CTkLabel(
@@ -3774,14 +4167,30 @@ class ComparisonWindow:
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             command=lambda: self._adjust_zoom(side, -1),
         ).pack(side="left", padx=(0, 2))
-        zoom_label = ctk.CTkLabel(
+        zoom_label = ctk.CTkEntry(
             zoom_row,
-            text=zoom_percent_label(ZOOM_DEFAULT),
-            width=40,
+            width=42,
+            height=22,
+            justify="center",
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
             text_color=COLOR_TEXT_MUTED,
+            fg_color=COLOR_CARD,
+            border_width=1,
+            border_color=COLOR_BORDER,
+        )
+        zoom_label.insert(0, zoom_percent_label(ZOOM_DEFAULT))
+        zoom_label.bind(
+            "<Return>", lambda _e, s=side: self._commit_zoom_entry(s)
+        )
+        zoom_label.bind(
+            "<FocusOut>", lambda _e, s=side: self._commit_zoom_entry(s)
         )
         zoom_label.pack(side="left")
+        IconTooltip(
+            zoom_label,
+            "Wpisz wartość i naciśnij Enter, by ustawić powiększenie ręcznie.",
+            enabled=self.app.show_usage_hints,
+        )
         ctk.CTkButton(
             zoom_row,
             text="＋",
@@ -3794,6 +4203,49 @@ class ComparisonWindow:
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             command=lambda: self._adjust_zoom(side, 1),
         ).pack(side="left", padx=(2, 6))
+
+        hand_button = ctk.CTkButton(
+            zoom_row,
+            text="\U0001f590",
+            width=26,
+            height=22,
+            corner_radius=6,
+            fg_color=COLOR_ICON_IDLE,
+            hover_color=COLOR_ACCENT_HOVER,
+            text_color=COLOR_TEXT,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            command=lambda: self._toggle_pointer_tool("hand"),
+        )
+        hand_button.pack(side="left", padx=(0, 2))
+        self._hand_buttons.append(hand_button)
+        IconTooltip(
+            hand_button,
+            "Łapka: przeciągnij, by przesunąć widok bez użycia scrolla. "
+            "Kliknij ponownie lub Esc, by wyłączyć.",
+            enabled=self.app.show_usage_hints,
+        )
+        zoom_tool_button = ctk.CTkButton(
+            zoom_row,
+            text="\U0001f50d",
+            width=26,
+            height=22,
+            corner_radius=6,
+            fg_color=COLOR_ICON_IDLE,
+            hover_color=COLOR_ACCENT_HOVER,
+            text_color=COLOR_TEXT,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            command=lambda: self._toggle_pointer_tool("zoom"),
+        )
+        zoom_tool_button.pack(side="left", padx=(0, 6))
+        self._zoom_tool_buttons.append(zoom_tool_button)
+        IconTooltip(
+            zoom_tool_button,
+            "Lupa: przewiń, by powiększać/pomniejszać bez Ctrl. "
+            "Wskazówka: Ctrl + scroll działa zawsze, nawet bez lupy. "
+            "Kliknij ponownie lub Esc, by wyłączyć.",
+            enabled=self.app.show_usage_hints,
+        )
+
         link_button = ctk.CTkButton(
             zoom_row,
             text=zoom_link_glyph(self.zoom_linked),
@@ -3809,7 +4261,11 @@ class ComparisonWindow:
         link_button.pack(side="left")
         self._link_buttons.append(link_button)
         self._link_tooltips.append(
-            IconTooltip(link_button, zoom_link_tooltip_text(self.zoom_linked))
+            IconTooltip(
+                link_button,
+                zoom_link_tooltip_text(self.zoom_linked),
+                enabled=self.app.show_usage_hints,
+            )
         )
         if side == "original":
             self.original_zoom_label = zoom_label
@@ -3831,11 +4287,16 @@ class ComparisonWindow:
         scrolls the *other* one, by the same amount, so both move as one.
         A no-op once unlinked: each pane is then free to scroll on its own.
         """
-        if not self.zoom_linked:
-            return
         widget = self.window.winfo_containing(event.x_root, event.y_root)
         side = self._pane_side_for_widget(widget)
         if side is None:
+            return
+        if self.active_pointer_tool == "zoom":
+            # "Lupa" active: plain scroll zooms, same as if Ctrl were
+            # held - Ctrl+scroll itself keeps working too either way.
+            self._adjust_zoom(side, zoom_step_from_scroll_event(event))
+            return
+        if not self.zoom_linked:
             return
         other_frame = self.right_frame if side == "original" else self.left_frame
         self._scroll_pane_by(other_frame, scroll_sync_units(event))
@@ -3968,11 +4429,20 @@ class ComparisonWindow:
                 self._rebuild_result_pane()
         self._update_zoom_controls()
 
+    @staticmethod
+    def _set_zoom_entry_text(entry: ctk.CTkEntry, text: str) -> None:
+        entry.delete(0, "end")
+        entry.insert(0, text)
+
     def _update_zoom_controls(self) -> None:
         if self.original_zoom_label is not None:
-            self.original_zoom_label.configure(text=zoom_percent_label(self.original_zoom))
+            self._set_zoom_entry_text(
+                self.original_zoom_label, zoom_percent_label(self.original_zoom)
+            )
         if self.result_zoom_label is not None:
-            self.result_zoom_label.configure(text=zoom_percent_label(self.result_zoom))
+            self._set_zoom_entry_text(
+                self.result_zoom_label, zoom_percent_label(self.result_zoom)
+            )
         glyph = zoom_link_glyph(self.zoom_linked)
         tooltip_text = zoom_link_tooltip_text(self.zoom_linked)
         for button, tooltip in zip(self._link_buttons, self._link_tooltips):
@@ -3982,6 +4452,106 @@ class ComparisonWindow:
                 text_color="#FFFFFF" if self.zoom_linked else COLOR_TEXT_MUTED,
             )
             tooltip.set_text(tooltip_text)
+
+    def _commit_zoom_entry(self, side: str) -> None:
+        """Apply a manually-typed zoom percentage (e.g. "150" or "150%")
+        from the entry for ``side``, clamped to the normal zoom range -
+        invalid text just resets the entry back to the current zoom
+        rather than raising or silently doing nothing.
+        """
+        entry = self.original_zoom_label if side == "original" else self.result_zoom_label
+        current = self.original_zoom if side == "original" else self.result_zoom
+        if entry is None:
+            return
+        raw = entry.get().strip().rstrip("%")
+        try:
+            percent = float(raw)
+        except ValueError:
+            self._set_zoom_entry_text(entry, zoom_percent_label(current))
+            return
+        new_value = clamp_zoom_level(percent / 100)
+        if side == "original":
+            if self.zoom_linked:
+                self.original_zoom = new_value
+                self.result_zoom = new_value
+                self._rebuild_original_pane()
+                self._rebuild_result_pane()
+            else:
+                self.original_zoom = new_value
+                self._rebuild_original_pane()
+        else:
+            if self.zoom_linked:
+                self.original_zoom = new_value
+                self.result_zoom = new_value
+                self._rebuild_original_pane()
+                self._rebuild_result_pane()
+            else:
+                self.result_zoom = new_value
+                self._rebuild_result_pane()
+        self._update_zoom_controls()
+
+    def _toggle_pointer_tool(self, tool: str) -> None:
+        """Toggle the shared hand/zoom pointer tool - clicking the
+        already-active tool's button turns it back off (modeless
+        default: plain scroll pans linked panes, Ctrl+scroll zooms)."""
+        self.active_pointer_tool = None if self.active_pointer_tool == tool else tool
+        self._refresh_pointer_tool_visuals()
+
+    def _clear_pointer_tool(self, _event: object = None) -> None:
+        """Esc cancels whichever pointer tool is active, if any."""
+        if self.active_pointer_tool is not None:
+            self.active_pointer_tool = None
+            self._refresh_pointer_tool_visuals()
+
+    def _refresh_pointer_tool_visuals(self) -> None:
+        hand_active = self.active_pointer_tool == "hand"
+        zoom_active = self.active_pointer_tool == "zoom"
+        for button in self._hand_buttons:
+            button.configure(
+                fg_color=COLOR_ACCENT if hand_active else COLOR_ICON_IDLE,
+                text_color="#FFFFFF" if hand_active else COLOR_TEXT,
+            )
+        for button in self._zoom_tool_buttons:
+            button.configure(
+                fg_color=COLOR_ACCENT if zoom_active else COLOR_ICON_IDLE,
+                text_color="#FFFFFF" if zoom_active else COLOR_TEXT,
+            )
+        cursor = "fleur" if hand_active else ("sizing" if zoom_active else "arrow")
+        for frame in (self.left_frame, self.right_frame):
+            canvas = getattr(frame, "_parent_canvas", None)
+            if canvas is not None:
+                try:
+                    canvas.configure(cursor=cursor)
+                except tk.TclError:
+                    pass
+
+    def _bind_pane_panning(self, widget: tk.Misc, canvas: tk.Canvas) -> None:
+        """Recursively wire hand-tool drag-to-pan onto every descendant of
+        a freshly-rendered pane, forwarding to the pane's own outer
+        scrollable canvas via scan_mark/scan_dragto (the standard Tk
+        pattern for this). A no-op whenever the hand tool isn't active,
+        so this never interferes with normal clicking/scrolling. Bound
+        with add="+" so it only ever adds to, never replaces, any
+        existing binding on the same widget.
+        """
+        widget.bind(
+            "<ButtonPress-1>", lambda e, c=canvas: self._on_pan_press(e, c), add="+"
+        )
+        widget.bind(
+            "<B1-Motion>", lambda e, c=canvas: self._on_pan_drag(e, c), add="+"
+        )
+        for child in widget.winfo_children():
+            self._bind_pane_panning(child, canvas)
+
+    def _on_pan_press(self, event: object, canvas: tk.Canvas) -> None:
+        if self.active_pointer_tool != "hand":
+            return
+        canvas.scan_mark(event.x_root, event.y_root)
+
+    def _on_pan_drag(self, event: object, canvas: tk.Canvas) -> None:
+        if self.active_pointer_tool != "hand":
+            return
+        canvas.scan_dragto(event.x_root, event.y_root, gain=1)
 
     def _maybe_show_zoom_link_hint(self) -> None:
         """Auto-show the link-toggle tooltip once, the first time this
@@ -4024,6 +4594,9 @@ class ComparisonWindow:
                 wraplength=380,
                 justify="left",
             ).pack(pady=30, padx=16)
+        left_canvas = getattr(self.left_frame, "_parent_canvas", None)
+        if left_canvas is not None:
+            self._bind_pane_panning(self.left_frame, left_canvas)
 
     def _rebuild_result_pane(self) -> None:
         if self.right_frame is None:
@@ -4047,6 +4620,9 @@ class ComparisonWindow:
                 text="Plik wynikowy nie został znaleziony.",
                 text_color=COLOR_TEXT_MUTED,
             ).pack(pady=30)
+        right_canvas = getattr(self.right_frame, "_parent_canvas", None)
+        if right_canvas is not None:
+            self._bind_pane_panning(self.right_frame, right_canvas)
 
     # -- magic pen: toolbar -------------------------------------------------
 
@@ -4554,6 +5130,96 @@ class ComparisonWindow:
             )
         except OSError:
             pass
+
+
+class AboutDialog:
+    """A small "O programie" modal: what the app is, version, and the
+    same local-only privacy statement shown elsewhere in the app -
+    deliberately no personal author info (name/email), just the product
+    facts, consistent with the rest of the app never surfacing anything
+    beyond safe, generic status text.
+    """
+
+    def __init__(self, app: AnonymizerApp) -> None:
+        self.app = app
+        window = ctk.CTkToplevel(app.root)
+        self.window = window
+        window.title("O programie")
+        window.geometry("420x360")
+        window.resizable(False, False)
+        window.configure(fg_color=COLOR_BG)
+        window.transient(app.root)
+        window.grab_set()
+        app._load_app_icon(window)
+        _bring_window_to_front(window)
+
+        header = ctk.CTkFrame(window, fg_color="transparent")
+        header.pack(fill="x", padx=20, pady=(20, 6))
+        if APP_ICON_PATH.exists():
+            try:
+                icon_image = Image.open(APP_ICON_PATH)
+                self._icon_image = ctk.CTkImage(light_image=icon_image, size=(40, 40))
+                ctk.CTkLabel(header, image=self._icon_image, text="").pack(
+                    side="left", padx=(0, 10)
+                )
+            except (OSError, tk.TclError):
+                pass
+        title_col = ctk.CTkFrame(header, fg_color="transparent")
+        title_col.pack(side="left")
+        ctk.CTkLabel(
+            title_col,
+            text=APP_TITLE,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=18, weight="bold"),
+            text_color=COLOR_TEXT,
+        ).pack(anchor="w")
+        ctk.CTkLabel(
+            title_col,
+            text=f"Wersja {APP_VERSION}",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLOR_TEXT_MUTED,
+        ).pack(anchor="w")
+
+        ctk.CTkLabel(
+            window,
+            text=APP_ABOUT_TEXT,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            text_color=COLOR_TEXT,
+            wraplength=370,
+            justify="left",
+        ).pack(fill="x", padx=20, pady=(10, 16))
+
+        trust_card = ctk.CTkFrame(window, corner_radius=10, fg_color=COLOR_CARD)
+        trust_card.pack(fill="x", padx=20, pady=(0, 16))
+        trust_row = ctk.CTkFrame(trust_card, fg_color="transparent")
+        trust_row.pack(fill="x", padx=14, pady=12)
+        ctk.CTkLabel(
+            trust_row,
+            text="\U0001f512",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13),
+            text_color=COLOR_OK,
+        ).pack(side="left", padx=(0, 8))
+        ctk.CTkLabel(
+            trust_row,
+            text=(
+                "Wszystkie operacje wykonywane są lokalnie. Żadne dane nie "
+                "są wysyłane do internetu ani do chmury."
+            ),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLOR_TEXT,
+            wraplength=310,
+            justify="left",
+            anchor="w",
+        ).pack(side="left", fill="x", expand=True)
+
+        ctk.CTkButton(
+            window,
+            text="Zamknij",
+            height=32,
+            corner_radius=8,
+            fg_color=COLOR_ACCENT,
+            hover_color=COLOR_ACCENT_HOVER,
+            command=window.destroy,
+        ).pack(pady=(0, 20))
 
 
 class SummaryDialog:
