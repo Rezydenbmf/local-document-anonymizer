@@ -42,6 +42,7 @@ from gui import (
     file_type_badge,
     filter_supported_paths,
     find_rect_at_point,
+    format_anonymize_button_text,
     format_anonymize_readiness,
     format_approved_export_status,
     format_audit_result,
@@ -54,6 +55,7 @@ from gui import (
     format_processing_status,
     format_readiness_pl,
     format_recent_folder_timestamp,
+    format_review_heading_subtitle,
     format_review_summary_line,
     format_selected_file_count,
     format_short_path,
@@ -428,6 +430,25 @@ class GuiWorkflowTests(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             format_readiness_pl(-1, False)
+
+    def test_gui_formats_review_heading_subtitle(self) -> None:
+        self.assertEqual(
+            format_review_heading_subtitle(1), "1 dokument został przetworzony."
+        )
+        self.assertEqual(
+            format_review_heading_subtitle(3),
+            "3 dokumenty zostały przetworzone.",
+        )
+        self.assertEqual(
+            format_review_heading_subtitle(5),
+            "5 dokumentów zostało przetworzonych.",
+        )
+
+    def test_gui_formats_anonymize_button_text_with_selected_count(self) -> None:
+        self.assertEqual(format_anonymize_button_text(0), "Anonimizuj")
+        self.assertEqual(format_anonymize_button_text(1), "Anonimizuj 1 plik")
+        self.assertEqual(format_anonymize_button_text(3), "Anonimizuj 3 pliki")
+        self.assertEqual(format_anonymize_button_text(5), "Anonimizuj 5 plików")
 
     def test_gui_formats_short_path_keeps_full_short_paths(self) -> None:
         self.assertEqual(format_short_path(Path("C:/Wyniki")), "C:\\Wyniki")
