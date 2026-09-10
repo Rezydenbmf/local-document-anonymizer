@@ -1077,6 +1077,62 @@ behavior changed, so no new tests needed - this was already covered by
 existing Settings-behavior tests, none of which touch layout). Lint
 unchanged against baseline.
 
+Stage 3 of the DocShield redesign: the review screen rebuilt around
+stat cards plus a data table, replacing the previous card-list.
+`_build_review_stat_cards` shows four always-present counts -
+Zatwierdzone / Wymaga przeglądu / Odrzucone / Wszystkie pliki - the
+three real manual-review statuses plus the total; batch *processing*
+failures (files that never even produced a result) are a different
+concept, already covered by the more useful named-files-and-reasons
+banner from the existing `_build_batch_errors_card`, so they are
+deliberately not duplicated as a bare "Błąd" count the way the mockup's
+own screenshot showed - the two concepts don't collapse into one
+number without losing information. `_refresh_review_cards` now builds a
+`_build_review_table_header` row plus one `_build_review_table_row` per
+item (grid-aligned columns: checkbox, filename, status pill, risk pill,
+actions) instead of `_build_review_card`'s big padded cards; the
+mockup's "Znalezione dane" column (a live per-category breakdown like
+"4 osoby · 2 adresy · 1 PESEL") was deliberately left out of this pass -
+it would need parsing each item's report file on every table refresh,
+a real per-row I/O cost and its own risk surface the reference material
+doesn't actually justify yet, being just one static mockup screenshot.
+Bulk selection is new: a `_build_selection_bar` ("N zaznaczonych" +
+"Zatwierdź zaznaczone" / "Odrzuć zaznaczone", both disabled with no
+selection) sits above the table; checking a row's box updates
+`self.selected_review_output_names` (a plain set of output names, reset
+whenever a folder is (re)loaded so a stale selection can never survive
+switching folders) and `_bulk_set_status` applies a status to every
+selected item by calling the existing per-item `set_review_status` in a
+loop (accepted trade-off: N table rebuilds and N small disk writes for
+a bulk action rather than a bespoke batched code path - review folders
+are small, and this reuses already-correct, already-tested logic
+instead of duplicating it), then clears the selection so the same items
+aren't left pre-selected for a second, likely-accidental bulk action.
+
+While building the table, found and fixed a real layout bug of the same
+family as the DPI-scaling issues found earlier the same day:
+`CTkLabel`'s own auto-width computation under-measured the filename
+column's needed width at this display's DPI scaling, silently clipping
+even moderately long filenames - confirmed directly (`winfo_reqwidth()`
+vs `winfo_width()` disagreed significantly). A pixel-budget fix (a
+narrower "Akcje" column via smaller action-icon buttons: 32px→28px,
+tighter spacing) recovered some room but real generated output
+filenames (multiple category/collision suffixes) will always eventually
+outgrow any fixed column width. The actual fix is a new pure
+`truncate_filename_middle(name, max_length=26)`: elides the *middle* of
+a long filename rather than the end, keeping the start (most
+distinguishing between similarly-named files) and the tail (extension,
+"_ANON" markers) visible, with the untruncated name available via an
+`IconTooltip` on hover. Verified functionally and visually against the
+real GUI: stat card counts match a synthetic 4-item set exactly,
+checkbox-driven selection updates the count label and enables/disables
+the bulk buttons correctly, a bulk-approve call changes both selected
+items' status and clears the selection afterward, ordinary filenames
+now render in full, and a deliberately long synthetic filename
+correctly truncates to `2_faktura_vat_FIK…N_12.pdf` with the full name
+recoverable on hover. Full suite: 375 tests (3 new, for the truncation
+helper). Lint unchanged against baseline.
+
 ## What Exists
 
 - Repository structure.
@@ -1521,26 +1577,34 @@ existing `SettingsDialog` (Wykrywanie danych / Dokumenty PDF / Słownik /
 Ogólne - four, not the mockup's five, since the reference material never
 actually shows non-overlapping content for a fifth "OCR i AI" tab),
 purely a layout reorganization of existing controls, no behavior change.
-A stat-cards-and-table review screen and a sidebar tool panel in the
-comparison window are the next work.
+Stage 3 (same day): the review screen rebuilt around four stat cards
+(Zatwierdzone / Wymaga przeglądu / Odrzucone / Wszystkie pliki) plus a
+grid-aligned data table replacing the card-list, with new bulk
+selection (checkboxes, a selection-count bar, bulk approve/reject).
+Along the way, found and fixed a real DPI-scaling layout bug (CTkLabel
+under-measuring the filename column's needed width, silently clipping
+even moderate-length names) with a proper fix rather than a pixel
+chase: a new `truncate_filename_middle()` elides the middle of long
+filenames (keeping the start and the extension) with the full name on
+hover, since real generated output filenames will always eventually
+outgrow any fixed column width. A sidebar tool panel in the comparison
+window is the next work.
 
 ```text
-fd5dfda DocShield Stage 2: tabs inside the Settings dialog
+ff1c160 DocShield Stage 3: review screen stat cards, table, bulk selection
 ```
 
 ## Next Logical Step
 
 **Immediate priority**: continue the DocShield visual redesign (see the
 Stage 1 narrative above for the full brief and the confirmed scope
-decisions). Stages 1 (branding/icon/sidebar/palette) and 2 (Settings
-tabs) are done. Remaining: (3) the review screen redesigned around stat
-cards (counts by status) plus a data table (replacing the current
-card-list), with bulk select/approve/reject/export actions; (4) the
-comparison window's magic pen controls moved from the top toolbar into a
-right-hand sidebar panel ("Korekta anonimizacji" + "Kategorie danych"
-checklist) - this touches the toolbar/pane-alignment work from earlier
-the same day, so needs care not to regress the pixel alignment or the
-save-button-clipping fix. Reference mockups live in `pomysly/` (not part
+decisions). Stages 1 (branding/icon/sidebar/palette), 2 (Settings tabs),
+and 3 (review screen stat cards + table + bulk selection) are done.
+Remaining: (4) the comparison window's magic pen controls moved from the
+top toolbar into a right-hand sidebar panel ("Korekta anonimizacji" +
+"Kategorie danych" checklist) - this touches the toolbar/pane-alignment
+work from earlier the same day, so needs care not to regress the pixel
+alignment or the save-button-clipping fix. Reference mockups live in `pomysly/` (not part
 of the app, not `.gitignore`d - the user's own working reference, left
 alone unless asked to touch it).
 
