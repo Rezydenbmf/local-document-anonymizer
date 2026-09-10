@@ -1133,6 +1133,72 @@ correctly truncates to `2_faktura_vat_FIK…N_12.pdf` with the full name
 recoverable on hover. Full suite: 375 tests (3 new, for the truncation
 helper). Lint unchanged against baseline.
 
+Stage 4 (final stage) of the DocShield redesign: the magic pen's
+controls move from a toolbar row above "Po anonimizacji" into a
+fixed-width right-hand sidebar ("Korekta anonimizacji"), matching the
+mockups. A new `_build_magic_pen_sidebar` holds the two tool buttons
+(now full-width vertical rows rather than horizontal chips, relabeled
+"Dodaj zaznaczenie"/"Usuń zaznaczenie" to match the mockup - the
+tooltip still spells out that LPM does the pinned action and PPM always
+erases regardless) plus the color legend, now shown as a vertical list
+instead of the horizontal row used elsewhere; `_build_tool_chip`'s
+internal layout changed to match (full-width row instead of a small
+side-by-side chip) but its signature, return shape, and the
+pinning/highlighting logic that consumes it (`_toggle_pinned_tool`,
+`_refresh_tool_chip_visuals`, `_on_pane_press`/`_on_pane_right_click`,
+...) are all completely untouched - only how the buttons are built and
+where they live changed, not what they do. The "Zapisz zmiany"/"Anuluj
+zmiany" buttons move out of the (now-removed) toolbar into a bottom bar
+below both panes, spanning the window - packed in the same
+save-before-cancel order as before, for the same reason (Tk's `pack()`
+hands out row width in packing order, and the save button must never be
+the one squeezed out).
+
+Moving the toolbar out entirely also let the toolbar-above-header/
+matching-spacer trick from earlier the same day be retired along with
+it: with no toolbar row sitting above "Po anonimizacji" anymore, both
+pane headers are simply identical again and naturally start at the
+same height with nothing extra needed - `MAGIC_PEN_TOOLBAR_HEIGHT` and
+the spacer frame are removed as dead code. For a non-PDF comparison
+(no magic pen, no sidebar), the color legend keeps using the existing
+horizontal row at the bottom, unchanged - there is nowhere else for it
+to live in that case.
+
+Two mockup elements deliberately not carried over, consistent with the
+scope decisions made throughout this redesign: per-category selection
+for manual redactions (the mockup's "Kategorie danych" showed
+checkboxes implying a filter/category-picker; this app still uses one
+generic "RECZNE" label for every manual edit, an already-identified,
+not-yet-planned future feature - rendering the legend as real
+checkboxes here would imply working functionality that does not exist)
+and combining "save" with "approve" into one action (the mockup's
+"Zapisz i zatwierdź" button suggests exactly that, but the comparison
+window does not currently touch review status at all - approving stays
+where it already lives, the review screen's per-item actions - merging
+the two would be a real cross-cutting behavior change beyond "move
+existing controls into a sidebar," not something to fold in silently
+alongside a layout change). Page-by-page pagination controls shown in
+the mockup were also left out - this app renders every page of a
+multi-page PDF stacked in one scrollable pane rather than one page at a
+time, and changing that is its own, larger change.
+
+Verified functionally and visually against the real GUI with the pilot
+invoice PDF pair: both panes still start at the exact same height with
+no spacer (253px == 253px, confirmed numerically, not just visually),
+tool-chip pinning and the transient press/RMB-flash highlighting both
+still work correctly after the move, the save/cancel buttons at the
+bottom still respond to pending-edit state, and the zoom-link
+(untouched code) still keeps both panes in sync after the
+restructuring - confirmed with a real drag-drawn redaction visible in
+a screenshot alongside a live "Niezapisane zmiany: 1" count and an
+enabled, blue "Zapisz zmiany" button. Full suite: 375 tests (no test
+changes - this is a widget-construction/layout move with the
+underlying state/behavior logic completely untouched, verified
+functionally instead, consistent with how the rest of this window's
+history has been tested). Lint unchanged against baseline.
+
+This closes out the DocShield visual redesign's four confirmed stages.
+
 ## What Exists
 
 - Repository structure.
@@ -1587,26 +1653,41 @@ even moderate-length names) with a proper fix rather than a pixel
 chase: a new `truncate_filename_middle()` elides the middle of long
 filenames (keeping the start and the extension) with the full name on
 hover, since real generated output filenames will always eventually
-outgrow any fixed column width. A sidebar tool panel in the comparison
-window is the next work.
+outgrow any fixed column width. Stage 4 (same day, final stage): the
+magic pen's toolbar moves into a right-hand "Korekta anonimizacji"
+sidebar (vertical tool buttons + color legend), retiring the
+toolbar-above-header/matching-spacer trick from earlier the same day
+along with it - both pane headers are simply identical again and
+naturally align with nothing extra needed. Two mockup elements
+deliberately not carried over: per-category manual-redaction labels
+(still one generic "RECZNE" label - an already-identified, not-yet-
+planned future feature) and merging "save" with "approve" into one
+action (approving stays on the review screen, where it already lives).
+This closes out the DocShield redesign's four confirmed stages.
 
 ```text
-ff1c160 DocShield Stage 3: review screen stat cards, table, bulk selection
+45ab4b5 DocShield Stage 4: magic pen sidebar panel (final redesign stage)
 ```
 
 ## Next Logical Step
 
-**Immediate priority**: continue the DocShield visual redesign (see the
-Stage 1 narrative above for the full brief and the confirmed scope
-decisions). Stages 1 (branding/icon/sidebar/palette), 2 (Settings tabs),
-and 3 (review screen stat cards + table + bulk selection) are done.
-Remaining: (4) the comparison window's magic pen controls moved from the
-top toolbar into a right-hand sidebar panel ("Korekta anonimizacji" +
-"Kategorie danych" checklist) - this touches the toolbar/pane-alignment
-work from earlier the same day, so needs care not to regress the pixel
-alignment or the save-button-clipping fix. Reference mockups live in `pomysly/` (not part
-of the app, not `.gitignore`d - the user's own working reference, left
-alone unless asked to touch it).
+The DocShield visual redesign is done: Stage 1
+(branding/icon/sidebar/palette), 2 (Settings tabs), 3 (review screen
+stat cards + table + bulk selection), and 4 (comparison window magic
+pen sidebar) all shipped the same day (see the Stage 1 narrative above
+for the full brief and confirmed scope decisions). Two things from the
+mockups were deliberately deferred rather than silently folded in,
+since they are real functionality changes rather than layout moves:
+per-category manual-redaction labels (still one generic "RECZNE" label)
+and merging "save" with "approve" in the comparison window into one
+action. Both need their own planning pass if picked up later. Reference
+mockups live in `pomysly/` (not part of the app, not `.gitignore`d -
+the user's own working reference, left alone unless asked to touch it).
+
+Use the redesigned app in real pilot use next and make further
+improvements only from what that surfaces, the same way the pre-
+redesign UI was refined - no further redesign work is planned without a
+fresh, explicit user decision to start one.
 
 The next candidates, not yet started: (a) relocating the PDF-derived
 `_ANON.txt` companion and `_ANON_REVIEW.pdf` into the internal folder too
