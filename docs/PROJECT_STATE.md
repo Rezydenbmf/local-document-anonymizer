@@ -1685,9 +1685,130 @@ changed; not part of the Python package, so no tests apply.
 b270746 Add double-clickable launcher script (uruchom.bat)
 ```
 
+The user's first hands-on pilot session against the redesigned DocShield UI
+produced a 14-item feedback batch, comparing the running app directly
+against the `pomysly/` mockups. Given the size, it is being worked through
+in two passes: Stage A (this entry) fixes real defects and quick,
+unambiguous UI fixes; Stage B (visual mockup-fidelity items, some of which
+resurface functionality already deliberately deferred earlier - see the
+Stage 4 narrative above) is planned separately, next.
+
+Stage A: (1) the sidebar logo/brand row is now clickable and always goes
+to the start screen, same as the existing "Anonimizacja" nav item -
+"O programie" from item 5 is still Stage B. (7) the trust-badge padlock is
+now green (`COLOR_OK`) instead of plain text-color black, matching the
+mockup. (10) the Windows taskbar icon showing python.exe's generic icon
+instead of the app's own was a real, previously-unfixed Windows quirk, not
+a leftover from an earlier stage: `iconphoto()` alone is not reliable for
+the *taskbar* specifically, and without a distinct AppUserModelID (set
+once, before any window exists, via
+`ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID`) Windows
+can group the process under plain python.exe's taskbar entry and icon
+regardless. Fixed with a generated multi-size `assets/icon.ico`
+(`window.iconbitmap(default=...)`, tried before the existing
+`iconphoto()` fallback) plus `_set_windows_app_user_model_id()` called at
+the very top of `start_gui()`; both are no-ops off Windows or on any
+error, never fatal to startup.
+
+(4) the handwritten-style personal note ("Twoje dokumenty. Tylko u
+Ciebie.") was being clipped, not shrunk, as the window narrowed - Tk
+`pack()`'s space-priority-by-pack-order rule (the same root cause found
+earlier for the save-button-clipping bug) meant the note, packed after
+the heading, lost the fight for space first. Rather than continuously
+re-measuring width on every `<Configure>` event (tried and rejected
+earlier this same day for a different spacer - an expensive cascade, not
+a one-off cost), `_build_header_row`/`_apply_header_layout` reconfigure
+the same two widgets in place only when the window crosses one fixed
+`HEADER_STACK_BREAKPOINT`, debounced via `after(150, ...)`: side-by-side
+above the breakpoint, the note dropping to its own smaller-font line below
+the heading under it.
+
+(3) adding enough files made the "Anonimizuj" button unreachable - worse,
+confirmed while investigating: `self.content` never scrolled at all, so
+even the *fixed* controls (output folder row, the button) could in
+principle be pushed out of a short window with no way back, independent
+of the file count. Recommendation given directly to the user's own
+question about whole-window scrolling: yes, but scoped carefully rather
+than one big scrollable dump - the start screen is now a pinned
+`bottom_bar` (output folder + button, packed first with `side="bottom"`
+so its space is always reserved) plus a `scroll_region` above it holding
+everything else, itself containing the file list in its *own* small
+`FILE_LIST_MAX_HEIGHT`-bounded `CTkScrollableFrame` so a long file list
+doesn't by itself push the drop zone far out of view either. Verified
+functionally: the button stays reachable with 12 files selected at both
+the default window size and the app's own `WINDOW_MIN_WIDTH x
+WINDOW_MIN_HEIGHT`. This two-region pattern (pinned action bar outside
+any scroll, everything else inside one) is the general principle other
+screens should follow if the same problem shows up there, not a
+start-screen-only fix.
+
+(9) reported directly by the user after hitting it live: leaving the
+review screen for the start screen (e.g. clicking "Anonimizacja" to
+double check something) had no way back short of reprocessing the same
+files, even though `self.review_items`/`self.last_batch_result` were
+still fully intact and never cleared by `show_start_screen`. A new
+`_build_resume_review_banner` shows a dismissible-by-nature (only appears
+while `self.review_items` is non-empty) "Wróć do przeglądu" banner on the
+start screen instead.
+
+(12) scroll-sync (plain, unlinked-from-zoom mouse wheel mirroring between
+panes) silently did nothing for some file pairs but not others, reported
+as "works for txt, not for docx" - reproduced and root-caused with a real
+script driving `ComparisonWindow` for both a long TXT and a long DOCX
+pair: a DOCX/TXT pane's only child is one fixed-height `CTkTextbox`
+(`_render_text_block`), and scrolling through content longer than that
+box is the *textbox's own* internal yview, not the outer
+`CTkScrollableFrame` canvas `_scroll_pane_by` was mirroring - which barely
+has anything else to move. It only looked like it "worked" for a short
+TXT file because nothing needed scrolling either way, coincidentally
+looking in sync. `_scroll_pane_by`/`_scroll_pane_to_top` now check for a
+`CTkTextbox` child first (`_find_textbox_in`) and target its own
+`_textbox.yview_scroll`/`yview_moveto` when present, falling back to the
+outer canvas only for PDF/image panes that have no such textbox. Verified
+with a regression script confirming the *other* pane's own textbox
+position actually moves for both TXT and DOCX now, not just the outer
+canvas.
+
+Deliberately left for Stage B, since they are visual mockup-matching work
+rather than defects: (2) sidebar/drop-zone bluish tint, (3-icons) nicer
+file-type badges, (5) an "O programie" sidebar entry, (6) matching the
+mockup's folder-row/button layout exactly, (8) a new quick-settings
+checkbox panel on the start screen, (11) the review screen's visual
+overhaul to match the mockup, (13) the comparison toolbar's hand/zoom
+tool pair with tooltips, (14) comparison legend visual polish. Full
+suite: 375 tests (no new pure-logic tests needed - Stage A is widget
+wiring, verified functionally with scratchpad scripts per this project's
+usual pattern, not new permanent unit tests), lint unchanged against
+baseline.
+
+```text
+c5f6755 Pilot feedback Stage A: real bugs + quick UI fixes
+```
+
 ## Next Logical Step
 
-The DocShield visual redesign is done: Stage 1
+Immediate next step: Stage B of the pilot-feedback batch above - the
+mockup visual-fidelity items deliberately deferred out of Stage A
+(sidebar/drop-zone tint, file-type badge icons, an "O programie" entry,
+matching the mockup's folder-row/button design, a new start-screen
+quick-settings panel, the review screen's visual overhaul, the comparison
+toolbar's hand/zoom tools, legend polish). Two things noticed while
+reading the mockups for Stage B need an explicit call before touching
+code, the same discipline used throughout the DocShield redesign: the
+mockup's magic-pen panel shows a combined "Zapisz i zatwierdź" button,
+which resurfaces the "merge save with approve" idea already deliberately
+deferred at the end of Stage 4 (see its narrative above) - not requested
+again in this feedback batch, so Stage B should keep save/cancel as
+separate actions unless the user asks for the merge explicitly, not fold
+it in silently just because it appears in the reference image. The
+richer "Kategorie danych" legend labels shown in the same mockup image
+(Osoba/Adres/Firma/Miejscowość alongside the existing PESEL/NIP/REGON
+style) read as a labeling/wording polish of the *existing* legend, not
+new per-category manual-redaction functionality (the other deferred
+Stage 4 item, still one generic "RECZNE" label) - safe to carry over as
+visual polish.
+
+The DocShield visual redesign itself is done: Stage 1
 (branding/icon/sidebar/palette), 2 (Settings tabs), 3 (review screen
 stat cards + table + bulk selection), and 4 (comparison window magic
 pen sidebar) all shipped the same day (see the Stage 1 narrative above
