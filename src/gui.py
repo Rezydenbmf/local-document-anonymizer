@@ -160,6 +160,12 @@ APP_SUBTITLE = "Chroń dane wrażliwe. Szybko, bezpiecznie i lokalnie."
 APP_PERSONAL_NOTE = "Twoje dokumenty. Tylko u Ciebie."
 SCRIPT_FONT_FAMILY = "Segoe Script"
 APP_ICON_PATH = Path(__file__).resolve().parent.parent / "assets" / "icon.png"
+APP_ICON_ICO_PATH = Path(__file__).resolve().parent.parent / "assets" / "icon.ico"
+# Identifies this app to Windows as distinct from the plain python.exe
+# process running it, so the taskbar shows our own icon instead of
+# python.exe's generic one (and groups repeated launches under it).
+# Must be set once, before any window is created - see start_gui().
+APP_USER_MODEL_ID = "DocShield.AnonimizatorDokumentow"
 MANUAL_REVIEW_WARNING = (
     "Wymagany jest ręczny przegląd przed użyciem lub udostępnieniem wyniku."
 )
@@ -167,6 +173,17 @@ WINDOW_MIN_WIDTH = 720
 WINDOW_MIN_HEIGHT = 560
 WINDOW_DEFAULT_SIZE = "960x680"
 SELECTED_FILE_LIST_HEIGHT = 6
+# Bounds the selected-files list to a fixed height with its own internal
+# scrollbar once it holds more entries than fit - without this, adding
+# enough files pushes the output-folder row and the "Anonimizuj" button
+# below the window with no way to reach them at all (self.content itself
+# does not scroll). Kept deliberately small (space for ~3 cards) so the
+# always-visible action controls stay the priority even on a short window.
+FILE_LIST_MAX_HEIGHT = 168
+# Header row layout switches from side-by-side to stacked (see
+# _update_header_layout) once the window narrows past this content width,
+# so the handwritten-style personal note never gets clipped.
+HEADER_STACK_BREAKPOINT = 640
 LLM_NO_MODELS_HINT = "No local Ollama models found. Install/pull a model first."
 LLM_MODELS_FOUND_HINT = "Select a local Ollama model for optional LLM review."
 PDF_OUTPUT_LABEL_VISUAL_REDACTION = (
@@ -1132,7 +1149,12 @@ class AnonymizerApp:
             self.history_config_path
         )
 
-        self.file_card_frame: ctk.CTkFrame | None = None
+        self.file_card_frame: ctk.CTkScrollableFrame | None = None
+        self._header_row: ctk.CTkFrame | None = None
+        self._heading_col: ctk.CTkFrame | None = None
+        self._personal_note_label: ctk.CTkLabel | None = None
+        self._header_stacked = False
+        self._header_configure_after_id: str | None = None
         self.drop_hint_label: ctk.CTkLabel | None = None
         self.anonymize_button: ctk.CTkButton | None = None
         self.output_dir_value_label: ctk.CTkLabel | None = None
@@ -1190,14 +1212,28 @@ class AnonymizerApp:
         return candidate
 
     def _load_app_icon(self, window: tk.Misc) -> None:
-        """Set the window/taskbar icon from the bundled asset, if present.
+        """Set the window/titlebar/taskbar icon from the bundled asset.
 
         Never fatal: a missing or unreadable icon file must never stop
         the app from opening. iconphoto() needs a live PhotoImage kept
         somewhere for as long as the window exists, or Tk garbage-collects
         it and the icon silently reverts - self._app_icon_photo holds
         that reference.
+
+        On Windows, iconphoto() alone is not enough for the *taskbar*
+        icon specifically: Explorer prefers a real .ico (multi-size,
+        proper ICO container) over a PNG handed to iconphoto, and without
+        a distinct AppUserModelID (set once, in start_gui(), before any
+        window exists) Windows can group this window under the plain
+        python.exe taskbar entry and show its generic icon instead of
+        ours. iconbitmap() is tried first for that reason, with
+        iconphoto() as a fallback/for platforms where it is a no-op.
         """
+        if APP_ICON_ICO_PATH.exists():
+            try:
+                window.iconbitmap(default=str(APP_ICON_ICO_PATH))
+            except tk.TclError:
+                pass
         if not APP_ICON_PATH.exists():
             return
         try:
@@ -1226,30 +1262,48 @@ class AnonymizerApp:
         sidebar = ctk.CTkFrame(parent, fg_color=COLOR_CARD, corner_radius=0, width=208)
         sidebar.pack_propagate(False)
 
-        brand_row = ctk.CTkFrame(sidebar, fg_color="transparent")
+        # The whole brand row (icon + name) is clickable and always goes
+        # home, matching the standard "click the logo" convention - a
+        # second, redundant way back to the start screen alongside the
+        # "Anonimizacja" nav item below, available from any screen
+        # (including modals-adjacent screens like Historia).
+        brand_row = ctk.CTkFrame(sidebar, fg_color="transparent", cursor="hand2")
         brand_row.pack(fill="x", padx=18, pady=(22, 28))
+        brand_clickables: list[tk.Misc] = [brand_row]
         if APP_ICON_PATH.exists():
             try:
                 badge_image = Image.open(APP_ICON_PATH)
                 badge = ctk.CTkImage(light_image=badge_image, size=(32, 32))
                 self._sidebar_badge_image = badge
-                ctk.CTkLabel(brand_row, image=badge, text="").pack(side="left", padx=(0, 8))
+                badge_label = ctk.CTkLabel(
+                    brand_row, image=badge, text="", cursor="hand2"
+                )
+                badge_label.pack(side="left", padx=(0, 8))
+                brand_clickables.append(badge_label)
             except (OSError, tk.TclError):
                 pass
-        brand_text_col = ctk.CTkFrame(brand_row, fg_color="transparent")
+        brand_text_col = ctk.CTkFrame(brand_row, fg_color="transparent", cursor="hand2")
         brand_text_col.pack(side="left")
-        ctk.CTkLabel(
+        brand_clickables.append(brand_text_col)
+        brand_title_label = ctk.CTkLabel(
             brand_text_col,
             text=APP_TITLE,
             font=ctk.CTkFont(family=FONT_FAMILY, size=16, weight="bold"),
             text_color=COLOR_TEXT,
-        ).pack(anchor="w")
-        ctk.CTkLabel(
+            cursor="hand2",
+        )
+        brand_title_label.pack(anchor="w")
+        brand_subtitle_label = ctk.CTkLabel(
             brand_text_col,
             text="Anonimizator dokumentów",
             font=ctk.CTkFont(family=FONT_FAMILY, size=10),
             text_color=COLOR_TEXT_MUTED,
-        ).pack(anchor="w")
+            cursor="hand2",
+        )
+        brand_subtitle_label.pack(anchor="w")
+        brand_clickables.extend([brand_title_label, brand_subtitle_label])
+        for widget in brand_clickables:
+            widget.bind("<Button-1>", lambda _e: self.show_start_screen())
 
         nav_col = ctk.CTkFrame(sidebar, fg_color="transparent")
         nav_col.pack(fill="x", padx=10)
@@ -1288,13 +1342,21 @@ class AnonymizerApp:
 
         trust_card = ctk.CTkFrame(sidebar, fg_color=COLOR_BG, corner_radius=10)
         trust_card.pack(fill="x", padx=14, pady=16)
+        trust_title_row = ctk.CTkFrame(trust_card, fg_color="transparent")
+        trust_title_row.pack(fill="x", padx=12, pady=(10, 2))
         ctk.CTkLabel(
-            trust_card,
-            text="\U0001f512 Przetwarzanie lokalne",
+            trust_title_row,
+            text="\U0001f512",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLOR_OK,
+        ).pack(side="left", padx=(0, 4))
+        ctk.CTkLabel(
+            trust_title_row,
+            text="Przetwarzanie lokalne",
             font=ctk.CTkFont(family=FONT_FAMILY, size=11, weight="bold"),
             text_color=COLOR_TEXT,
             anchor="w",
-        ).pack(fill="x", padx=12, pady=(10, 2))
+        ).pack(side="left")
         ctk.CTkLabel(
             trust_card,
             text="Pliki nie opuszczają\ntwojego komputera.",
@@ -1594,15 +1656,21 @@ class AnonymizerApp:
     # Start screen (drag & drop)
     # ------------------------------------------------------------------
 
-    def show_start_screen(self) -> None:
-        self.active_screen = "start"
-        self._update_sidebar_active_state()
-        self._clear_content()
+    def _build_header_row(self, parent: ctk.CTkFrame) -> None:
+        """Build the tagline/subtitle plus handwritten-style personal note.
 
-        header_row = ctk.CTkFrame(self.content, fg_color="transparent")
+        Side-by-side at normal widths; below HEADER_STACK_BREAKPOINT the
+        note drops onto its own line at a smaller size instead of being
+        clipped - see _apply_header_layout, which reconfigures these same
+        widgets in place (no rebuild) whenever the window crosses that
+        breakpoint.
+        """
+        header_row = ctk.CTkFrame(parent, fg_color="transparent")
         header_row.pack(fill="x", pady=(0, 16))
+        self._header_row = header_row
+
         heading_col = ctk.CTkFrame(header_row, fg_color="transparent")
-        heading_col.pack(side="left")
+        self._heading_col = heading_col
         ctk.CTkLabel(
             heading_col,
             text=APP_TAGLINE,
@@ -1615,19 +1683,132 @@ class AnonymizerApp:
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             text_color=COLOR_TEXT_MUTED,
         ).pack(anchor="w", pady=(2, 0))
+
         # A small, deliberately personal touch - see APP_PERSONAL_NOTE's
         # own docstring-style comment at its definition for why.
-        ctk.CTkLabel(
+        self._personal_note_label = ctk.CTkLabel(
             header_row,
             text=APP_PERSONAL_NOTE,
             font=ctk.CTkFont(family=SCRIPT_FONT_FAMILY, size=18),
             text_color=COLOR_ACCENT,
-        ).pack(side="right", anchor="n", padx=(10, 4))
+        )
+        self._header_stacked = False
+        self._apply_header_layout(force=True)
 
-        self._build_status_banner(self.content)
+        # Bound on this specific header_row instance, rebuilt fresh every
+        # time show_start_screen runs, so there is never more than one
+        # live binding to worry about.
+        header_row.bind("<Configure>", self._on_header_row_configure)
+
+    def _on_header_row_configure(self, _event: object = None) -> None:
+        # Debounced: a live resize drag fires many Configure events per
+        # second, and re-measuring/reflowing on every single one is the
+        # same expensive-cascade trap found earlier with a different
+        # spacer (see PROJECT_STATE.md) - only the settled width matters.
+        if self._header_configure_after_id is not None:
+            self.root.after_cancel(self._header_configure_after_id)
+        self._header_configure_after_id = self.root.after(
+            150, self._apply_header_layout
+        )
+
+    def _apply_header_layout(self, force: bool = False) -> None:
+        self._header_configure_after_id = None
+        if (
+            self._header_row is None
+            or not self._header_row.winfo_exists()
+            or self._heading_col is None
+            or self._personal_note_label is None
+        ):
+            return
+        width = self._header_row.winfo_width()
+        stacked = width > 1 and width < HEADER_STACK_BREAKPOINT
+        if stacked == self._header_stacked and not force:
+            return
+        self._header_stacked = stacked
+        self._heading_col.pack_forget()
+        self._personal_note_label.pack_forget()
+        if stacked:
+            self._heading_col.pack(anchor="w", fill="x")
+            self._personal_note_label.configure(
+                font=ctk.CTkFont(family=SCRIPT_FONT_FAMILY, size=14)
+            )
+            self._personal_note_label.pack(anchor="w", pady=(6, 0))
+        else:
+            self._heading_col.pack(side="left")
+            self._personal_note_label.configure(
+                font=ctk.CTkFont(family=SCRIPT_FONT_FAMILY, size=18)
+            )
+            self._personal_note_label.pack(side="right", anchor="n", padx=(10, 4))
+
+    def _build_resume_review_banner(self, parent: ctk.CTkFrame) -> None:
+        """Offer a way back to an in-progress review from the start screen.
+
+        Navigating "Anonimizacja"/the logo away from the review screen
+        does not clear self.review_items - the batch just finished is
+        still there - but before this there was no way back to it short
+        of reprocessing the same files, reported directly by the user
+        after doing exactly that by accident.
+        """
+        if not self.review_items:
+            return
+        banner = ctk.CTkFrame(
+            parent,
+            corner_radius=10,
+            fg_color=COLOR_ACCENT_SOFT,
+            border_width=1,
+            border_color=COLOR_ACCENT,
+        )
+        banner.pack(fill="x", pady=(0, 14))
+        row = ctk.CTkFrame(banner, fg_color="transparent")
+        row.pack(fill="x", padx=14, pady=10)
+        ctk.CTkLabel(
+            row,
+            text=(
+                f"Masz otwarty przegląd wyników ({len(self.review_items)} "
+                "plików)."
+            ),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            text_color=COLOR_TEXT,
+        ).pack(side="left")
+        ctk.CTkButton(
+            row,
+            text="Wróć do przeglądu",
+            height=28,
+            corner_radius=8,
+            fg_color=COLOR_ACCENT,
+            hover_color=COLOR_ACCENT_HOVER,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11, weight="bold"),
+            command=self.show_review_screen,
+        ).pack(side="right")
+
+    def show_start_screen(self) -> None:
+        self.active_screen = "start"
+        self._update_sidebar_active_state()
+        self._clear_content()
+
+        # Two regions: a pinned bottom bar (output folder + the
+        # "Anonimizuj" button - the controls that must stay reachable no
+        # matter what) packed *first* with side="bottom" so it always
+        # gets its space claimed, and a scrollable upper region for
+        # everything else, taking whatever is left. Without this, a
+        # short window (or - before FILE_LIST_MAX_HEIGHT - simply enough
+        # selected files) could push the button below the window with no
+        # way to reach it at all, since self.content itself never
+        # scrolled. The file list additionally gets its own small bounded
+        # scroll area inside this outer one, so a long file list doesn't
+        # by itself push the drop zone and header far out of view.
+        bottom_bar = ctk.CTkFrame(self.content, fg_color="transparent")
+        bottom_bar.pack(side="bottom", fill="x")
+        scroll_region = ctk.CTkScrollableFrame(self.content, fg_color="transparent")
+        scroll_region.pack(side="top", fill="both", expand=True)
+
+        self._build_header_row(scroll_region)
+        self._build_resume_review_banner(scroll_region)
+
+        self._build_status_banner(scroll_region)
 
         drop_frame = ctk.CTkFrame(
-            self.content,
+            scroll_region,
             corner_radius=16,
             fg_color=COLOR_CARD,
             border_width=2,
@@ -1644,7 +1825,7 @@ class AnonymizerApp:
             text_color=COLOR_TEXT,
             justify="center",
         )
-        self.drop_hint_label.pack(pady=48)
+        self.drop_hint_label.pack(pady=28)
         drop_frame.bind("<Button-1>", lambda _e: self.pick_files())
         self.drop_hint_label.bind("<Button-1>", lambda _e: self.pick_files())
 
@@ -1652,19 +1833,23 @@ class AnonymizerApp:
         drop_frame.dnd_bind("<<Drop>>", self._on_files_dropped)
 
         privacy_row = ctk.CTkLabel(
-            self.content,
+            scroll_region,
             text="\U0001f512  Przetwarzane lokalnie, dane nie opuszczają Twojego komputera",
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
             text_color=COLOR_TEXT_MUTED,
         )
         privacy_row.pack(pady=(10, 14))
 
-        self.file_card_frame = ctk.CTkFrame(self.content, fg_color="transparent")
+        self.file_card_frame = ctk.CTkScrollableFrame(
+            scroll_region,
+            fg_color="transparent",
+            height=FILE_LIST_MAX_HEIGHT,
+        )
         self.file_card_frame.pack(fill="x", pady=(0, 14))
         self._refresh_file_cards()
 
-        output_row = ctk.CTkFrame(self.content, fg_color="transparent")
-        output_row.pack(fill="x", pady=(0, 6))
+        output_row = ctk.CTkFrame(bottom_bar, fg_color="transparent")
+        output_row.pack(fill="x", pady=(6, 6))
         ctk.CTkLabel(
             output_row,
             text="Folder wynikowy:",
@@ -1691,17 +1876,17 @@ class AnonymizerApp:
         ).pack(side="right")
 
         self.status_label = ctk.CTkLabel(
-            self.content,
+            bottom_bar,
             text=format_readiness_pl(
                 len(self.selected_paths), self.output_dir is not None
             ),
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
             text_color=COLOR_TEXT_MUTED,
         )
-        self.status_label.pack(pady=(4, 14))
+        self.status_label.pack(pady=(4, 10))
 
         self.anonymize_button = ctk.CTkButton(
-            self.content,
+            bottom_bar,
             text="Anonimizuj",
             height=48,
             corner_radius=10,
@@ -1711,7 +1896,7 @@ class AnonymizerApp:
             state="disabled",
             command=self.start_anonymize,
         )
-        self.anonymize_button.pack(fill="x")
+        self.anonymize_button.pack(fill="x", pady=(0, 4))
         self._update_readiness()
 
     def _output_dir_display_text(self) -> str:
@@ -3655,14 +3840,37 @@ class ComparisonWindow:
         other_frame = self.right_frame if side == "original" else self.left_frame
         self._scroll_pane_by(other_frame, scroll_sync_units(event))
 
+    @staticmethod
+    def _find_textbox_in(frame: ctk.CTkScrollableFrame) -> ctk.CTkTextbox | None:
+        for widget in frame.winfo_children():
+            if isinstance(widget, ctk.CTkTextbox):
+                return widget
+        return None
+
     def _scroll_pane_by(self, frame: ctk.CTkScrollableFrame | None, units: int) -> None:
-        """Scroll one pane's canvas by ``units``. Reaches into
-        CTkScrollableFrame's private ``_parent_canvas`` - there is no
-        public API for programmatic scrolling - so this stays defensive
-        and silently does nothing on any error rather than risk crashing
-        the preview over a cosmetic scroll-sync feature.
+        """Scroll one pane by ``units``.
+
+        A DOCX/TXT pane's only child is one fixed-height CTkTextbox (see
+        _render_text_block) - scrolling through a document longer than
+        that box is the textbox's *own* internal yview, not a move of the
+        outer CTkScrollableFrame's canvas (which barely has anything else
+        to scroll), so mirroring has to target the textbox directly or a
+        long document's sync is invisible even though this method runs.
+        A PDF/image pane has no such textbox, so it falls back to the
+        outer canvas as before. Reaches into private
+        CTkTextbox._textbox/CTkScrollableFrame._parent_canvas - there is
+        no public API for programmatic scrolling - so this stays
+        defensive and silently does nothing on any error rather than risk
+        crashing the preview over a cosmetic scroll-sync feature.
         """
         if frame is None or units == 0:
+            return
+        textbox = self._find_textbox_in(frame)
+        if textbox is not None:
+            try:
+                textbox._textbox.yview_scroll(units, "units")
+            except tk.TclError:
+                pass
             return
         canvas = getattr(frame, "_parent_canvas", None)
         if canvas is None:
@@ -3674,7 +3882,15 @@ class ComparisonWindow:
             pass
 
     def _scroll_pane_to_top(self, frame: ctk.CTkScrollableFrame | None) -> None:
-        canvas = getattr(frame, "_parent_canvas", None) if frame is not None else None
+        if frame is None:
+            return
+        textbox = self._find_textbox_in(frame)
+        if textbox is not None:
+            try:
+                textbox._textbox.yview_moveto(0.0)
+            except tk.TclError:
+                pass
+        canvas = getattr(frame, "_parent_canvas", None)
         if canvas is None:
             return
         try:
@@ -4477,8 +4693,29 @@ class SummaryDialog:
         ).pack(anchor="w")
 
 
+def _set_windows_app_user_model_id() -> None:
+    """Give this process its own taskbar identity on Windows.
+
+    Never fatal - a failure here only means the taskbar icon may fall
+    back to python.exe's generic one, not that the app can't run. Must
+    run before the first window is created (see _load_app_icon's
+    docstring for why).
+    """
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+            APP_USER_MODEL_ID
+        )
+    except (OSError, AttributeError):
+        pass
+
+
 def start_gui() -> None:
     """Start the CustomTkinter desktop application."""
+    _set_windows_app_user_model_id()
     root = DnDCTk()
     AnonymizerApp(root)
     root.mainloop()
