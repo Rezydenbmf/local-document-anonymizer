@@ -3138,12 +3138,6 @@ ZOOM_MAX = 3.0
 ZOOM_STEP = 0.1
 ZOOM_DEFAULT = 1.0
 ZOOM_LINK_HINT_ID = "zoom_link_toggle"
-# The magic pen toolbar's natural (unscaled) height: its tallest row is a
-# tool chip, a default-height (28) CTkLabel with 4px pady above and below.
-# Used to size an invisible spacer above "Oryginał" so both pages start at
-# the same height - see the comment where it's used for why this is a
-# fixed value instead of one measured off the real toolbar at runtime.
-MAGIC_PEN_TOOLBAR_HEIGHT = 36
 
 
 def clamp_zoom_level(
@@ -3438,11 +3432,22 @@ class ComparisonWindow:
             text_color=COLOR_TEXT,
         ).pack(anchor="w", padx=20, pady=(16, 4))
 
+        # content_row holds the draggable original/result split on the
+        # left and, for PDFs, the fixed-width magic pen sidebar
+        # ("Korekta anonimizacji" + color legend) on the right - a
+        # standalone column beside both panes rather than a toolbar row
+        # above one of them, so both pane headers stay identical and
+        # naturally start at the same height with no special-casing
+        # needed (the toolbar-above-header/matching-spacer trick from
+        # earlier the same day is retired along with the toolbar itself).
+        content_row = ctk.CTkFrame(window, fg_color="transparent")
+        content_row.pack(fill="both", expand=True, padx=20, pady=(4, 8))
+
         # A real draggable splitter (tk.PanedWindow) instead of a fixed
         # 50/50 grid: dragging the sash resizes one side and shrinks the
         # other, like a normal split view.
         paned = tk.PanedWindow(
-            window,
+            content_row,
             orient=tk.HORIZONTAL,
             sashwidth=6,
             sashrelief="flat",
@@ -3450,7 +3455,7 @@ class ComparisonWindow:
             bd=0,
             showhandle=False,
         )
-        paned.pack(fill="both", expand=True, padx=20, pady=(4, 8))
+        paned.pack(side="left", fill="both", expand=True)
 
         left_container = ctk.CTkFrame(paned, fg_color="transparent")
         right_container = ctk.CTkFrame(paned, fg_color="transparent")
@@ -3460,34 +3465,6 @@ class ComparisonWindow:
         self._build_pane_header(left_container, "Oryginał", "original").pack(
             fill="x", pady=(0, 6)
         )
-
-        # The magic pen toolbar sits above the "Po anonimizacji" header
-        # (rather than below it, between the header and the page itself)
-        # so the row directly bordering the actual document - the scale
-        # and lock-icon row - looks the same on both sides. On its own
-        # that still leaves the right page starting lower than the left
-        # one, since the toolbar's own height still has to go somewhere -
-        # so an invisible spacer of the same height is added above
-        # "Oryginał" too, keeping both pages starting at the same height.
-        # MAGIC_PEN_TOOLBAR_HEIGHT is a fixed, unscaled value rather than
-        # something measured off the real toolbar at runtime: customtkinter
-        # scales every widget's configured height by the same per-display
-        # DPI factor internally (confirmed: this project already leans on
-        # that for the magic pen canvas itself, see
-        # ctk_widget_scaling_factor), so a plain CTkFrame(height=...) here
-        # tracks the toolbar's real on-screen height on any display without
-        # ever needing to read the toolbar back and resync - which turned
-        # out to be its own can of worms (a freshly built widget's true
-        # height isn't reliably known for a while, and re-measuring on
-        # every <Configure> risks a expensive cascade as the resize itself
-        # keeps re-triggering more <Configure> events).
-        if self.magic_pen_available:
-            self._build_magic_pen_toolbar(right_container).pack(fill="x", pady=(0, 6))
-            spacer = ctk.CTkFrame(
-                left_container, fg_color="transparent", height=MAGIC_PEN_TOOLBAR_HEIGHT
-            )
-            spacer.pack(fill="x", pady=(0, 6))
-            spacer.pack_propagate(False)
         self._build_pane_header(right_container, "Po anonimizacji", "result").pack(
             fill="x", pady=(0, 6)
         )
@@ -3503,6 +3480,11 @@ class ComparisonWindow:
         right_frame.pack(fill="both", expand=True)
         self.right_frame = right_frame
 
+        if self.magic_pen_available:
+            self._build_magic_pen_sidebar(content_row).pack(
+                side="left", fill="y", padx=(12, 0)
+            )
+
         self._rebuild_original_pane()
 
         if self.magic_pen_available:
@@ -3512,7 +3494,50 @@ class ComparisonWindow:
         else:
             self._rebuild_result_pane()
 
-        app._build_legend_row(window)
+        if self.magic_pen_available:
+            # Tk's pack() hands out space in the order widgets are
+            # packed, not visual order - whatever is packed first gets
+            # first claim on the row's width, and whatever is packed
+            # last is the first to be squeezed out when the window gets
+            # narrow. "Zapisz zmiany" is packed before "Anuluj zmiany"
+            # for exactly that reason: it must never be the one that
+            # disappears when the window is shrunk (confirmed as a real
+            # bug earlier the same day, in the toolbar this replaces).
+            bottom_actions = ctk.CTkFrame(window, fg_color="transparent")
+            bottom_actions.pack(fill="x", padx=20, pady=(0, 8))
+            self.save_button = ctk.CTkButton(
+                bottom_actions,
+                text="Zapisz zmiany",
+                width=140,
+                height=32,
+                corner_radius=8,
+                fg_color=COLOR_ICON_IDLE,
+                hover_color=COLOR_ACCENT_HOVER,
+                text_color=COLOR_TEXT_MUTED,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
+                state="disabled",
+                command=self._save_pending_changes,
+            )
+            self.save_button.pack(side="right")
+            self.cancel_button = ctk.CTkButton(
+                bottom_actions,
+                text="Anuluj zmiany",
+                width=130,
+                height=32,
+                corner_radius=8,
+                fg_color="transparent",
+                hover_color=COLOR_ICON_IDLE,
+                text_color=COLOR_TEXT_MUTED,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+                state="disabled",
+                command=self._cancel_pending_changes,
+            )
+            self.cancel_button.pack(side="right", padx=(0, 8))
+        else:
+            # No sidebar in this case (magic pen is PDF-only), so the
+            # color legend still needs a home - the existing horizontal
+            # row at the bottom, same as before.
+            app._build_legend_row(window)
 
         ctk.CTkButton(
             window,
@@ -3809,98 +3834,123 @@ class ComparisonWindow:
 
     # -- magic pen: toolbar -------------------------------------------------
 
-    def _build_magic_pen_toolbar(self, parent: ctk.CTkFrame) -> ctk.CTkFrame:
-        toolbar = ctk.CTkFrame(parent, fg_color="transparent")
-        # Tk's pack() hands out space in the order widgets are packed, not
-        # left-to-right visual order - whatever is packed first gets first
-        # claim on the row's width, and whatever is packed last is the
-        # first to be squeezed out when the window gets narrow. "Zapisz
-        # zmiany" is packed before the chips/status label for exactly
-        # that reason: it must never be the one that disappears when the
-        # window is shrunk (confirmed as a real bug - it was packed last,
-        # and pen_status_label growing from empty to "Niezapisane zmiany:
-        # N" once there was something to save was enough to squeeze it
-        # out entirely). The chips and status label losing room first is
-        # an acceptable trade-off; the save button is not.
-        self.cancel_button = ctk.CTkButton(
-            toolbar,
-            text="Anuluj zmiany",
-            width=120,
-            height=26,
-            corner_radius=8,
-            fg_color="transparent",
-            hover_color=COLOR_ICON_IDLE,
-            text_color=COLOR_TEXT_MUTED,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-            state="disabled",
-            command=self._cancel_pending_changes,
+    def _build_magic_pen_sidebar(self, parent: ctk.CTkFrame) -> ctk.CTkFrame:
+        """The right-hand "Korekta anonimizacji" panel: the pinnable tool
+        buttons plus the color legend, stacked vertically - a fixed-width
+        column standing beside both preview panes rather than a toolbar
+        row above one of them. Moving the tools here also retires the
+        toolbar-above-header/matching-spacer trick from earlier the same
+        day: with no toolbar row sitting above "Po anonimizacji" anymore,
+        both pane headers are simply identical again and naturally start
+        at the same height with nothing extra needed.
+        """
+        sidebar = ctk.CTkFrame(
+            parent,
+            fg_color=COLOR_CARD,
+            corner_radius=10,
+            border_width=1,
+            border_color=COLOR_BORDER,
+            width=200,
         )
-        self.cancel_button.pack(side="right", padx=(6, 0))
-        self.save_button = ctk.CTkButton(
-            toolbar,
-            text="Zapisz zmiany",
-            width=130,
-            height=26,
-            corner_radius=8,
-            fg_color=COLOR_ICON_IDLE,
-            hover_color=COLOR_ACCENT_HOVER,
-            text_color=COLOR_TEXT_MUTED,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=11, weight="bold"),
-            state="disabled",
-            command=self._save_pending_changes,
-        )
-        self.save_button.pack(side="right")
+        sidebar.pack_propagate(False)
+        inner = ctk.CTkFrame(sidebar, fg_color="transparent")
+        inner.pack(fill="both", expand=True, padx=14, pady=14)
+
+        ctk.CTkLabel(
+            inner,
+            text="Korekta anonimizacji",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+            text_color=COLOR_TEXT,
+            anchor="w",
+        ).pack(fill="x", pady=(0, 10))
 
         # Modeless by default: LMB draws a new redaction, RMB always
-        # toggles an existing one, no mode to switch first. These chips
-        # are now also clickable: clicking one pins LMB to that single
-        # action (a "manual" mode for anyone who'd rather pick a tool
-        # explicitly than remember which button does what) - clicking the
-        # same chip again returns to the modeless default. Independently
-        # of pinning, a chip also lights up for as long as its action is
-        # actually in progress (LMB held down / RMB clicked), so the
-        # buttons double as a live "this is what's happening" indicator.
+        # toggles an existing one, no mode to switch first. These are
+        # also clickable: clicking one pins LMB to that single action (a
+        # "manual" mode for anyone who'd rather pick a tool explicitly
+        # than remember which mouse button does what) - clicking the same
+        # one again returns to the modeless default. Independently of
+        # pinning, a chip also lights up for as long as its action is
+        # actually in progress (LMB held down / RMB clicked), so these
+        # double as a live "this is what's happening" indicator too.
         self._tool_chips["draw"] = self._build_tool_chip(
-            toolbar, "✏", "LPM: zaznacz do ukrycia", "draw"
+            inner, "✏", "Dodaj zaznaczenie", "draw"
         )
         self._tool_chips["erase"] = self._build_tool_chip(
-            toolbar, "🧹", "PPM: usuń zaznaczenie", "erase"
+            inner, "🧹", "Usuń zaznaczenie", "erase"
         )
         self._refresh_tool_chip_visuals()
 
         self.pen_status_label = ctk.CTkLabel(
-            toolbar,
+            inner,
             text="",
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
             text_color=COLOR_TEXT_MUTED,
+            anchor="w",
+            wraplength=168,
+            justify="left",
         )
-        self.pen_status_label.pack(side="left", padx=10)
-        return toolbar
+        self.pen_status_label.pack(fill="x", pady=(4, 0))
+
+        ctk.CTkFrame(inner, fg_color=COLOR_BORDER, height=1).pack(fill="x", pady=14)
+
+        ctk.CTkLabel(
+            inner,
+            text="Kategorie danych",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+            text_color=COLOR_TEXT,
+            anchor="w",
+        ).pack(fill="x", pady=(0, 8))
+        for color, text in LEGEND_ITEMS:
+            row = ctk.CTkFrame(inner, fg_color="transparent")
+            row.pack(fill="x", pady=3)
+            ctk.CTkLabel(
+                row,
+                text="●",
+                text_color=color,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"),
+                width=16,
+            ).pack(side="left")
+            ctk.CTkLabel(
+                row,
+                text=text,
+                text_color=COLOR_TEXT,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+                anchor="w",
+                wraplength=150,
+                justify="left",
+            ).pack(side="left", fill="x", expand=True)
+
+        return sidebar
 
     def _build_tool_chip(
         self, parent: ctk.CTkFrame, glyph: str, label: str, tool: str
     ) -> tuple[ctk.CTkFrame, ctk.CTkLabel, ctk.CTkLabel]:
-        chip = ctk.CTkFrame(parent, fg_color=COLOR_CARD, corner_radius=6, cursor="hand2")
-        chip.pack(side="left", padx=(0, 6))
+        chip = ctk.CTkFrame(parent, fg_color=COLOR_BG, corner_radius=8, cursor="hand2")
+        chip.pack(fill="x", pady=(0, 8))
+        row = ctk.CTkFrame(chip, fg_color="transparent")
+        row.pack(fill="x", padx=10, pady=8)
         glyph_label = ctk.CTkLabel(
-            chip,
+            row,
             text=glyph,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=13),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=14),
             text_color=COLOR_TEXT,
         )
-        glyph_label.pack(side="left", padx=(8, 4), pady=4)
+        glyph_label.pack(side="left", padx=(0, 8))
         text_label = ctk.CTkLabel(
-            chip,
+            row,
             text=label,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
             text_color=COLOR_TEXT_MUTED,
+            anchor="w",
         )
-        text_label.pack(side="left", padx=(0, 8), pady=4)
-        for widget in (chip, glyph_label, text_label):
+        text_label.pack(side="left", fill="x", expand=True)
+        for widget in (chip, row, glyph_label, text_label):
             widget.bind("<Button-1>", lambda _e, t=tool: self._toggle_pinned_tool(t))
         IconTooltip(
             chip,
             "Kliknij, aby przypisać LPM tylko do tego narzędzia (tryb ręczny). "
+            "PPM zawsze usuwa zaznaczenie, niezależnie od wybranego trybu. "
             "Kliknij ponownie, aby wrócić do trybu automatycznego.",
         )
         return (chip, glyph_label, text_label)
