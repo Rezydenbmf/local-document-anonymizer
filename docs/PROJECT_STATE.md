@@ -1669,6 +1669,22 @@ This closes out the DocShield redesign's four confirmed stages.
 45ab4b5 DocShield Stage 4: magic pen sidebar panel (final redesign stage)
 ```
 
+The user kept forgetting the correct launch command (`py gui.py` does not
+work - the app is not runnable as a bare script from an arbitrary working
+directory; it needs the project's own virtualenv interpreter and the
+`src/main.py` entry point, which imports `start_gui()` from `gui.py`).
+Added a double-clickable `uruchom.bat` in the repo root: it `cd`s to its
+own location first (so it works regardless of the folder the user double-
+clicks it from), runs `.venv\Scripts\python.exe src\main.py` - confirmed
+identical to `gui.py`'s own `if __name__ == "__main__"` block, since both
+just call `start_gui()` - and pauses with a visible message on a non-zero
+exit code instead of the window vanishing silently on a crash. No app code
+changed; not part of the Python package, so no tests apply.
+
+```text
+b270746 Add double-clickable launcher script (uruchom.bat)
+```
+
 ## Next Logical Step
 
 The DocShield visual redesign is done: Stage 1
