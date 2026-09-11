@@ -2031,9 +2031,16 @@ class AnonymizerApp:
         ocr_row = ctk.CTkFrame(inner, fg_color="transparent")
         ocr_row.pack(fill="x", pady=(0, 10))
         ocr_ok = env_status.get(ENV_ITEM_OCR)
+        # ocr_ok is None while the background environment check hasn't
+        # completed yet (runs ~150ms after startup) - that must not read
+        # as "confirmed unavailable" (an empty dot + a neutral "checking"
+        # line instead), the same "absent while unknown" rule
+        # _build_status_dot already follows for this exact data in the
+        # full Settings dialog. This row rebuilds with the real status
+        # once the check finishes, via _on_environment_check_done.
         ctk.CTkLabel(
             ocr_row,
-            text="●",
+            text="●" if ocr_ok is not None else "",
             font=ctk.CTkFont(family=FONT_FAMILY, size=10),
             text_color=COLOR_OK if ocr_ok else COLOR_ICON_IDLE,
             width=14,
@@ -2047,9 +2054,15 @@ class AnonymizerApp:
             text_color=COLOR_TEXT,
             anchor="w",
         ).pack(fill="x")
+        if ocr_ok is None:
+            ocr_status_text = "Sprawdzanie dostępności..."
+        elif ocr_ok:
+            ocr_status_text = "Automatyczne, gdy dostępne"
+        else:
+            ocr_status_text = "Niedostępne - patrz Ustawienia"
         ctk.CTkLabel(
             ocr_col,
-            text="Automatyczne, gdy dostępne" if ocr_ok else "Niedostępne - patrz Ustawienia",
+            text=ocr_status_text,
             font=ctk.CTkFont(family=FONT_FAMILY, size=10),
             text_color=COLOR_TEXT_MUTED,
             anchor="w",
@@ -2346,12 +2359,10 @@ class AnonymizerApp:
                 self.selected_paths.append(path)
                 added += 1
 
-        if self.status_label is not None:
-            self.status_label.configure(
-                text=format_drop_result(added, len(unsupported))
-            )
         self._refresh_file_cards()
-        self._update_readiness()
+        self._update_readiness(
+            status_override=format_drop_result(added, len(unsupported))
+        )
 
     def remove_file_at(self, index: int) -> None:
         self.selected_paths = remove_paths_by_indexes(self.selected_paths, (index,))
@@ -2369,10 +2380,19 @@ class AnonymizerApp:
             )
         self._update_readiness()
 
-    def _update_readiness(self) -> None:
+    def _update_readiness(self, status_override: str | None = None) -> None:
+        """Refresh the status line and the "Anonimizuj" button.
+
+        status_override lets a caller show a one-off message (e.g. what a
+        drop/pick just did) in the same status_label this always updates,
+        without duplicating the button-ready/text logic below just to
+        avoid this method's own unconditional readiness text - passing it
+        replaces only that one line, once, for this call.
+        """
         if self.status_label is not None:
             self.status_label.configure(
-                text=format_readiness_pl(
+                text=status_override
+                or format_readiness_pl(
                     len(self.selected_paths), self.output_dir is not None
                 )
             )
@@ -4470,24 +4490,17 @@ class ComparisonWindow:
             self._set_zoom_entry_text(entry, zoom_percent_label(current))
             return
         new_value = clamp_zoom_level(percent / 100)
-        if side == "original":
-            if self.zoom_linked:
-                self.original_zoom = new_value
-                self.result_zoom = new_value
-                self._rebuild_original_pane()
-                self._rebuild_result_pane()
-            else:
-                self.original_zoom = new_value
-                self._rebuild_original_pane()
+        if self.zoom_linked:
+            self.original_zoom = new_value
+            self.result_zoom = new_value
+            self._rebuild_original_pane()
+            self._rebuild_result_pane()
+        elif side == "original":
+            self.original_zoom = new_value
+            self._rebuild_original_pane()
         else:
-            if self.zoom_linked:
-                self.original_zoom = new_value
-                self.result_zoom = new_value
-                self._rebuild_original_pane()
-                self._rebuild_result_pane()
-            else:
-                self.result_zoom = new_value
-                self._rebuild_result_pane()
+            self.result_zoom = new_value
+            self._rebuild_result_pane()
         self._update_zoom_controls()
 
     def _toggle_pointer_tool(self, tool: str) -> None:
@@ -4525,33 +4538,64 @@ class ComparisonWindow:
                 except tk.TclError:
                     pass
 
-    def _bind_pane_panning(self, widget: tk.Misc, canvas: tk.Canvas) -> None:
-        """Recursively wire hand-tool drag-to-pan onto every descendant of
-        a freshly-rendered pane, forwarding to the pane's own outer
-        scrollable canvas via scan_mark/scan_dragto (the standard Tk
-        pattern for this). A no-op whenever the hand tool isn't active,
-        so this never interferes with normal clicking/scrolling. Bound
-        with add="+" so it only ever adds to, never replaces, any
-        existing binding on the same widget.
+    def _pan_target(self, frame: ctk.CTkScrollableFrame) -> tk.Misc | None:
+        """The widget hand-tool panning should actually scan_mark/
+        scan_dragto for this pane - the same textbox-vs-canvas choice
+        _scroll_pane_by makes for plain scroll sync, and for the same
+        reason: a DOCX/TXT pane's real scrollable content is the inner
+        CTkTextbox's own view, not the outer CTkScrollableFrame canvas
+        (which has little to no scroll range of its own around one
+        fixed-height textbox). Panning the outer canvas there would
+        silently do nothing.
         """
-        widget.bind(
-            "<ButtonPress-1>", lambda e, c=canvas: self._on_pan_press(e, c), add="+"
-        )
-        widget.bind(
-            "<B1-Motion>", lambda e, c=canvas: self._on_pan_drag(e, c), add="+"
-        )
+        textbox = self._find_textbox_in(frame)
+        if textbox is not None:
+            return textbox._textbox
+        return getattr(frame, "_parent_canvas", None)
+
+    def _bind_pane_panning(self, widget: tk.Misc, frame: ctk.CTkScrollableFrame) -> None:
+        """Recursively wire hand-tool drag-to-pan onto every descendant of
+        a freshly-rendered pane, forwarding to whatever _pan_target
+        resolves to via scan_mark/scan_dragto (the standard Tk pattern
+        for this). A no-op whenever the hand tool isn't active, so this
+        never interferes with normal clicking/scrolling. Bound with
+        add="+" so it only ever adds to, never replaces, any existing
+        binding on the same widget. Skips CTkScrollbar descendants so
+        the hand tool never fights a scrollbar's own native drag.
+        """
+        if not isinstance(widget, ctk.CTkScrollbar):
+            widget.bind(
+                "<ButtonPress-1>",
+                lambda e, f=frame: self._on_pan_press(e, f),
+                add="+",
+            )
+            widget.bind(
+                "<B1-Motion>", lambda e, f=frame: self._on_pan_drag(e, f), add="+"
+            )
         for child in widget.winfo_children():
-            self._bind_pane_panning(child, canvas)
+            self._bind_pane_panning(child, frame)
 
-    def _on_pan_press(self, event: object, canvas: tk.Canvas) -> None:
+    def _on_pan_press(self, event: object, frame: ctk.CTkScrollableFrame) -> None:
         if self.active_pointer_tool != "hand":
             return
-        canvas.scan_mark(event.x_root, event.y_root)
+        target = self._pan_target(frame)
+        if target is not None:
+            target.scan_mark(event.x_root, event.y_root)
 
-    def _on_pan_drag(self, event: object, canvas: tk.Canvas) -> None:
+    def _on_pan_drag(self, event: object, frame: ctk.CTkScrollableFrame) -> None:
         if self.active_pointer_tool != "hand":
             return
-        canvas.scan_dragto(event.x_root, event.y_root, gain=1)
+        target = self._pan_target(frame)
+        if target is None:
+            return
+        # tkinter.Canvas.scan_dragto takes an optional gain (used here for
+        # a direct, 1:1 drag instead of Tk's own fast default); plain
+        # tkinter.Text.scan_dragto - the inner textbox on a DOCX/TXT pane -
+        # takes no such argument at all and raises TypeError if given one.
+        try:
+            target.scan_dragto(event.x_root, event.y_root, gain=1)
+        except TypeError:
+            target.scan_dragto(event.x_root, event.y_root)
 
     def _maybe_show_zoom_link_hint(self) -> None:
         """Auto-show the link-toggle tooltip once, the first time this
@@ -4594,9 +4638,7 @@ class ComparisonWindow:
                 wraplength=380,
                 justify="left",
             ).pack(pady=30, padx=16)
-        left_canvas = getattr(self.left_frame, "_parent_canvas", None)
-        if left_canvas is not None:
-            self._bind_pane_panning(self.left_frame, left_canvas)
+        self._bind_pane_panning(self.left_frame, self.left_frame)
 
     def _rebuild_result_pane(self) -> None:
         if self.right_frame is None:
@@ -4620,9 +4662,7 @@ class ComparisonWindow:
                 text="Plik wynikowy nie został znaleziony.",
                 text_color=COLOR_TEXT_MUTED,
             ).pack(pady=30)
-        right_canvas = getattr(self.right_frame, "_parent_canvas", None)
-        if right_canvas is not None:
-            self._bind_pane_panning(self.right_frame, right_canvas)
+        self._bind_pane_panning(self.right_frame, self.right_frame)
 
     # -- magic pen: toolbar -------------------------------------------------
 
