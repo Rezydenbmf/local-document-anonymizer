@@ -1,6 +1,7 @@
 """Tests for optional local OCR foundation."""
 
 from pathlib import Path
+import os
 import sys
 import tempfile
 import unittest
@@ -546,6 +547,139 @@ class OcrCallsUseDetectedLanguageTests(unittest.TestCase):
         self.assertEqual(calls[0]["lang"], "pol")
         self.assertEqual(matrices, [(ocr.OCR_PDF_RENDER_ZOOM, ocr.OCR_PDF_RENDER_ZOOM)])
         self.assertIn("tresc strony", extraction.text)
+
+
+class OrderLanguagesPrimaryFirstTests(unittest.TestCase):
+    def test_polish_then_english_then_alphabetical_rest(self) -> None:
+        self.assertEqual(
+            ocr.order_languages_primary_first(["fra", "eng", "deu", "pol"]),
+            ["pol", "eng", "deu", "fra"],
+        )
+
+    def test_missing_primary_or_secondary_are_simply_omitted(self) -> None:
+        self.assertEqual(
+            ocr.order_languages_primary_first(["deu", "fra"]), ["deu", "fra"]
+        )
+        self.assertEqual(ocr.order_languages_primary_first(["pol"]), ["pol"])
+
+
+class ListInstalledLanguagesTests(unittest.TestCase):
+    def test_filters_out_non_language_auxiliary_data_and_orders_polish_first(
+        self,
+    ) -> None:
+        class FakePytesseract:
+            @staticmethod
+            def get_languages(config=""):
+                return ["eng", "osd", "pol", "equ", "deu"]
+
+        with patch("ocr._configure_tesseract_cmd"):
+            self.assertEqual(
+                ocr.list_installed_languages(FakePytesseract),
+                ["pol", "eng", "deu"],
+            )
+
+    def test_returns_empty_list_when_pytesseract_missing(self) -> None:
+        with patch("ocr._pytesseract_module", return_value=None):
+            self.assertEqual(ocr.list_installed_languages(), [])
+
+    def test_returns_empty_list_instead_of_raising_on_any_failure(self) -> None:
+        class FakePytesseract:
+            @staticmethod
+            def get_languages(config=""):
+                raise RuntimeError("boom")
+
+        with patch("ocr._configure_tesseract_cmd"):
+            self.assertEqual(ocr.list_installed_languages(FakePytesseract), [])
+
+
+class DownloadLanguagePackTests(unittest.TestCase):
+    def test_writes_downloaded_bytes_into_the_tessdata_directory(self) -> None:
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc_info):
+                return False
+
+            @staticmethod
+            def read():
+                return b"fake-trained-data-bytes"
+
+        class FakePytesseract:
+            class pytesseract:
+                tesseract_cmd = "tesseract"
+
+        with workspace_temp_dir() as temp_dir:
+            tessdata_dir = Path(temp_dir) / "tessdata"
+            tessdata_dir.mkdir()
+
+            with (
+                patch("ocr._pytesseract_module", return_value=FakePytesseract),
+                patch("ocr._configure_tesseract_cmd"),
+                patch.dict(os.environ, {"TESSDATA_PREFIX": str(tessdata_dir)}),
+                patch("ocr.urllib.request.urlopen", return_value=FakeResponse()),
+            ):
+                ok, error = ocr.download_language_pack("deu")
+
+            self.assertTrue(ok)
+            self.assertEqual(error, "")
+            target = tessdata_dir / "deu.traineddata"
+            self.assertTrue(target.exists())
+            self.assertEqual(target.read_bytes(), b"fake-trained-data-bytes")
+            # The staging file must never survive a successful download.
+            self.assertFalse((tessdata_dir / "deu.traineddata.part").exists())
+
+    def test_reports_a_clear_error_when_tessdata_directory_cannot_be_found(
+        self,
+    ) -> None:
+        class FakePytesseract:
+            class pytesseract:
+                tesseract_cmd = "tesseract"
+
+        env_without_tessdata_prefix = dict(os.environ)
+        env_without_tessdata_prefix.pop("TESSDATA_PREFIX", None)
+        with (
+            patch("ocr._pytesseract_module", return_value=FakePytesseract),
+            patch("ocr._configure_tesseract_cmd"),
+            patch.dict(os.environ, env_without_tessdata_prefix, clear=True),
+            patch("ocr.shutil.which", return_value=None),
+        ):
+            ok, error = ocr.download_language_pack("deu")
+
+        self.assertFalse(ok)
+        self.assertIn("tessdata", error)
+
+    def test_network_failure_is_reported_safely_without_raising(self) -> None:
+        class FakePytesseract:
+            class pytesseract:
+                tesseract_cmd = "tesseract"
+
+        with workspace_temp_dir() as temp_dir:
+            tessdata_dir = Path(temp_dir) / "tessdata"
+            tessdata_dir.mkdir()
+
+            with (
+                patch("ocr._pytesseract_module", return_value=FakePytesseract),
+                patch("ocr._configure_tesseract_cmd"),
+                patch.dict(os.environ, {"TESSDATA_PREFIX": str(tessdata_dir)}),
+                patch(
+                    "ocr.urllib.request.urlopen",
+                    side_effect=ocr.urllib.error.URLError("offline"),
+                ),
+            ):
+                ok, error = ocr.download_language_pack("deu")
+
+            self.assertFalse(ok)
+            self.assertTrue(error)
+            self.assertFalse((tessdata_dir / "deu.traineddata").exists())
+            self.assertFalse((tessdata_dir / "deu.traineddata.part").exists())
+
+    def test_missing_pytesseract_is_reported_without_raising(self) -> None:
+        with patch("ocr._pytesseract_module", return_value=None):
+            ok, error = ocr.download_language_pack("deu")
+
+        self.assertFalse(ok)
+        self.assertTrue(error)
 
 
 if __name__ == "__main__":

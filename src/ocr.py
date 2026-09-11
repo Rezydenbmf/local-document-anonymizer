@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import sys
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
 from importlib import import_module
 from io import BytesIO
 from pathlib import Path
 from typing import Any
-
 
 OCR_STATUS_AVAILABLE = "available"
 OCR_STATUS_UNAVAILABLE = "unavailable"
@@ -46,6 +48,41 @@ IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".tif", ".tiff")
 # solid accuracy/speed/memory tradeoff for multi-page documents without
 # going all the way to 300+ DPI's much larger per-page images.
 OCR_PDF_RENDER_ZOOM = 3.0
+
+# This app's OCR language policy: Polish is the baseline (the target
+# documents are Polish business/legal paperwork), English is the
+# secondary language always paired with it (for the Latin abbreviations
+# - NIP, REGON, IBAN - that show up in otherwise-Polish documents).
+PRIMARY_OCR_LANGUAGE = "pol"
+SECONDARY_OCR_LANGUAGE = "eng"
+
+# tessdata_fast: Tesseract's own smaller/faster trained-data variant -
+# a better fit for an on-demand desktop download than the much larger
+# "best"-accuracy models, which trade file size for a level of accuracy
+# this app's use case doesn't need.
+TESSDATA_DOWNLOAD_URL_TEMPLATE = (
+    "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast"
+    "/main/{lang}.traineddata"
+)
+
+# A deliberately short list of languages likely to actually show up in
+# this app's documents (or be asked for by a Polish-market user), not
+# Tesseract's full 100+ language catalog - keeps the Settings dropdown
+# usable instead of an overwhelming, mostly-irrelevant wall of options.
+COMMON_OCR_LANGUAGES_PL: dict[str, str] = {
+    "pol": "polski",
+    "eng": "angielski",
+    "deu": "niemiecki",
+    "ukr": "ukraiński",
+    "rus": "rosyjski",
+    "fra": "francuski",
+    "spa": "hiszpański",
+    "ita": "włoski",
+    "ces": "czeski",
+    "slk": "słowacki",
+    "lit": "litewski",
+    "nld": "niderlandzki",
+}
 
 
 @dataclass(frozen=True)
@@ -219,13 +256,127 @@ def _ocr_language(pytesseract_module: Any) -> str:
     raises, since a wrong language degrades quality but a crash here
     would be worse.
     """
+    available = list_installed_languages(pytesseract_module)
+    if PRIMARY_OCR_LANGUAGE in available:
+        if SECONDARY_OCR_LANGUAGE in available:
+            return f"{PRIMARY_OCR_LANGUAGE}+{SECONDARY_OCR_LANGUAGE}"
+        return PRIMARY_OCR_LANGUAGE
+    return SECONDARY_OCR_LANGUAGE
+
+
+def list_installed_languages(pytesseract_module: Any | None = None) -> list[str]:
+    """Return the Tesseract language codes actually installed, sorted -
+    "osd"/"equ" (orientation-detection/equation auxiliary data, not real
+    languages) filtered out since they'd be confusing in a "supported
+    languages" list shown to the user. Empty list on any failure
+    (Tesseract missing, call unsupported, ...) rather than raising."""
+    if pytesseract_module is None:
+        pytesseract_module = _pytesseract_module()
+    if pytesseract_module is None:
+        return []
     try:
+        _configure_tesseract_cmd(pytesseract_module)
         available = set(pytesseract_module.get_languages(config=""))
-    except Exception:  # noqa: BLE001 - language detection must never crash OCR
-        return "eng"
-    if "pol" in available:
-        return "pol+eng" if "eng" in available else "pol"
-    return "eng"
+    except Exception:  # noqa: BLE001 - listing languages must never crash
+        return []
+    return order_languages_primary_first(sorted(available - {"osd", "equ"}))
+
+
+def order_languages_primary_first(language_codes: list[str]) -> list[str]:
+    """Sort a language-code list with PRIMARY_OCR_LANGUAGE (Polish) first,
+    then SECONDARY_OCR_LANGUAGE (English), then everything else
+    alphabetically - so any "installed/supported languages" display
+    consistently reflects this app's Polish-first policy instead of a
+    plain alphabetical order that would bury Polish behind "angielski"."""
+    rest = sorted(
+        code
+        for code in language_codes
+        if code not in (PRIMARY_OCR_LANGUAGE, SECONDARY_OCR_LANGUAGE)
+    )
+    ordered = [
+        code
+        for code in (PRIMARY_OCR_LANGUAGE, SECONDARY_OCR_LANGUAGE)
+        if code in language_codes
+    ]
+    return ordered + rest
+
+
+def _resolve_tessdata_dir(pytesseract_module: Any) -> Path | None:
+    """Find the tessdata directory Tesseract itself reads language files
+    from, so a downloaded pack lands somewhere Tesseract will actually
+    look - honors TESSDATA_PREFIX if set (the standard Tesseract
+    override), otherwise falls back to the conventional `tessdata`
+    folder next to the resolved tesseract executable (matches how the
+    official Windows installer lays it out). Returns None, never raises,
+    when neither can be determined - the caller reports that as a clear
+    failure rather than guessing a path that might be wrong.
+    """
+    prefix = os.environ.get("TESSDATA_PREFIX")
+    if prefix:
+        candidate = Path(prefix)
+        if candidate.is_dir():
+            return candidate
+    config_target = getattr(pytesseract_module, "pytesseract", pytesseract_module)
+    cmd = getattr(config_target, "tesseract_cmd", "tesseract")
+    resolved = shutil.which(cmd) or (cmd if Path(cmd).is_file() else None)
+    if not resolved:
+        return None
+    candidate = Path(resolved).resolve().parent / "tessdata"
+    return candidate if candidate.is_dir() else None
+
+
+def download_language_pack(
+    lang_code: str, timeout_seconds: float = 30.0
+) -> tuple[bool, str]:
+    """Download one Tesseract trained-data file into the local tessdata
+    folder - a plain data file Tesseract already reads from, not an
+    installer, so (unlike Tesseract/Ollama themselves) this is safely
+    automatable as long as that folder is writable by the current user.
+
+    Reaches the internet on this one explicit, user-triggered action
+    only (same as the existing pip-package-update/spaCy-model-download
+    flows) - never during normal document processing. Writes to a
+    `.part` file first and renames it into place only once the download
+    fully succeeds, so a failure partway through never leaves a
+    corrupt/partial `.traineddata` file that Tesseract would then fail
+    to load. Never raises - every failure mode (no Tesseract, unknown
+    tessdata location, no write permission, network error) becomes a
+    `(False, polish_message)` result the caller can show directly.
+    """
+    pytesseract_module = _pytesseract_module()
+    if pytesseract_module is None:
+        return False, "Biblioteka pytesseract nie jest zainstalowana."
+    _configure_tesseract_cmd(pytesseract_module)
+    tessdata_dir = _resolve_tessdata_dir(pytesseract_module)
+    if tessdata_dir is None:
+        return False, (
+            "Nie udało się znaleźć folderu tessdata - upewnij się, że "
+            "Tesseract jest zainstalowany."
+        )
+
+    url = TESSDATA_DOWNLOAD_URL_TEMPLATE.format(lang=lang_code)
+    target_path = tessdata_dir / f"{lang_code}.traineddata"
+    part_path = tessdata_dir / f"{lang_code}.traineddata.part"
+    try:
+        with urllib.request.urlopen(url, timeout=timeout_seconds) as response:
+            part_path.write_bytes(response.read())
+        os.replace(part_path, target_path)
+    except (urllib.error.URLError, TimeoutError, OSError) as error:
+        try:
+            part_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        if isinstance(error, PermissionError):
+            return False, (
+                f"Brak uprawnień do zapisu w folderze {tessdata_dir} - "
+                "uruchom aplikację jako administrator albo dodaj plik "
+                "ręcznie."
+            )
+        return False, (
+            "Nie udało się pobrać pakietu językowego (sprawdź połączenie "
+            "z internetem)."
+        )
+    return True, ""
 
 
 def detect_ocr_support(input_type: str = OCR_INPUT_TYPE_IMAGE) -> dict[str, object]:

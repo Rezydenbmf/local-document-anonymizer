@@ -29,7 +29,15 @@ try:
         NER_STATUS_DEPENDENCY_MISSING,
         check_ner_model_installed,
     )
-    from .ocr import OCR_INPUT_TYPE_IMAGE, OCR_STATUS_AVAILABLE, detect_ocr_support
+    from .ocr import (
+        COMMON_OCR_LANGUAGES_PL,
+        OCR_INPUT_TYPE_IMAGE,
+        OCR_STATUS_AVAILABLE,
+        PRIMARY_OCR_LANGUAGE,
+        detect_ocr_support,
+        download_language_pack,
+        list_installed_languages,
+    )
 except ImportError:
     from llm_review import LLM_STATUS_OLLAMA_NOT_FOUND, list_installed_models
     from ner import (
@@ -38,7 +46,15 @@ except ImportError:
         NER_STATUS_DEPENDENCY_MISSING,
         check_ner_model_installed,
     )
-    from ocr import OCR_INPUT_TYPE_IMAGE, OCR_STATUS_AVAILABLE, detect_ocr_support
+    from ocr import (
+        COMMON_OCR_LANGUAGES_PL,
+        OCR_INPUT_TYPE_IMAGE,
+        OCR_STATUS_AVAILABLE,
+        PRIMARY_OCR_LANGUAGE,
+        detect_ocr_support,
+        download_language_pack,
+        list_installed_languages,
+    )
 
 
 ENV_ITEM_NER = "ner"
@@ -47,6 +63,7 @@ ENV_ITEM_LLM = "llm"
 
 INSTALL_ACTION_SPACY_MODEL = "spacy_model_download"
 INSTALL_ACTION_OPEN_URL = "open_url"
+INSTALL_ACTION_TESSDATA_DOWNLOAD = "tessdata_download"
 
 TESSERACT_DOWNLOAD_URL = "https://github.com/UB-Mannheim/tesseract/wiki"
 OLLAMA_DOWNLOAD_URL = "https://ollama.com/download"
@@ -90,21 +107,58 @@ def check_ner_environment(model_name: str = DEFAULT_NER_MODEL) -> EnvironmentChe
 
 
 def check_ocr_environment() -> EnvironmentCheckItem:
+    """OCR is only really "available" for this app once the Tesseract
+    *engine* is installed AND the Polish language pack specifically is
+    present - Polish is this app's baseline language (see ocr.py's
+    PRIMARY_OCR_LANGUAGE), so an English-only Tesseract install passes
+    the old engine-only check but still produces the garbled OCR text
+    that prompted this whole check in the first place. Both cases get
+    their own distinct, actionable message rather than one generic
+    "unavailable".
+    """
     metadata = detect_ocr_support(OCR_INPUT_TYPE_IMAGE)
     status = metadata.get("status")
-    if status == OCR_STATUS_AVAILABLE:
+    if status != OCR_STATUS_AVAILABLE:
         return EnvironmentCheckItem(
-            ENV_ITEM_OCR, True, "OCR (skany, obrazy)", "Dostępne."
+            ENV_ITEM_OCR,
+            False,
+            "OCR (skany, obrazy)",
+            "Silnik Tesseract nie jest zainstalowany - skany i obrazy bez warstwy "
+            "tekstowej nie zostaną przetworzone (pozostałe pliki działają normalnie).",
+            install_action=INSTALL_ACTION_OPEN_URL,
+            install_target=TESSERACT_DOWNLOAD_URL,
         )
+
+    installed_languages = list_installed_languages()
+    if PRIMARY_OCR_LANGUAGE not in installed_languages:
+        return EnvironmentCheckItem(
+            ENV_ITEM_OCR,
+            False,
+            "OCR (skany, obrazy)",
+            "Tesseract jest zainstalowany, ale brakuje polskiego pakietu "
+            "językowego - podstawowego dla tej aplikacji. Bez niego OCR "
+            "czyta skany po angielsku i myli polskie znaki (np. \"zawarta\" "
+            "wychodzi jako \"zaware\").",
+            install_action=INSTALL_ACTION_TESSDATA_DOWNLOAD,
+            install_target=PRIMARY_OCR_LANGUAGE,
+        )
+
+    language_names = ", ".join(
+        COMMON_OCR_LANGUAGES_PL.get(code, code) for code in installed_languages
+    )
     return EnvironmentCheckItem(
         ENV_ITEM_OCR,
-        False,
+        True,
         "OCR (skany, obrazy)",
-        "Silnik Tesseract nie jest zainstalowany - skany i obrazy bez warstwy "
-        "tekstowej nie zostaną przetworzone (pozostałe pliki działają normalnie).",
-        install_action=INSTALL_ACTION_OPEN_URL,
-        install_target=TESSERACT_DOWNLOAD_URL,
+        f"Dostępne (języki: {language_names})." if language_names else "Dostępne.",
     )
+
+
+def install_tesseract_language(lang_code: str) -> tuple[bool, str]:
+    """Download one Tesseract language pack - see ocr.download_language_pack
+    for what makes this safely automatable (a plain data file, not an
+    installer) unlike Tesseract/Ollama themselves."""
+    return download_language_pack(lang_code)
 
 
 def check_llm_environment() -> EnvironmentCheckItem:
@@ -221,6 +275,7 @@ __all__ = [
     "ENV_ITEM_OCR",
     "INSTALL_ACTION_OPEN_URL",
     "INSTALL_ACTION_SPACY_MODEL",
+    "INSTALL_ACTION_TESSDATA_DOWNLOAD",
     "OLLAMA_DOWNLOAD_URL",
     "TESSERACT_DOWNLOAD_URL",
     "EnvironmentCheckItem",
@@ -229,5 +284,6 @@ __all__ = [
     "check_ner_environment",
     "check_ocr_environment",
     "install_ner_model",
+    "install_tesseract_language",
     "refresh_path_from_registry",
 ]
