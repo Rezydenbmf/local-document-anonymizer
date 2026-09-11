@@ -1875,6 +1875,66 @@ lint unchanged against baseline.
 4a43463 Pilot feedback Stage B: mockup visual-fidelity pass
 ```
 
+A self-requested senior-level code review of `src/gui.py` (the user asked
+for a logic/cleanliness/optimization pass before starting real pilot
+testing) surfaced 5 findings, all fixed in one pass. (1) The Stage B hand
+tool ("łapka") always panned a pane's outer `CTkScrollableFrame` canvas
+via `scan_mark`/`scan_dragto`, never the inner `CTkTextbox` a DOCX/TXT
+pane actually scrolls through - the exact same root cause already found
+and fixed for plain-scroll sync earlier that same day (`_scroll_pane_by`),
+just not carried over to the new pan handlers. `_bind_pane_panning`/
+`_on_pan_press`/`_on_pan_drag` now resolve a `_pan_target` (the inner
+textbox when present, the outer canvas otherwise) the same way
+`_scroll_pane_by` already does. Verifying this live caught a second, real
+bug in the fix itself: `tkinter.Text.scan_dragto` doesn't accept the
+`gain` keyword `tkinter.Canvas.scan_dragto` does, so panning a text pane
+raised `TypeError` the first time it was actually exercised - caught only
+because the fix was verified with a real drag rather than assumed correct
+by inspection; now tries `gain=1` (a direct, 1:1 drag) and falls back to
+the plain two-argument call. (5, same area) `_bind_pane_panning` also now
+skips `CTkScrollbar` descendants, so the hand tool can no longer fight a
+scrollbar's own native drag.
+
+(2) The new quick-settings panel's OCR status row treated "the background
+environment check hasn't completed yet" (`None`) the same as "confirmed
+unavailable" (`False`), showing a false "Niedostępne" on every single
+launch for the ~1-3s the check takes - contradicting the "green when
+available, gray when confirmed missing, absent while unknown" rule
+`_build_status_dot` (the equivalent row in the full Settings dialog)
+already documents and follows for the identical data. Fixed by handling
+`None` as its own third state (an empty dot, "Sprawdzanie dostępności..."
+text) instead of falling into the "unavailable" branch; the row still
+rebuilds with the real status once `_on_environment_check_done` reruns
+`show_start_screen()`, unchanged.
+
+(3) `_add_paths` computed a real "Dodano X / Pominięto Y nieobsługiwanych"
+drop-result message and set it on `status_label`, then immediately called
+`_update_readiness()`, which unconditionally overwrote that same label
+with the generic readiness text one line later - the rejection notice
+never reached the screen, silently since app inception (not introduced
+this session). `_update_readiness()` gained an optional `status_override`
+parameter so a caller can supply the message for that one call without
+duplicating the button-ready/text logic living in the same method;
+`_add_paths` now passes its drop-result text through it instead of
+setting the label directly and being immediately overwritten.
+
+(4) `_commit_zoom_entry` (the new manual zoom-percentage entry) had the
+identical `zoom_linked=True` body pasted under both the `side=="original"`
+and `side=="result"` branches - pure duplication risk (a future change to
+the linked-zoom path would need updating in two places), no observed bug.
+Restructured to check `self.zoom_linked` once up front, matching the
+pattern `_adjust_zoom` a few dozen lines away already uses.
+
+All 5 fixes (plus the scan_dragto bug caught while verifying fix 1) kept
+in one small, low-risk pass - none touch the magic pen, batch processing,
+or review workflow. Full suite: 377 tests (unchanged - these were widget-
+wiring/state fixes, verified functionally with scratchpad scripts per
+this project's usual pattern), lint unchanged against baseline.
+
+```text
+5f351cc Fix 5 findings from senior-level self code review
+```
+
 ## Next Logical Step
 
 The pilot-feedback batch's Stage B (mockup visual-fidelity pass) is done -
