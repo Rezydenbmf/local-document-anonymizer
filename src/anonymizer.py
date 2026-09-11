@@ -1474,9 +1474,26 @@ def _anonymize_pdf_file_result(
                 output_dir=output_dir,
             )
             pdf_redaction_result["text_extraction"] = text_extraction_label
-        except RuntimeError:
+        except Exception as visual_redaction_error:  # noqa: BLE001
+            # Deliberately broad, not just RuntimeError: this step draws
+            # on PyMuPDF internals (page.apply_redactions(), a malformed
+            # rect, ...) that can fail in ways this project does not
+            # control the exception type of. A failure here must never
+            # take down the whole file - the plain-text-anonymized
+            # output a few lines below, and the rebuilt review PDF right
+            # after this block, both still work independently; only the
+            # colored-box presentation is lost, not the anonymization
+            # itself. Recorded as the exception's class name only (never
+            # str(error), which could echo a path or other detail back)
+            # so a real occurrence is finally diagnosable from the
+            # developer report instead of only ever guessed at - this
+            # exact gap made a real, repeated user report impossible to
+            # root-cause without the original file.
             pdf_redaction_result = build_pdf_redaction_metadata(status="unavailable")
             pdf_redaction_result["text_extraction"] = text_extraction_label
+            pdf_redaction_result["visual_redaction_fallback_reason"] = type(
+                visual_redaction_error
+            ).__name__
         try:
             review_pdf_result = save_rebuilt_review_pdf_from_text(
                 source_path,
@@ -1540,9 +1557,15 @@ def _anonymize_pdf_file_result(
         # Status-code only (see OcrUnavailableError) - lets a developer
         # report distinguish *why* a scan fell back to the old
         # placeholder-text style instead of colored visual redaction,
-        # instead of that being unanswerable after the fact.
-        pdf_redaction_result["visual_redaction_fallback_reason"] = (
-            word_box_fallback_reason
+        # instead of that being unanswerable after the fact. setdefault,
+        # not a plain assignment: active_word_pages is empty whenever
+        # this is set (word-box OCR itself failed), so the visual-mode
+        # branch above never runs and never sets its own reason for the
+        # same file in practice - but if that assumption ever changes,
+        # the earlier, more specific reason should win rather than be
+        # silently overwritten.
+        pdf_redaction_result.setdefault(
+            "visual_redaction_fallback_reason", word_box_fallback_reason
         )
     output_path = save_anonymized_pdf_txt_copy(
         source_path, anonymized_output_text, output_dir=output_dir

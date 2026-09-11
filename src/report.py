@@ -224,6 +224,25 @@ def _safe_ocr_status(value: object) -> str:
     return "unavailable"
 
 
+def _safe_visual_redaction_fallback_reason(value: object) -> str:
+    """Sanitize the "why did this file lose its colored visual
+    redaction" diagnostic - either a known OCR status code (see
+    _safe_ocr_status, used when word-level OCR itself gave up) or a
+    bare Python exception class name (used when the word-coordinate PDF
+    redaction step itself raised - see anonymizer.py), e.g. "ValueError"
+    or "IndexError". str.isidentifier() is the safety boundary here: it
+    can never contain a path, a document value, or anything else unsafe
+    to put in a report - only ever a short, plain identifier-shaped
+    token.
+    """
+    text = str(value).strip()
+    if text in OCR_STATUSES:
+        return text
+    if text.isidentifier() and len(text) <= 64:
+        return text
+    return "unknown"
+
+
 def _safe_ocr_input_type(value: object) -> str:
     input_type = str(value).strip()
     if input_type in OCR_INPUT_TYPES:
@@ -400,7 +419,7 @@ def _pdf_redaction_section_lines(
         "visual_redaction_fallback_reason"
     )
     visual_redaction_fallback_reason = (
-        _safe_ocr_status(raw_visual_redaction_fallback_reason)
+        _safe_visual_redaction_fallback_reason(raw_visual_redaction_fallback_reason)
         if raw_visual_redaction_fallback_reason is not None
         else None
     )

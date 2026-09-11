@@ -4,6 +4,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from docx import Document
 
@@ -288,6 +289,45 @@ class ReportTests(unittest.TestCase):
             self.assertIn("Review PDF note: rebuilt from anonymized text", report_text)
             self.assertIn("Review PDF table-heavy note:", report_text)
 
+    def test_pdf_visual_redaction_failure_falls_back_without_crashing(self) -> None:
+        # A real user report, repeated across several sessions: a scan
+        # came back with placeholder-bracket text instead of colored
+        # visual redaction, with no crash and no error shown - meaning
+        # whatever failed inside save_word_coordinate_redacted_pdf_copy
+        # was swallowed with zero diagnostic trail. Forces that failure
+        # directly (any exception, not just RuntimeError - see the
+        # broadened except in anonymizer.py) and confirms two things:
+        # the file still gets a fully working plain-text-anonymized
+        # fallback rather than a crash, and the failure is now
+        # diagnosable from the report instead of invisible.
+        with workspace_temp_dir() as temp_dir:
+            source_path = Path(temp_dir) / "document.pdf"
+            write_text_pdf(source_path, "Contact safe@example.test on 2026-06-01.")
+
+            with patch(
+                "anonymizer.save_word_coordinate_redacted_pdf_copy",
+                side_effect=ValueError("boom"),
+            ):
+                output_path, counters = anonymize_pdf_file(source_path)
+
+            report_path = Path(temp_dir) / "_wewnetrzne" / "document_RAPORT.txt"
+            visual_pdf_path = Path(temp_dir) / "document_ANON_VISUAL.pdf"
+            review_pdf_path = Path(temp_dir) / "document_ANON_REVIEW.pdf"
+
+            # The anonymization itself is unaffected - only the colored
+            # visual presentation was lost.
+            self.assertEqual(
+                output_path.read_text(encoding="utf-8").strip(),
+                "Contact [EMAIL] on [DATA].",
+            )
+            self.assertEqual(counters, {"EMAIL": 1, "DATA": 1})
+            self.assertFalse(visual_pdf_path.exists())
+            self.assertTrue(review_pdf_path.exists())
+
+            report_text = report_path.read_text(encoding="utf-8")
+            self.assertIn("Visual PDF created: no", report_text)
+            self.assertIn("Visual redaction fallback reason: ValueError", report_text)
+
     def test_pdf_report_marks_partial_redaction_with_safe_warning(self) -> None:
         report_text = build_report_text(
             counters={"EMAIL": 1, "NER_ORG": 1},
@@ -396,8 +436,35 @@ class ReportTests(unittest.TestCase):
             },
         )
 
-        self.assertIn("Visual redaction fallback reason: unavailable", report_text)
+        self.assertIn("Visual redaction fallback reason: unknown", report_text)
         self.assertNotIn("<script>", report_text)
+
+    def test_pdf_report_surfaces_visual_redaction_fallback_reason_as_exception_name(
+        self,
+    ) -> None:
+        # The word-coordinate visual redaction step itself can raise for
+        # reasons other than "OCR gave up" (see anonymizer.py) - the
+        # exception's class name is recorded and must pass through
+        # unsanitized (it can never contain document content or paths,
+        # only ever a plain Python identifier like "ValueError").
+        report_text = build_report_text(
+            counters={"EMAIL": 1},
+            input_extension=".pdf",
+            output_extension=".txt",
+            category_order=SUPPORTED_LABELS,
+            pdf_redaction_result={
+                "used": False,
+                "status": "skipped",
+                "output_name": "document_ANON.txt",
+                "text_extraction": "text_layer",
+                "redaction_count": 0,
+                "counters": {},
+                "true_redaction": False,
+                "visual_redaction_fallback_reason": "ValueError",
+            },
+        )
+
+        self.assertIn("Visual redaction fallback reason: ValueError", report_text)
 
     def test_batch_summary_marks_partial_pdf_redaction_with_safe_warning(self) -> None:
         summary_text = build_batch_summary_text(

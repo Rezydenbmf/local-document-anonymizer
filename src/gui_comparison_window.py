@@ -391,6 +391,10 @@ class ComparisonWindow:
         self.pending_add_rects: list[ManualRect] = []
         self.save_button: ctk.CTkButton | None = None
         self.cancel_button: ctk.CTkButton | None = None
+        self.undo_button: ctk.CTkButton | None = None
+        self.redo_button: ctk.CTkButton | None = None
+        self._edit_undo_stack: list[tuple[list[ManualRect], set]] = []
+        self._edit_redo_stack: list[tuple[list[ManualRect], set]] = []
         self.pen_status_label: ctk.CTkLabel | None = None
         # Manual-mode tool pinning: None means the modeless default (LMB
         # draws, RMB always erases). Pinning to "draw" or "erase" locks
@@ -482,6 +486,11 @@ class ComparisonWindow:
         window.bind("<Button-4>", self._on_scroll_sync)
         window.bind("<Button-5>", self._on_scroll_sync)
         window.bind("<Escape>", self._clear_pointer_tool)
+        # Undo/redo for pending (unsaved) magic-pen edits - the standard
+        # shortcuts, plus Ctrl+Shift+Z as the common alternate for redo.
+        window.bind("<Control-z>", lambda _e: self._undo_last_edit())
+        window.bind("<Control-y>", lambda _e: self._redo_last_edit())
+        window.bind("<Control-Shift-Z>", lambda _e: self._redo_last_edit())
         window.protocol("WM_DELETE_WINDOW", self._close)
 
         ctk.CTkLabel(
@@ -612,6 +621,46 @@ class ComparisonWindow:
             )
             self.pen_status_label.pack(side="left", padx=(8, 0))
             self._refresh_tool_chip_visuals()
+
+            # Undo/redo for pending (unsaved) draw/erase actions - per
+            # direct user feedback ("warto dodac undo i redo do tych
+            # ruchow edycji"). Packed side="right" so they sit apart from
+            # the draw/erase tool chips rather than being mistaken for a
+            # third tool.
+            self.redo_button = ctk.CTkButton(
+                tool_row,
+                text="↷",
+                width=30,
+                height=30,
+                corner_radius=8,
+                border_width=1,
+                border_color=COLOR_BORDER,
+                fg_color=COLOR_BG,
+                hover_color=COLOR_ICON_IDLE,
+                text_color=COLOR_TEXT_MUTED,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=14),
+                state="disabled",
+                command=self._redo_last_edit,
+            )
+            self.redo_button.pack(side="right")
+            IconTooltip(self.redo_button, "Ponów cofniętą edycję (Ctrl+Y)")
+            self.undo_button = ctk.CTkButton(
+                tool_row,
+                text="↶",
+                width=30,
+                height=30,
+                corner_radius=8,
+                border_width=1,
+                border_color=COLOR_BORDER,
+                fg_color=COLOR_BG,
+                hover_color=COLOR_ICON_IDLE,
+                text_color=COLOR_TEXT_MUTED,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=14),
+                state="disabled",
+                command=self._undo_last_edit,
+            )
+            self.undo_button.pack(side="right", padx=(0, 6))
+            IconTooltip(self.undo_button, "Cofnij ostatnią edycję (Ctrl+Z)")
 
             self.save_button = ctk.CTkButton(
                 bottom_actions,
@@ -1363,7 +1412,7 @@ class ComparisonWindow:
             return
         if hint_is_dismissed(MAGIC_PEN_HINT_ID):
             return
-        MagicPenHintDialog(self.app)
+        MagicPenHintDialog(self.app, self.window)
 
     def _rebuild_original_pane(self) -> None:
         if self.left_frame is None:
@@ -1845,6 +1894,7 @@ class ComparisonWindow:
         zoom = self._page_zoom.get(page_number, 1.0)
         px0, py0 = canvas_point_to_pdf_point(cx0, cy0, zoom)
         px1, py1 = canvas_point_to_pdf_point(cx1, cy1, zoom)
+        self._push_undo_snapshot()
         self.pending_add_rects.append(
             ManualRect(page=page_number, x0=px0, y0=py0, x1=px1, y1=py1)
         )
@@ -1868,10 +1918,12 @@ class ComparisonWindow:
             if rect_key == key:
                 # A not-yet-saved manual addition: clicking it again in
                 # remove mode simply cancels that pending addition.
+                self._push_undo_snapshot()
                 del self.pending_add_rects[index]
                 self._redraw_overlay(page_number)
                 self._update_pending_state()
                 return
+        self._push_undo_snapshot()
         if key in self.pending_remove_keys:
             # Clicking an already-staged-for-removal rect a second time
             # un-stages it, so a misclick doesn't require cancelling every
@@ -1918,6 +1970,70 @@ class ComparisonWindow:
 
         self._overlay_ids[page_number] = drawn_ids
 
+    def _redraw_all_overlays(self) -> None:
+        for page_number in list(self._page_canvases.keys()):
+            self._redraw_overlay(page_number)
+
+    # -- magic pen: undo/redo for pending (unsaved) edits --------------------
+
+    def _snapshot_pending_edit_state(self) -> tuple[list[ManualRect], set]:
+        return (list(self.pending_add_rects), set(self.pending_remove_keys))
+
+    def _restore_pending_edit_state(
+        self, snapshot: tuple[list[ManualRect], set]
+    ) -> None:
+        self.pending_add_rects, self.pending_remove_keys = snapshot
+        self._redraw_all_overlays()
+        self._update_pending_state()
+        self._update_undo_redo_buttons()
+
+    def _push_undo_snapshot(self) -> None:
+        """Record the pending-edit state *before* the mutation about to
+        happen, so Ctrl+Z can restore it - called at the start of every
+        method that mutates pending_add_rects/pending_remove_keys.
+        Whole-state snapshots rather than tracking each action's inverse
+        individually: simpler and much less error-prone for three
+        different mutation shapes (add a rect, toggle a removal, cancel
+        a pending add), and the state involved is tiny (a handful of
+        rects/keys) so copying it is cheap. Clears the redo stack -
+        making a new edit after undoing invalidates whatever was undone,
+        the same way every standard undo/redo editor behaves.
+        """
+        self._edit_undo_stack.append(self._snapshot_pending_edit_state())
+        self._edit_redo_stack.clear()
+        self._update_undo_redo_buttons()
+
+    def _clear_undo_redo_history(self) -> None:
+        """Called after a successful save (the rect ecosystem changes
+        underneath - visible_rects gets reloaded from the regenerated
+        PDF, so old snapshots referencing the previous one are no longer
+        meaningful) and when a fresh magic pen pane is built."""
+        self._edit_undo_stack = []
+        self._edit_redo_stack = []
+        self._update_undo_redo_buttons()
+
+    def _undo_last_edit(self) -> None:
+        if not self._edit_undo_stack:
+            return
+        self._edit_redo_stack.append(self._snapshot_pending_edit_state())
+        self._restore_pending_edit_state(self._edit_undo_stack.pop())
+
+    def _redo_last_edit(self) -> None:
+        if not self._edit_redo_stack:
+            return
+        self._edit_undo_stack.append(self._snapshot_pending_edit_state())
+        self._restore_pending_edit_state(self._edit_redo_stack.pop())
+
+    def _update_undo_redo_buttons(self) -> None:
+        if self.undo_button is not None:
+            self.undo_button.configure(
+                state="normal" if self._edit_undo_stack else "disabled"
+            )
+        if self.redo_button is not None:
+            self.redo_button.configure(
+                state="normal" if self._edit_redo_stack else "disabled"
+            )
+
     def _has_pending_changes(self) -> bool:
         return bool(self.pending_remove_keys) or bool(self.pending_add_rects)
 
@@ -1939,6 +2055,7 @@ class ComparisonWindow:
             )
 
     def _cancel_pending_changes(self) -> None:
+        self._push_undo_snapshot()
         self.pending_remove_keys = set()
         self.pending_add_rects = []
         for page_number in list(self._page_canvases.keys()):
@@ -2086,6 +2203,7 @@ class ComparisonWindow:
         self.edits = new_edits
         self.pending_remove_keys = set()
         self.pending_add_rects = []
+        self._clear_undo_redo_history()
         self._reload_visible_rects()
         self._reload_pdf_pane()
         self._patch_report_with_manual_count(len(new_edits.added))
