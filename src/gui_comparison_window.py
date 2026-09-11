@@ -4,12 +4,12 @@ rendering helpers it (and the review screen) share."""
 
 from __future__ import annotations
 
-import json
 import os
 import sys
 import tkinter as tk
 from collections.abc import Mapping, Sequence
 from pathlib import Path
+from typing import NamedTuple
 
 import customtkinter as ctk
 from PIL import Image, ImageTk
@@ -32,8 +32,12 @@ try:
         COLOR_TEXT_MUTED,
         FONT_FAMILY,
         LEGEND_ITEMS,
+        ZOOM_LINK_HINT_ID,
         IconTooltip,
         _bring_window_to_front,
+        apply_subtle_scrollbar,
+        dismiss_hint,
+        hint_is_dismissed,
     )
     from .manual_redaction import (
         EMPTY_MANUAL_EDITS,
@@ -50,6 +54,7 @@ try:
         save_manual_edits,
     )
     from .review import (
+        REVIEW_STATUS_APPROVED,
         REVIEW_STATUS_NEEDS_REVIEW,
         ReviewItem,
     )
@@ -71,8 +76,12 @@ except ImportError:
         COLOR_TEXT_MUTED,
         FONT_FAMILY,
         LEGEND_ITEMS,
+        ZOOM_LINK_HINT_ID,
         IconTooltip,
         _bring_window_to_front,
+        apply_subtle_scrollbar,
+        dismiss_hint,
+        hint_is_dismissed,
     )
     from manual_redaction import (
         EMPTY_MANUAL_EDITS,
@@ -89,6 +98,7 @@ except ImportError:
         save_manual_edits,
     )
     from review import (
+        REVIEW_STATUS_APPROVED,
         REVIEW_STATUS_NEEDS_REVIEW,
         ReviewItem,
     )
@@ -220,35 +230,6 @@ def zoom_link_tooltip_text(linked: bool) -> str:
     )
 
 
-def ui_hints_config_path() -> Path:
-    """Return the local file that remembers which one-time UI hints (for
-    example the zoom-link toggle) the user has already seen.
-
-    Stores hint ids only - never document content, folder paths, or
-    anything else about what the user processed.
-    """
-    return Path.home() / ".anonimizer" / "ui_hints_seen.json"
-
-
-def load_seen_hints(config_path: Path) -> set[str]:
-    """Load the set of already-seen hint ids, tolerating a missing/corrupt file."""
-    try:
-        raw = json.loads(config_path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return set()
-    if not isinstance(raw, list):
-        return set()
-    return {str(item) for item in raw if isinstance(item, str)}
-
-
-def save_seen_hints(config_path: Path, hint_ids: set[str]) -> None:
-    """Persist the seen-hints set, creating the config folder if needed."""
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    config_path.write_text(
-        json.dumps(sorted(hint_ids), ensure_ascii=False, indent=2), encoding="utf-8"
-    )
-
-
 def find_rect_at_point(
     rects: Sequence[Mapping[str, object]], page_number: int, x: float, y: float
 ) -> Mapping[str, object] | None:
@@ -279,9 +260,23 @@ def _render_text_block(parent: ctk.CTkBaseClass, text: str, zoom: float = 1.0) -
     box.configure(state="disabled")
 
 
+class RenderedPreview(NamedTuple):
+    """What render_document_preview built: the CTkImage objects (kept
+    alive by the caller), a page-number -> widget map for jump-to-page
+    navigation (PDF only - a page concept genuinely doesn't apply to a
+    DOCX/TXT/image preview), and the page count that map's size already
+    encodes but a caller open-coding ``len(page_widgets)`` everywhere
+    would be worse than just naming it once here.
+    """
+
+    images: list[ctk.CTkImage]
+    page_widgets: dict[int, ctk.CTkBaseClass]
+    page_count: int
+
+
 def render_document_preview(
     parent: ctk.CTkBaseClass, path: Path, target_width: int = BASE_PREVIEW_WIDTH
-) -> list[ctk.CTkImage]:
+) -> RenderedPreview:
     """Render a document's pages/content into the given scrollable frame.
 
     ``target_width`` also scales DOCX/TXT text-block previews (relative to
@@ -290,9 +285,11 @@ def render_document_preview(
 
     Returns the CTkImage objects created so the caller can keep a strong
     reference alive for the window's lifetime (Tk drops images that are
-    only referenced by the widget itself once the local variable is gone).
+    only referenced by the widget itself once the local variable is gone),
+    plus the per-page widgets a page-navigation control can scroll to.
     """
     images: list[ctk.CTkImage] = []
+    page_widgets: dict[int, ctk.CTkBaseClass] = {}
     suffix = path.suffix.lower()
     text_zoom = target_width / BASE_PREVIEW_WIDTH
     try:
@@ -300,7 +297,7 @@ def render_document_preview(
             import pymupdf as fitz
 
             with fitz.open(path) as document:
-                for page in document:
+                for page_index, page in enumerate(document, start=1):
                     page_width = max(page.rect.width, 1)
                     zoom = target_width / page_width
                     pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom))
@@ -312,7 +309,9 @@ def render_document_preview(
                         size=(pix.width, pix.height),
                     )
                     images.append(ctk_image)
-                    ctk.CTkLabel(parent, image=ctk_image, text="").pack(pady=6)
+                    label = ctk.CTkLabel(parent, image=ctk_image, text="")
+                    label.pack(pady=6)
+                    page_widgets[page_index] = label
         elif suffix in (".png", ".jpg", ".jpeg", ".tif", ".tiff"):
             pil_image = Image.open(path)
             pil_image.thumbnail((target_width, 3000))
@@ -339,7 +338,8 @@ def render_document_preview(
             wraplength=380,
             justify="left",
         ).pack(pady=30, padx=16)
-    return images
+        page_widgets = {}
+    return RenderedPreview(images, page_widgets, len(page_widgets))
 
 
 class ComparisonWindow:
@@ -390,7 +390,7 @@ class ComparisonWindow:
         # pinning), cleared the moment that press/click ends.
         self.pinned_tool: str | None = None
         self._transient_tool: str | None = None
-        self._tool_chips: dict[str, tuple[ctk.CTkFrame, ctk.CTkLabel, ctk.CTkLabel]] = {}
+        self._tool_chips: dict[str, ctk.CTkButton] = {}
         self.left_frame: ctk.CTkScrollableFrame | None = None
         self.right_frame: ctk.CTkScrollableFrame | None = None
         self.original_zoom = ZOOM_DEFAULT
@@ -407,6 +407,28 @@ class ComparisonWindow:
         self.active_pointer_tool: str | None = None
         self._hand_buttons: list[ctk.CTkButton] = []
         self._zoom_tool_buttons: list[ctk.CTkButton] = []
+        # Page navigation ("skocz do strony X/N", per direct user
+        # feedback): page-number -> widget maps to scroll to (the
+        # "Oryginał" pane's CTkLabel widgets from render_document_preview,
+        # or - on the magic-pen result pane - self._page_canvases, which
+        # already serves that exact purpose), plus the nav row widgets
+        # themselves so _update_page_nav_controls can show/hide/update
+        # them after every (re)render.
+        self._original_page_widgets: dict[int, ctk.CTkBaseClass] = {}
+        self._result_page_widgets: dict[int, ctk.CTkBaseClass] = {}
+        self.original_page_count = 0
+        self.result_page_count = 0
+        self.original_current_page = 0
+        self.result_current_page = 0
+        self._page_nav_rows: dict[str, ctk.CTkFrame] = {}
+        self._page_entries: dict[str, ctk.CTkEntry] = {}
+        self._page_total_labels: dict[str, ctk.CTkLabel] = {}
+        # Legend/tool-chip sidebar collapse (see _build_magic_pen_sidebar)
+        # - per-window, resets to expanded each time a comparison window
+        # opens, the same way zoom/pan state already does.
+        self.legend_sidebar_collapsed = False
+        self.content_row: ctk.CTkFrame | None = None
+        self._sidebar_widget: ctk.CTkFrame | None = None
 
         self.magic_pen_available = bool(
             original_path is not None
@@ -414,6 +436,16 @@ class ComparisonWindow:
             and result_path.exists()
             and result_path.suffix.lower() == ".pdf"
         )
+        # Editable (auto-detected redactions can be un-redacted, new ones
+        # drawn) right up until the file is approved - approving is a
+        # deliberate, one-way "this is final" action per direct user
+        # feedback (see ApprovalLockWarningDialog, shown before the app
+        # ever sets this status), so once item.status is already
+        # REVIEW_STATUS_APPROVED at the moment this window opens, the
+        # magic pen renders read-only instead of interactive. Evaluated
+        # once here from the snapshot passed in, not re-checked live
+        # against self.app.review_items while the window stays open.
+        self.locked = item.status == REVIEW_STATUS_APPROVED
 
         window = ctk.CTkToplevel(app.root)
         self.window = window
@@ -457,6 +489,21 @@ class ComparisonWindow:
         # earlier the same day is retired along with the toolbar itself).
         content_row = ctk.CTkFrame(window, fg_color="transparent")
         content_row.pack(fill="both", expand=True, padx=20, pady=(4, 8))
+        self.content_row = content_row
+
+        # Packed *before* the paned splitter below, on purpose: Tk's
+        # pack() hands out space in packing order, not visual order (the
+        # same rule this project's other fixed-width panels already lean
+        # on) - packing this fixed-width sidebar first guarantees it
+        # keeps its own width and is never the one silently clipped on a
+        # narrow window, which is exactly what used to happen when it was
+        # packed after the splitter (confirmed as a real bug: the legend
+        # and tool chips could get cut off entirely). It is still visually
+        # the right-hand column, since side="right" reserves its space
+        # from the row's right edge regardless of packing order.
+        if self.magic_pen_available:
+            self._sidebar_widget = self._build_magic_pen_sidebar(content_row)
+            self._sidebar_widget.pack(side="right", fill="y", padx=(12, 0))
 
         # A real draggable splitter (tk.PanedWindow) instead of a fixed
         # 50/50 grid: dragging the sash resizes one side and shrinks the
@@ -488,17 +535,14 @@ class ComparisonWindow:
             left_container, fg_color=COLOR_CARD, corner_radius=10, label_text=""
         )
         left_frame.pack(fill="both", expand=True)
+        apply_subtle_scrollbar(left_frame)
         self.left_frame = left_frame
         right_frame = ctk.CTkScrollableFrame(
             right_container, fg_color=COLOR_CARD, corner_radius=10, label_text=""
         )
         right_frame.pack(fill="both", expand=True)
+        apply_subtle_scrollbar(right_frame)
         self.right_frame = right_frame
-
-        if self.magic_pen_available:
-            self._build_magic_pen_sidebar(content_row).pack(
-                side="left", fill="y", padx=(12, 0)
-            )
 
         self._rebuild_original_pane()
 
@@ -509,7 +553,7 @@ class ComparisonWindow:
         else:
             self._rebuild_result_pane()
 
-        if self.magic_pen_available:
+        if self.magic_pen_available and not self.locked:
             # Tk's pack() hands out space in the order widgets are
             # packed, not visual order - whatever is packed first gets
             # first claim on the row's width, and whatever is packed
@@ -520,6 +564,29 @@ class ComparisonWindow:
             # bug earlier the same day, in the toolbar this replaces).
             bottom_actions = ctk.CTkFrame(window, fg_color="transparent")
             bottom_actions.pack(fill="x", padx=20, pady=(0, 8))
+
+            # Tool "lamps" - per direct user feedback, moved out of the
+            # (collapsible) legend sidebar into this always-visible row,
+            # so they stay usable even while that sidebar is hidden.
+            # Packed in their own sub-row above save/cancel, same
+            # click-to-pin behavior as before (see _toggle_pinned_tool).
+            tool_row = ctk.CTkFrame(bottom_actions, fg_color="transparent")
+            tool_row.pack(fill="x", pady=(0, 6))
+            self._tool_chips["draw"] = self._build_tool_chip(
+                tool_row, "✏", "Dodaj zaznaczenie", "draw"
+            )
+            self._tool_chips["erase"] = self._build_tool_chip(
+                tool_row, "🧹", "Usuń zaznaczenie", "erase"
+            )
+            self.pen_status_label = ctk.CTkLabel(
+                tool_row,
+                text="",
+                font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                text_color=COLOR_TEXT_MUTED,
+            )
+            self.pen_status_label.pack(side="left", padx=(8, 0))
+            self._refresh_tool_chip_visuals()
+
             self.save_button = ctk.CTkButton(
                 bottom_actions,
                 text="Zapisz zmiany",
@@ -548,10 +615,13 @@ class ComparisonWindow:
                 command=self._cancel_pending_changes,
             )
             self.cancel_button.pack(side="right", padx=(0, 8))
-        else:
+        elif not self.magic_pen_available:
             # No sidebar in this case (magic pen is PDF-only), so the
             # color legend still needs a home - the existing horizontal
-            # row at the bottom, same as before.
+            # row at the bottom, same as before. A locked-but-available
+            # pane already has the legend in its sidebar (see
+            # _build_magic_pen_sidebar), so it needs neither this row nor
+            # the save/cancel row above.
             app._build_legend_row(window)
 
         ctk.CTkButton(
@@ -708,6 +778,72 @@ class ComparisonWindow:
             self.original_zoom_label = zoom_label
         else:
             self.result_zoom_label = zoom_label
+
+        # Page navigation ("skocz do strony X/N") - built now but not
+        # packed yet, since the page count isn't known until the pane's
+        # first render; _update_page_nav_controls packs/unpacks and
+        # refreshes it from there on, for every (re)build of this pane.
+        page_nav_row = ctk.CTkFrame(header, fg_color="transparent")
+        self._page_nav_rows[side] = page_nav_row
+        ctk.CTkButton(
+            page_nav_row,
+            text="◀",
+            width=22,
+            height=20,
+            corner_radius=6,
+            fg_color=COLOR_ICON_IDLE,
+            hover_color=COLOR_ACCENT_HOVER,
+            text_color=COLOR_TEXT,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+            command=lambda: self._go_to_page(side, -1),
+        ).pack(side="left", padx=(0, 4))
+        ctk.CTkLabel(
+            page_nav_row,
+            text="Strona",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLOR_TEXT_MUTED,
+        ).pack(side="left", padx=(0, 4))
+        page_entry = ctk.CTkEntry(
+            page_nav_row,
+            width=36,
+            height=20,
+            justify="center",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLOR_TEXT_MUTED,
+            fg_color=COLOR_CARD,
+            border_width=1,
+            border_color=COLOR_BORDER,
+        )
+        page_entry.bind("<Return>", lambda _e, s=side: self._commit_page_entry(s))
+        page_entry.bind("<FocusOut>", lambda _e, s=side: self._commit_page_entry(s))
+        page_entry.pack(side="left")
+        self._page_entries[side] = page_entry
+        IconTooltip(
+            page_entry,
+            "Wpisz numer strony i naciśnij Enter, by tam przeskoczyć.",
+            enabled=self.app.show_usage_hints,
+        )
+        page_total_label = ctk.CTkLabel(
+            page_nav_row,
+            text="/ 1",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLOR_TEXT_MUTED,
+        )
+        page_total_label.pack(side="left", padx=(2, 4))
+        self._page_total_labels[side] = page_total_label
+        ctk.CTkButton(
+            page_nav_row,
+            text="▶",
+            width=22,
+            height=20,
+            corner_radius=6,
+            fg_color=COLOR_ICON_IDLE,
+            hover_color=COLOR_ACCENT_HOVER,
+            text_color=COLOR_TEXT,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+            command=lambda: self._go_to_page(side, 1),
+        ).pack(side="left")
+
         return header
 
     def _on_ctrl_scroll(self, event: object) -> None:
@@ -867,17 +1003,17 @@ class ComparisonWindow:
         self._update_zoom_controls()
 
     @staticmethod
-    def _set_zoom_entry_text(entry: ctk.CTkEntry, text: str) -> None:
+    def _set_entry_text(entry: ctk.CTkEntry, text: str) -> None:
         entry.delete(0, "end")
         entry.insert(0, text)
 
     def _update_zoom_controls(self) -> None:
         if self.original_zoom_label is not None:
-            self._set_zoom_entry_text(
+            self._set_entry_text(
                 self.original_zoom_label, zoom_percent_label(self.original_zoom)
             )
         if self.result_zoom_label is not None:
-            self._set_zoom_entry_text(
+            self._set_entry_text(
                 self.result_zoom_label, zoom_percent_label(self.result_zoom)
             )
         glyph = zoom_link_glyph(self.zoom_linked)
@@ -904,7 +1040,7 @@ class ComparisonWindow:
         try:
             percent = float(raw)
         except ValueError:
-            self._set_zoom_entry_text(entry, zoom_percent_label(current))
+            self._set_entry_text(entry, zoom_percent_label(current))
             return
         new_value = clamp_zoom_level(percent / 100)
         if self.zoom_linked:
@@ -919,6 +1055,128 @@ class ComparisonWindow:
             self.result_zoom = new_value
             self._rebuild_result_pane()
         self._update_zoom_controls()
+
+    # -- page navigation ("skocz do strony X/N") -----------------------------
+
+    def _result_page_widget(self, page_number: int) -> tk.Misc | None:
+        """The result pane's page N widget, whichever rendering path built
+        it - self._page_canvases (magic pen) or self._result_page_widgets
+        (plain render_document_preview, e.g. a locked/approved file)."""
+        if self.magic_pen_available:
+            return self._page_canvases.get(page_number)
+        return self._result_page_widgets.get(page_number)
+
+    def _update_page_nav_controls(self, side: str, page_count: int) -> None:
+        """Show/hide and refresh the page-nav row for ``side`` after a
+        (re)render - hidden entirely for a 0-or-1-page document (nothing
+        to navigate to), matching every other conditionally-shown control
+        in this window. The current page is preserved (clamped into the
+        new range) rather than reset to 1 on every rebuild, so a plain
+        zoom change does not also silently discard where the user was
+        reading.
+        """
+        current_attr = "original_current_page" if side == "original" else "result_current_page"
+        count_attr = "original_page_count" if side == "original" else "result_page_count"
+        setattr(self, count_attr, page_count)
+        current = getattr(self, current_attr)
+        setattr(self, current_attr, min(max(current, 1), page_count) if page_count > 0 else 0)
+
+        row = self._page_nav_rows.get(side)
+        if row is None:
+            return
+        if page_count > 1:
+            row.pack(fill="x", pady=(4, 0))
+        else:
+            row.pack_forget()
+        self._refresh_page_nav_entries()
+
+    def _refresh_page_nav_entries(self) -> None:
+        for side in ("original", "result"):
+            entry = self._page_entries.get(side)
+            total_label = self._page_total_labels.get(side)
+            count = self.original_page_count if side == "original" else self.result_page_count
+            current = self.original_current_page if side == "original" else self.result_current_page
+            if entry is not None:
+                self._set_entry_text(entry, str(max(current, 1)))
+            if total_label is not None:
+                total_label.configure(text=f"/ {count}")
+
+    def _scroll_frame_to_widget(
+        self, frame: ctk.CTkScrollableFrame | None, widget: tk.Misc | None
+    ) -> None:
+        """Scroll ``frame`` so ``widget`` (one page's label/canvas) sits at
+        the top - an approximate "jump to page", the same anchor-scroll
+        approach a browser uses, not pixel-perfect but close enough to
+        actually land on the right page. Reaches into the private
+        _parent_canvas the same way every other scroll-control method in
+        this window already does (no public CTkScrollableFrame API for
+        this exists), so this stays defensive and silently does nothing
+        on any error rather than risk crashing the preview over it.
+        """
+        if frame is None or widget is None:
+            return
+        canvas = getattr(frame, "_parent_canvas", None)
+        if canvas is None:
+            return
+        try:
+            canvas.update_idletasks()
+            bbox = canvas.bbox("all")
+            if not bbox:
+                return
+            total_height = max(bbox[3] - bbox[1], 1)
+            fraction = max(0.0, min(1.0, widget.winfo_y() / total_height))
+            canvas.yview_moveto(fraction)
+        except tk.TclError:
+            pass
+
+    def _go_to_page_absolute(self, side: str, page_number: int, *, mirror: bool = True) -> None:
+        count = self.original_page_count if side == "original" else self.result_page_count
+        if count <= 0:
+            return
+        page_number = min(max(page_number, 1), count)
+        if side == "original":
+            self.original_current_page = page_number
+            self._scroll_frame_to_widget(
+                self.left_frame, self._original_page_widgets.get(page_number)
+            )
+        else:
+            self.result_current_page = page_number
+            self._scroll_frame_to_widget(self.right_frame, self._result_page_widget(page_number))
+        self._refresh_page_nav_entries()
+        # Mirrors the same page number onto the other pane while the two
+        # are locked together - same "sync unless the link is off" rule
+        # _on_scroll_sync already applies to plain scrolling, reused here
+        # per direct user feedback ("klikając w strzałkę synchronicznie,
+        # lub nie jak wyłączę synchronizację"). mirror=False on the
+        # recursive call stops this from bouncing back and forth forever.
+        if mirror and self.zoom_linked:
+            other_side = "result" if side == "original" else "original"
+            other_count = self.result_page_count if side == "original" else self.original_page_count
+            if other_count > 0:
+                self._go_to_page_absolute(other_side, page_number, mirror=False)
+
+    def _go_to_page(self, side: str, step: int) -> None:
+        current = self.original_current_page if side == "original" else self.result_current_page
+        self._go_to_page_absolute(side, current + step)
+
+    def _commit_page_entry(self, side: str) -> None:
+        """Apply a manually-typed page number from the entry for ``side``,
+        clamped into range - invalid text just resets the entry back to
+        the current page rather than raising or silently doing nothing,
+        matching _commit_zoom_entry's exact handling of the same failure
+        mode for the zoom entry right next to it.
+        """
+        entry = self._page_entries.get(side)
+        current = self.original_current_page if side == "original" else self.result_current_page
+        if entry is None:
+            return
+        raw = entry.get().strip()
+        try:
+            page_number = int(raw)
+        except ValueError:
+            self._set_entry_text(entry, str(max(current, 1)))
+            return
+        self._go_to_page_absolute(side, page_number)
 
     def _toggle_pointer_tool(self, tool: str) -> None:
         """Toggle the shared hand/zoom pointer tool - clicking the
@@ -1020,30 +1278,25 @@ class ComparisonWindow:
         by hovering - a lightweight, one-time onboarding hint."""
         if not self._link_tooltips:
             return
-        config_path = ui_hints_config_path()
-        seen = load_seen_hints(config_path)
-        if ZOOM_LINK_HINT_ID in seen:
+        if hint_is_dismissed(ZOOM_LINK_HINT_ID):
             return
         self._link_tooltips[-1].flash(4500)
-        seen.add(ZOOM_LINK_HINT_ID)
-        try:
-            save_seen_hints(config_path, seen)
-        except OSError:
-            pass
+        dismiss_hint(ZOOM_LINK_HINT_ID)
 
     def _rebuild_original_pane(self) -> None:
         if self.left_frame is None:
             return
         for widget in self.left_frame.winfo_children():
             widget.destroy()
+        self._original_page_widgets = {}
         if self.original_path is not None and self.original_path.exists():
-            self._images.extend(
-                render_document_preview(
-                    self.left_frame,
-                    self.original_path,
-                    target_width=int(BASE_PREVIEW_WIDTH * self.original_zoom),
-                )
+            preview = render_document_preview(
+                self.left_frame,
+                self.original_path,
+                target_width=int(BASE_PREVIEW_WIDTH * self.original_zoom),
             )
+            self._images.extend(preview.images)
+            self._original_page_widgets = preview.page_widgets
         else:
             ctk.CTkLabel(
                 self.left_frame,
@@ -1056,6 +1309,7 @@ class ComparisonWindow:
                 justify="left",
             ).pack(pady=30, padx=16)
         self._bind_pane_panning(self.left_frame, self.left_frame)
+        self._update_page_nav_controls("original", len(self._original_page_widgets))
 
     def _rebuild_result_pane(self) -> None:
         if self.right_frame is None:
@@ -1065,14 +1319,15 @@ class ComparisonWindow:
             return
         for widget in self.right_frame.winfo_children():
             widget.destroy()
+        self._result_page_widgets = {}
         if self.result_path.exists():
-            self._images.extend(
-                render_document_preview(
-                    self.right_frame,
-                    self.result_path,
-                    target_width=int(BASE_PREVIEW_WIDTH * self.result_zoom),
-                )
+            preview = render_document_preview(
+                self.right_frame,
+                self.result_path,
+                target_width=int(BASE_PREVIEW_WIDTH * self.result_zoom),
             )
+            self._images.extend(preview.images)
+            self._result_page_widgets = preview.page_widgets
         else:
             ctk.CTkLabel(
                 self.right_frame,
@@ -1080,19 +1335,33 @@ class ComparisonWindow:
                 text_color=COLOR_TEXT_MUTED,
             ).pack(pady=30)
         self._bind_pane_panning(self.right_frame, self.right_frame)
+        self._update_page_nav_controls("result", len(self._result_page_widgets))
 
     # -- magic pen: toolbar -------------------------------------------------
 
     def _build_magic_pen_sidebar(self, parent: ctk.CTkFrame) -> ctk.CTkFrame:
-        """The right-hand "Korekta anonimizacji" panel: the pinnable tool
-        buttons plus the color legend, stacked vertically - a fixed-width
-        column standing beside both preview panes rather than a toolbar
-        row above one of them. Moving the tools here also retires the
-        toolbar-above-header/matching-spacer trick from earlier the same
-        day: with no toolbar row sitting above "Po anonimizacji" anymore,
-        both pane headers are simply identical again and naturally start
-        at the same height with nothing extra needed.
+        """The right-hand "Korekta anonimizacji" panel: the lock notice
+        (approved files) or a short reminder of how the pen works, plus
+        the color legend - a fixed-width column standing beside both
+        preview panes rather than a toolbar row above one of them.
+
+        Collapsible (see _toggle_legend_sidebar_collapsed): on a narrow
+        window this fixed-width column used to simply get clipped by
+        Tk's pack() ordering - fixed now by packing it before the paned
+        splitter (see __init__) - but a narrow window still has less
+        room to spare overall, so a header toggle lets the user
+        deliberately trade the legend away for more document space
+        instead of the window doing it to them.
+
+        The draw/erase tool chips used to live here too, but per direct
+        user feedback they need to stay reachable even while this panel
+        is collapsed - they now live in the always-visible bottom action
+        bar instead (see __init__'s bottom_actions), which also means
+        this sidebar's own content is legend-only content now.
         """
+        if self.legend_sidebar_collapsed:
+            return self._build_collapsed_legend_rail(parent)
+
         sidebar = ctk.CTkFrame(
             parent,
             fg_color=COLOR_CARD,
@@ -1105,41 +1374,71 @@ class ComparisonWindow:
         inner = ctk.CTkFrame(sidebar, fg_color="transparent")
         inner.pack(fill="both", expand=True, padx=14, pady=14)
 
+        header_row = ctk.CTkFrame(inner, fg_color="transparent")
+        header_row.pack(fill="x", pady=(0, 10))
         ctk.CTkLabel(
-            inner,
+            header_row,
             text="Korekta anonimizacji",
             font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
             text_color=COLOR_TEXT,
             anchor="w",
-        ).pack(fill="x", pady=(0, 10))
-
-        # Modeless by default: LMB draws a new redaction, RMB always
-        # toggles an existing one, no mode to switch first. These are
-        # also clickable: clicking one pins LMB to that single action (a
-        # "manual" mode for anyone who'd rather pick a tool explicitly
-        # than remember which mouse button does what) - clicking the same
-        # one again returns to the modeless default. Independently of
-        # pinning, a chip also lights up for as long as its action is
-        # actually in progress (LMB held down / RMB clicked), so these
-        # double as a live "this is what's happening" indicator too.
-        self._tool_chips["draw"] = self._build_tool_chip(
-            inner, "✏", "Dodaj zaznaczenie", "draw"
-        )
-        self._tool_chips["erase"] = self._build_tool_chip(
-            inner, "🧹", "Usuń zaznaczenie", "erase"
-        )
-        self._refresh_tool_chip_visuals()
-
-        self.pen_status_label = ctk.CTkLabel(
-            inner,
-            text="",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+        ).pack(side="left")
+        collapse_button = ctk.CTkButton(
+            header_row,
+            text="»",
+            width=22,
+            height=20,
+            corner_radius=6,
+            fg_color="transparent",
+            hover_color=COLOR_ICON_IDLE,
             text_color=COLOR_TEXT_MUTED,
-            anchor="w",
-            wraplength=168,
-            justify="left",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            command=self._toggle_legend_sidebar_collapsed,
         )
-        self.pen_status_label.pack(fill="x", pady=(4, 0))
+        collapse_button.pack(side="right")
+        IconTooltip(collapse_button, "Ukryj legendę")
+
+        if self.locked:
+            # Approved files render read-only: no tool chips, no drag/
+            # click bindings on the canvas (see _build_magic_pen_pane) -
+            # approving is a deliberate one-way "this is final" action
+            # (ApprovalLockWarningDialog warns about exactly this before
+            # the app ever sets the status), so the editor must actually
+            # honor that once it happens, not just warn about it.
+            lock_card = ctk.CTkFrame(inner, fg_color=COLOR_BG, corner_radius=8)
+            lock_card.pack(fill="x", pady=(0, 10))
+            ctk.CTkLabel(
+                lock_card,
+                text="🔒 Plik zatwierdzony",
+                font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
+                text_color=COLOR_TEXT,
+                anchor="w",
+            ).pack(fill="x", padx=10, pady=(8, 2))
+            ctk.CTkLabel(
+                lock_card,
+                text=(
+                    "Edycja niedostępna. Aby wprowadzić zmiany, uruchom "
+                    "anonimizację tego pliku ponownie."
+                ),
+                font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+                text_color=COLOR_TEXT_MUTED,
+                anchor="w",
+                wraplength=168,
+                justify="left",
+            ).pack(fill="x", padx=10, pady=(0, 8))
+        else:
+            ctk.CTkLabel(
+                inner,
+                text=(
+                    "LPM: nowe zaznaczenie. PPM: usuń istniejące. "
+                    "Narzędzia i licznik zmian - na dole okna."
+                ),
+                font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+                text_color=COLOR_TEXT_MUTED,
+                anchor="w",
+                wraplength=168,
+                justify="left",
+            ).pack(fill="x", pady=(0, 10))
 
         ctk.CTkFrame(inner, fg_color=COLOR_BORDER, height=1).pack(fill="x", pady=14)
 
@@ -1172,37 +1471,75 @@ class ComparisonWindow:
 
         return sidebar
 
+    def _build_collapsed_legend_rail(self, parent: ctk.CTkFrame) -> ctk.CTkFrame:
+        """The slim stand-in for _build_magic_pen_sidebar once collapsed -
+        just a reopen toggle. Safe to hide everything else: the tool
+        chips and pen-status label live in the always-visible bottom
+        action bar regardless (see __init__), not here, so nothing
+        functional is lost by collapsing this panel - only the legend
+        and the lock notice, which is exactly the trade the user asked
+        for (more document space, legend hidden until wanted back).
+        """
+        rail = ctk.CTkFrame(
+            parent,
+            fg_color=COLOR_CARD,
+            corner_radius=10,
+            border_width=1,
+            border_color=COLOR_BORDER,
+            width=36,
+        )
+        rail.pack_propagate(False)
+        reopen_button = ctk.CTkButton(
+            rail,
+            text="«",
+            width=24,
+            height=24,
+            corner_radius=6,
+            fg_color=COLOR_ICON_IDLE,
+            hover_color=COLOR_ACCENT_HOVER,
+            text_color=COLOR_TEXT,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            command=self._toggle_legend_sidebar_collapsed,
+        )
+        reopen_button.pack(pady=10)
+        IconTooltip(reopen_button, "Pokaż legendę")
+        return rail
+
+    def _toggle_legend_sidebar_collapsed(self) -> None:
+        self.legend_sidebar_collapsed = not self.legend_sidebar_collapsed
+        if self._sidebar_widget is not None:
+            self._sidebar_widget.destroy()
+            self._sidebar_widget = None
+        if self.content_row is not None and self.magic_pen_available:
+            self._sidebar_widget = self._build_magic_pen_sidebar(self.content_row)
+            self._sidebar_widget.pack(side="right", fill="y", padx=(12, 0))
+
     def _build_tool_chip(
         self, parent: ctk.CTkFrame, glyph: str, label: str, tool: str
-    ) -> tuple[ctk.CTkFrame, ctk.CTkLabel, ctk.CTkLabel]:
-        chip = ctk.CTkFrame(parent, fg_color=COLOR_BG, corner_radius=8, cursor="hand2")
-        chip.pack(fill="x", pady=(0, 8))
-        row = ctk.CTkFrame(chip, fg_color="transparent")
-        row.pack(fill="x", padx=10, pady=8)
-        glyph_label = ctk.CTkLabel(
-            row,
-            text=glyph,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=14),
-            text_color=COLOR_TEXT,
-        )
-        glyph_label.pack(side="left", padx=(0, 8))
-        text_label = ctk.CTkLabel(
-            row,
-            text=label,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
+    ) -> ctk.CTkButton:
+        # A compact single button rather than the wider vertical card
+        # this used when it lived in the (now-collapsible) sidebar - it
+        # sits in a horizontal bottom row now, next to its sibling and
+        # the save/cancel buttons, so it needs to stay narrow.
+        chip = ctk.CTkButton(
+            parent,
+            text=f"{glyph} {label}",
+            height=28,
+            corner_radius=8,
+            fg_color=COLOR_BG,
+            hover_color=COLOR_ICON_IDLE,
             text_color=COLOR_TEXT_MUTED,
-            anchor="w",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11, weight="bold"),
+            command=lambda t=tool: self._toggle_pinned_tool(t),
         )
-        text_label.pack(side="left", fill="x", expand=True)
-        for widget in (chip, row, glyph_label, text_label):
-            widget.bind("<Button-1>", lambda _e, t=tool: self._toggle_pinned_tool(t))
+        chip.pack(side="left", padx=(0, 8))
         IconTooltip(
             chip,
             "Kliknij, aby przypisać LPM tylko do tego narzędzia (tryb ręczny). "
             "PPM zawsze usuwa zaznaczenie, niezależnie od wybranego trybu. "
             "Kliknij ponownie, aby wrócić do trybu automatycznego.",
         )
-        return (chip, glyph_label, text_label)
+        return chip
 
     def _toggle_pinned_tool(self, tool: str) -> None:
         self.pinned_tool = None if self.pinned_tool == tool else tool
@@ -1220,27 +1557,17 @@ class ComparisonWindow:
         self._refresh_tool_chip_visuals()
 
     def _refresh_tool_chip_visuals(self) -> None:
-        for tool, chip_widgets in self._tool_chips.items():
+        for tool, chip in self._tool_chips.items():
             self._set_tool_chip_active(
-                chip_widgets,
+                chip,
                 active=(self.pinned_tool == tool or self._transient_tool == tool),
             )
 
-    def _set_tool_chip_active(
-        self,
-        chip_widgets: tuple[ctk.CTkFrame, ctk.CTkLabel, ctk.CTkLabel],
-        *,
-        active: bool,
-    ) -> None:
-        chip, glyph_label, text_label = chip_widgets
+    def _set_tool_chip_active(self, chip: ctk.CTkButton, *, active: bool) -> None:
         if active:
-            chip.configure(fg_color=COLOR_ACCENT)
-            glyph_label.configure(text_color="#FFFFFF")
-            text_label.configure(text_color="#FFFFFF")
+            chip.configure(fg_color=COLOR_ACCENT, text_color="#FFFFFF")
         else:
-            chip.configure(fg_color=COLOR_CARD)
-            glyph_label.configure(text_color=COLOR_TEXT)
-            text_label.configure(text_color=COLOR_TEXT_MUTED)
+            chip.configure(fg_color=COLOR_BG, text_color=COLOR_TEXT_MUTED)
 
     # -- magic pen: rendering -------------------------------------------------
 
@@ -1290,31 +1617,36 @@ class ComparisonWindow:
                         height=pix.height,
                         highlightthickness=0,
                         bg="#FFFFFF",
-                        cursor="tcross",
+                        cursor="arrow" if self.locked else "tcross",
                     )
                     canvas.pack(pady=6)
                     canvas.create_image(0, 0, anchor="nw", image=tk_image)
                     self._page_canvases[page_index] = canvas
                     self._page_zoom[page_index] = zoom
-                    # Modeless: left button always draws a new redaction,
-                    # right button always toggles an existing one - no mode
-                    # to switch first.
-                    canvas.bind(
-                        "<ButtonPress-1>",
-                        lambda event, p=page_index: self._on_pane_press(event, p),
-                    )
-                    canvas.bind(
-                        "<B1-Motion>",
-                        lambda event, p=page_index: self._on_pane_drag(event, p),
-                    )
-                    canvas.bind(
-                        "<ButtonRelease-1>",
-                        lambda event, p=page_index: self._on_pane_release(event, p),
-                    )
-                    canvas.bind(
-                        "<ButtonPress-3>",
-                        lambda event, p=page_index: self._on_pane_right_click(event, p),
-                    )
+                    if not self.locked:
+                        # Modeless: left button always draws a new
+                        # redaction, right button always toggles an
+                        # existing one - no mode to switch first. An
+                        # approved (locked) file skips all four bindings
+                        # entirely rather than binding-then-ignoring, so
+                        # the canvas genuinely behaves like a plain,
+                        # non-interactive preview.
+                        canvas.bind(
+                            "<ButtonPress-1>",
+                            lambda event, p=page_index: self._on_pane_press(event, p),
+                        )
+                        canvas.bind(
+                            "<B1-Motion>",
+                            lambda event, p=page_index: self._on_pane_drag(event, p),
+                        )
+                        canvas.bind(
+                            "<ButtonRelease-1>",
+                            lambda event, p=page_index: self._on_pane_release(event, p),
+                        )
+                        canvas.bind(
+                            "<ButtonPress-3>",
+                            lambda event, p=page_index: self._on_pane_right_click(event, p),
+                        )
         except Exception:  # noqa: BLE001 - preview must never crash the app
             ctk.CTkLabel(
                 parent,
@@ -1324,6 +1656,7 @@ class ComparisonWindow:
                 justify="left",
             ).pack(pady=30, padx=16)
             self.magic_pen_available = False
+        self._update_page_nav_controls("result", len(self._page_canvases))
 
     def _reload_pdf_pane(self) -> None:
         if self.right_frame is None:

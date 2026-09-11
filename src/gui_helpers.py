@@ -105,19 +105,23 @@ WINDOW_DEFAULT_SIZE = "960x680"
 SELECTED_FILE_LIST_HEIGHT = 6
 # Bounds the selected-files list to a fixed height with its own internal
 # scrollbar once it holds more entries than fit - without this, adding
-# enough files pushes the output-folder row and the "Anonimizuj" button
-# below the window with no way to reach them at all (self.content itself
-# does not scroll). Kept deliberately small (space for ~3 cards) so the
-# always-visible action controls stay the priority even on a short window.
-FILE_LIST_MAX_HEIGHT = 168
+# enough files pushes the rest of the scrollable column below the window
+# with no way to reach it at all (self.content itself does not scroll).
+# Grown from the original 168 once the output-folder row and "Anonimizuj"
+# button moved out of this column into the always-visible "Szybkie akcje"
+# panel (see _build_quick_settings_panel) - per direct user feedback that
+# the freed vertical space should show more of the file list, not sit
+# unused.
+FILE_LIST_MAX_HEIGHT = 320
 # Header row layout switches from side-by-side to stacked (see
 # _update_header_layout) once the window narrows past this content width,
 # so the handwritten-style personal note never gets clipped.
 HEADER_STACK_BREAKPOINT = 640
-# The start screen's quick-settings side panel is only shown above this
-# window width - checked once at build time (not re-flowed live like the
-# header, since this is a nice-to-have panel, not a control that must
-# always be reachable) so it never squeezes the main column unusably.
+# No longer read anywhere in gui_app.py - the quick-settings panel used to
+# hide below this window width, but that gate was removed once the panel
+# started carrying the "Anonimizuj" button itself (hiding it would have
+# hidden the button too). Kept defined only because gui.py's compatibility
+# shim still re-exports it as part of the public `from gui import X` API.
 QUICK_SETTINGS_MIN_WIDTH = 880
 QUICK_SETTINGS_PANEL_WIDTH = 240
 LLM_NO_MODELS_HINT = "No local Ollama models found. Install/pull a model first."
@@ -232,6 +236,84 @@ def format_recent_folder_timestamp(timestamp: str) -> str:
     except ValueError:
         return "nieznana data"
     return parsed.strftime("%d.%m.%Y, %H:%M")
+
+
+def ui_hints_config_path() -> Path:
+    """Return the local file that remembers which one-time UI hints/
+    warnings (the comparison window's zoom-link toggle, the approval
+    lock-in warning, ...) the user has already dismissed - shared across
+    every screen rather than each keeping its own file, so a single
+    "restore this warning" action in Settings has one place to reach
+    into. Stores hint ids only - never document content, folder paths,
+    or anything else about what the user processed.
+    """
+    return Path.home() / ".anonimizer" / "ui_hints_seen.json"
+
+
+def load_seen_hints(config_path: Path) -> set[str]:
+    """Load the set of already-dismissed hint ids, tolerating a missing/
+    corrupt file."""
+    try:
+        raw = json.loads(config_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return set()
+    if not isinstance(raw, list):
+        return set()
+    return {str(item) for item in raw if isinstance(item, str)}
+
+
+def save_seen_hints(config_path: Path, hint_ids: set[str]) -> None:
+    """Persist the dismissed-hints set, creating the config folder if needed."""
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(
+        json.dumps(sorted(hint_ids), ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+
+# Hint ids stored in ui_hints_config_path(). ZOOM_LINK_HINT_ID marks the
+# comparison window's zoom-link toggle tooltip as already auto-flashed
+# once; APPROVAL_LOCK_HINT_ID marks the "approving locks this file"
+# warning (see ApprovalLockWarningDialog in gui_dialogs.py) as dismissed
+# via its own "Nie pokazuj ponownie" checkbox - both survive an app
+# restart and both can be brought back from Settings > Ogólne.
+ZOOM_LINK_HINT_ID = "zoom_link_toggle"
+APPROVAL_LOCK_HINT_ID = "approval_lock_warning"
+
+
+def hint_is_dismissed(hint_id: str) -> bool:
+    """True once the user has dismissed the given one-time hint/warning
+    (directly, or via its own "don't show again" checkbox) - persists
+    across restarts, tolerating a missing/corrupt config file the same
+    way every other local config in this app does."""
+    return hint_id in load_seen_hints(ui_hints_config_path())
+
+
+def dismiss_hint(hint_id: str) -> None:
+    """Mark a hint/warning as dismissed so it stops appearing. Silently
+    does nothing on a write failure (e.g. a read-only home folder) -
+    this is a cosmetic preference, never worth crashing the app over."""
+    config_path = ui_hints_config_path()
+    seen = load_seen_hints(config_path)
+    seen.add(hint_id)
+    try:
+        save_seen_hints(config_path, seen)
+    except OSError:
+        pass
+
+
+def restore_hint(hint_id: str) -> None:
+    """Undo dismiss_hint(hint_id) - the Settings-side "show this warning
+    again" action. A no-op if the hint was never dismissed in the first
+    place."""
+    config_path = ui_hints_config_path()
+    seen = load_seen_hints(config_path)
+    if hint_id not in seen:
+        return
+    seen.discard(hint_id)
+    try:
+        save_seen_hints(config_path, seen)
+    except OSError:
+        pass
 
 
 def _file_word(count: int) -> str:
@@ -786,6 +868,30 @@ def format_anonymize_button_text(input_file_count: int) -> str:
     return f"Anonimizuj {input_file_count} {_pl_file_word(input_file_count)}"
 
 
+def format_approval_lock_warning_title(count: int) -> str:
+    """Title for ApprovalLockWarningDialog, for one file or several at once
+    (bulk "Zatwierdź zaznaczone")."""
+    return "Zatwierdzić plik?" if count <= 1 else "Zatwierdzić pliki?"
+
+
+def format_approval_lock_warning_text(count: int) -> str:
+    """Body text for ApprovalLockWarningDialog, correctly pluralized for
+    Polish - approving is a one-way action (see ComparisonWindow.locked):
+    the magic pen stops accepting edits on an approved file, and the only
+    way back is re-running anonymization on it from scratch.
+    """
+    if count <= 1:
+        subject = "Ten plik"
+        verb = "nie będzie"
+    else:
+        subject = f"Wybrane {count} {_pl_file_word(count)}"
+        verb = "nie będą"
+    return (
+        f"{subject} po zatwierdzeniu {verb} już edytowalne magic penem - "
+        "aby wprowadzić zmiany, trzeba będzie uruchomić anonimizację od nowa."
+    )
+
+
 def format_short_path(path: Path, max_length: int = 48) -> str:
     """Shorten a long path for display, keeping the most relevant tail.
 
@@ -930,6 +1036,49 @@ def format_batch_error_items(batch_result: BatchResult) -> list[tuple[str, str]]
     ]
 
 
+def apply_subtle_scrollbar(scrollable_frame) -> None:
+    """Restyle one CTkScrollableFrame's built-in scrollbar to stay out of
+    the way: an invisible track, a low-contrast thumb the rest of the
+    time, and a slightly more visible thumb only while the pointer is
+    actually over the scrollable area (which is also, in practice,
+    whenever the user is using the mouse wheel to scroll it - scrolling
+    requires hovering over the content first). Direct user feedback: the
+    default scrollbars "weren't pretty" and drew more attention than a
+    scrollbar should; this is applied to every CTkScrollableFrame in the
+    app rather than styled ad hoc per screen.
+
+    CTkScrollbar's button_color does not support "transparent" the way
+    fg_color does (only fg_color is created with transparency=True
+    upstream) - COLOR_SCROLLBAR_IDLE is a real, near-background color
+    instead, close enough to both COLOR_BG and COLOR_CARD to read as
+    "gone" without actually being an unsupported value.
+    """
+    scrollbar = getattr(scrollable_frame, "_scrollbar", None)
+    if scrollbar is None:
+        return
+    scrollbar.configure(
+        fg_color="transparent",
+        button_color=COLOR_SCROLLBAR_IDLE,
+        button_hover_color=COLOR_SCROLLBAR_HOVER,
+    )
+
+    def _show(_event: object = None) -> None:
+        scrollbar.configure(button_color=COLOR_SCROLLBAR_HOVER)
+
+    def _hide(_event: object = None) -> None:
+        scrollbar.configure(button_color=COLOR_SCROLLBAR_IDLE)
+
+    # Bind on both the scrollable frame's content area and its outer
+    # parent frame (which also contains the scrollbar itself) so hovering
+    # the thumb to actually grab it does not immediately hide it again.
+    hover_targets = [scrollable_frame, getattr(scrollable_frame, "_parent_frame", None)]
+    for target in hover_targets:
+        if target is None:
+            continue
+        target.bind("<Enter>", _show, add="+")
+        target.bind("<Leave>", _hide, add="+")
+
+
 def environment_status_lookup(items: Sequence | None) -> dict[str, bool]:
     """Return {item_id: ok} from a list of EnvironmentCheckItem, or an
     empty dict if the background check hasn't completed yet (items is
@@ -1004,6 +1153,13 @@ COLOR_SIDEBAR_HOVER = "#22336E"
 COLOR_SIDEBAR_TEXT = "#AEB8DA"
 COLOR_SIDEBAR_TEXT_MUTED = "#7C87AC"
 COLOR_SIDEBAR_TRUST_BG = "#1E2E63"
+# Scrollbar thumb colors for apply_subtle_scrollbar() below - low-contrast
+# on purpose (direct user feedback: the default CTk scrollbars "weren't
+# pretty" and drew the eye more than a scrollbar should). SCROLLBAR_IDLE
+# is close enough to both COLOR_BG and COLOR_CARD that the thumb all but
+# disappears until the pointer is actually over the scrollable area.
+COLOR_SCROLLBAR_IDLE = "#E3E7F1"
+COLOR_SCROLLBAR_HOVER = "#B7C0D6"
 FONT_FAMILY = "Segoe UI"
 FILE_TYPE_COLORS = {
     "PDF": "#E24A4A",

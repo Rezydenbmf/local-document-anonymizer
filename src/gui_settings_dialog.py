@@ -17,6 +17,7 @@ try:
         install_tesseract_language,
     )
     from .gui_helpers import (
+        APPROVAL_LOCK_HINT_ID,
         COLOR_ACCENT,
         COLOR_ACCENT_HOVER,
         COLOR_BG,
@@ -33,6 +34,8 @@ try:
         _bring_window_to_front,
         environment_status_lookup,
         format_llm_model_selector_state,
+        hint_is_dismissed,
+        restore_hint,
     )
     from .llm_review import list_installed_models
     from .ocr import (
@@ -47,6 +50,7 @@ except ImportError:
         install_tesseract_language,
     )
     from gui_helpers import (
+        APPROVAL_LOCK_HINT_ID,
         COLOR_ACCENT,
         COLOR_ACCENT_HOVER,
         COLOR_BG,
@@ -63,6 +67,8 @@ except ImportError:
         _bring_window_to_front,
         environment_status_lookup,
         format_llm_model_selector_state,
+        hint_is_dismissed,
+        restore_hint,
     )
     from llm_review import list_installed_models
     from ocr import (
@@ -103,6 +109,7 @@ class SettingsDialog:
         self.ocr_language_add_button: ctk.CTkButton | None = None
         self.detection_tab: ctk.CTkFrame | None = None
         self._ocr_language_code_by_label: dict[str, str] = {}
+        self.approval_warning_status_label: ctk.CTkLabel | None = None
 
         self._build(initial_tab)
 
@@ -262,6 +269,62 @@ class SettingsDialog:
             "Dymki tłumaczące np. narzędzia łapki/lupy w podglądzie porównania",
             self.show_hints_var,
         )
+        self._build_restore_approval_warning_section(tab)
+
+    def _build_restore_approval_warning_section(self, parent: ctk.CTkFrame) -> None:
+        """A "bring it back" action for the approval lock-in warning
+        (ApprovalLockWarningDialog) once someone has dismissed it via its
+        own "Nie pokazuj ponownie" checkbox - that checkbox has no other
+        way to be undone, per direct user feedback that a permanently
+        dismissible one-way warning still needs a way back.
+        """
+        frame = self._section_frame(parent)
+        row = ctk.CTkFrame(frame, fg_color="transparent")
+        row.pack(fill="x", padx=14, pady=12)
+        text_col = ctk.CTkFrame(row, fg_color="transparent")
+        text_col.pack(side="left", fill="x", expand=True)
+        ctk.CTkLabel(
+            text_col,
+            text="Ostrzeżenie przy zatwierdzaniu",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+            text_color=COLOR_TEXT,
+            anchor="w",
+        ).pack(fill="x")
+        self.approval_warning_status_label = ctk.CTkLabel(
+            text_col,
+            text=self._approval_warning_status_text(),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLOR_TEXT_MUTED,
+            anchor="w",
+        )
+        self.approval_warning_status_label.pack(fill="x")
+        ctk.CTkButton(
+            row,
+            text="Przywróć",
+            width=90,
+            height=28,
+            corner_radius=8,
+            fg_color="transparent",
+            border_width=1,
+            border_color=COLOR_BORDER,
+            hover_color=COLOR_ICON_IDLE,
+            text_color=COLOR_TEXT,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            command=self._restore_approval_warning,
+        ).pack(side="right")
+
+    @staticmethod
+    def _approval_warning_status_text() -> str:
+        if hint_is_dismissed(APPROVAL_LOCK_HINT_ID):
+            return "Ukryte (zaznaczono \"Nie pokazuj ponownie\")"
+        return "Widoczne przy każdym zatwierdzaniu"
+
+    def _restore_approval_warning(self) -> None:
+        restore_hint(APPROVAL_LOCK_HINT_ID)
+        if self.approval_warning_status_label is not None:
+            self.approval_warning_status_label.configure(
+                text=self._approval_warning_status_text()
+            )
 
     def _section_frame(self, parent: ctk.CTkFrame) -> ctk.CTkFrame:
         frame = ctk.CTkFrame(

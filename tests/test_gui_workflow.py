@@ -21,6 +21,7 @@ from anonymizer import (
 )
 from environment_check import EnvironmentCheckItem
 from gui import (
+    APPROVAL_LOCK_HINT_ID,
     LLM_MODELS_FOUND_HINT,
     LLM_NO_MODELS_HINT,
     PDF_OUTPUT_LABEL_ORIGINAL_SAFE,
@@ -38,12 +39,15 @@ from gui import (
     clamp_zoom_level,
     ctk_widget_scaling_factor,
     default_output_directory,
+    dismiss_hint,
     environment_status_lookup,
     file_type_badge,
     filter_supported_paths,
     find_rect_at_point,
     format_anonymize_button_text,
     format_anonymize_readiness,
+    format_approval_lock_warning_text,
+    format_approval_lock_warning_title,
     format_approved_export_status,
     format_audit_result,
     format_batch_audit_result,
@@ -59,6 +63,7 @@ from gui import (
     format_review_summary_line,
     format_selected_file_count,
     format_short_path,
+    hint_is_dismissed,
     history_config_path,
     is_degenerate_drag_rect,
     load_recent_folders,
@@ -73,6 +78,7 @@ from gui import (
     pdf_redaction_scope_from_gui_label,
     record_recent_folder,
     remove_paths_by_indexes,
+    restore_hint,
     restrict_review_items_to_batch,
     review_status_label_pl,
     risk_style_key,
@@ -808,6 +814,53 @@ class GuiWorkflowTests(unittest.TestCase):
 
             self.assertEqual(load_seen_hints(path), {"zoom_link_toggle", "another_hint"})
 
+    def test_hint_is_dismissed_is_false_before_dismiss_hint_is_called(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            config_path = Path(temp_dir) / "hints" / "seen.json"
+            with patch("gui_helpers.ui_hints_config_path", return_value=config_path):
+                self.assertFalse(hint_is_dismissed(APPROVAL_LOCK_HINT_ID))
+
+    def test_dismiss_hint_then_restore_hint_round_trips(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            config_path = Path(temp_dir) / "hints" / "seen.json"
+            with patch("gui_helpers.ui_hints_config_path", return_value=config_path):
+                dismiss_hint(APPROVAL_LOCK_HINT_ID)
+                self.assertTrue(hint_is_dismissed(APPROVAL_LOCK_HINT_ID))
+
+                restore_hint(APPROVAL_LOCK_HINT_ID)
+                self.assertFalse(hint_is_dismissed(APPROVAL_LOCK_HINT_ID))
+
+    def test_dismiss_hint_does_not_disturb_other_already_dismissed_hints(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            config_path = Path(temp_dir) / "hints" / "seen.json"
+            with patch("gui_helpers.ui_hints_config_path", return_value=config_path):
+                dismiss_hint("zoom_link_toggle")
+                dismiss_hint(APPROVAL_LOCK_HINT_ID)
+
+                self.assertTrue(hint_is_dismissed("zoom_link_toggle"))
+                self.assertTrue(hint_is_dismissed(APPROVAL_LOCK_HINT_ID))
+
+    def test_restore_hint_is_a_no_op_when_never_dismissed(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            config_path = Path(temp_dir) / "hints" / "seen.json"
+            with patch("gui_helpers.ui_hints_config_path", return_value=config_path):
+                restore_hint(APPROVAL_LOCK_HINT_ID)
+                self.assertFalse(hint_is_dismissed(APPROVAL_LOCK_HINT_ID))
+
+    def test_format_approval_lock_warning_title_singular_and_plural(self) -> None:
+        self.assertEqual(format_approval_lock_warning_title(1), "Zatwierdzić plik?")
+        self.assertEqual(format_approval_lock_warning_title(3), "Zatwierdzić pliki?")
+
+    def test_format_approval_lock_warning_text_singular(self) -> None:
+        text = format_approval_lock_warning_text(1)
+        self.assertIn("Ten plik", text)
+        self.assertIn("nie będzie", text)
+        self.assertIn("uruchomić anonimizację od nowa", text)
+
+    def test_format_approval_lock_warning_text_plural_uses_polish_word_forms(self) -> None:
+        self.assertIn("2 pliki", format_approval_lock_warning_text(2))
+        self.assertIn("5 plików", format_approval_lock_warning_text(5))
+        self.assertIn("nie będą", format_approval_lock_warning_text(2))
 
     def test_batch_error_label_pl_translates_known_codes(self) -> None:
         self.assertIn(
