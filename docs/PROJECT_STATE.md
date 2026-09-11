@@ -2009,6 +2009,44 @@ lint unchanged against baseline.
 9d05751 Split src/gui.py (5436 lines) into 6 focused modules
 ```
 
+The user shared a real, badly garbled OCR result from their own scanned
+employment contract ("so ymayna 2 9422 Yara" instead of readable Polish)
+and asked how to fix it. Root-caused directly from the code rather than
+guessing: `ocr.py`'s two `pytesseract.image_to_string(image)` calls never
+passed a `lang` argument, so Tesseract used its own default - English -
+to read a Polish document. English OCR on Polish text doesn't fail
+loudly; it silently misreads diacritics (ą, ę, ć, ł, ń, ó, ś, ź, ż) and
+Polish letter combinations into plausible-looking wrong characters,
+exactly matching the reported symptom. A second, compounding factor
+found while fixing the first: `extract_text_from_pdf` rendered each PDF
+page for OCR via a bare `page.get_pixmap()` - PyMuPDF's default 72 DPI,
+well below the ~300 DPI Tesseract's own documentation recommends.
+
+Fixed both. A new `_ocr_language()` queries `pytesseract.get_languages()`
+and prefers `"pol+eng"` (Polish primary, English still recognized for
+the Latin abbreviations - NIP, REGON, IBAN - common in Polish business
+documents), falling back to `"pol"` alone or `"eng"` alone depending on
+what's actually installed, never raising - a wrong/missing language
+degrades quality but must not crash OCR outright. Both `image_to_string`
+call sites now pass `lang=`. `extract_text_from_pdf` now renders via a
+new `OCR_PDF_RENDER_ZOOM = 3.0` matrix (216 DPI) instead of the bare
+default. Both fixes are silent no-ops if Tesseract's Polish trained-data
+file (`pol.traineddata`) genuinely isn't installed on the user's machine
+(falls back to `"eng"`, same as before) - confirming/installing it is a
+one-time step outside this app's control, communicated back to the user
+directly rather than assumed. Verified with new unit tests
+(`OcrLanguageTests`, `OcrCallsUseDetectedLanguageTests`) using fake
+pytesseract/fitz modules that capture the actual `lang=`/`matrix=`
+arguments passed, not just that the helper function exists in isolation.
+Full suite: 383 tests (6 new), lint unchanged against baseline (one new
+`except Exception` in `_ocr_language` needed the same `# noqa: BLE001`
+justification already used for other never-crash cosmetic/optional-
+feature catches elsewhere in the codebase).
+
+```text
+a96fd3a Fix garbled OCR on Polish documents: wrong language + low DPI
+```
+
 ## Next Logical Step
 
 The pilot-feedback batch's Stage B (mockup visual-fidelity pass) is done -
