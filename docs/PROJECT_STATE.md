@@ -2300,7 +2300,145 @@ layout) plus the passing import/lint/test checks.
 68132a9 Restyle sidebar/update banner and move Anonimizuj + folder picker into Szybkie akcje panel
 ```
 
+A second, larger round of hands-on feedback followed the same day, eight
+items given together, covering both the start screen and the magic-pen
+comparison window:
+
+1. The file list can grow now that `bottom_bar` is gone from the center
+   column - `FILE_LIST_MAX_HEIGHT` (`gui_helpers.py`) raised from 168 to
+   320.
+2. Every `CTkScrollableFrame` in the app got a new `apply_subtle_scrollbar`
+   treatment (`gui_helpers.py`): an invisible track, a low-contrast thumb
+   by default, and a slightly more visible thumb only while the pointer is
+   over the scrollable area - CTkScrollbar's `button_color` does not
+   support `"transparent"` the way `fg_color` does, so this uses a real,
+   near-background color (`COLOR_SCROLLBAR_IDLE`) instead. Applied to all
+   eight `CTkScrollableFrame` instances across `gui_app.py`,
+   `gui_comparison_window.py`, and `gui_dialogs.py`.
+3. The drag-and-drop zone is now exactly half the column's width,
+   centered, via a 3-column grid (weights 1:2:1) inside a new `drop_wrap`
+   frame - stays exactly half regardless of window size, rather than a
+   fixed pixel width.
+4. The "Szybkie akcje" panel is now collapsible: a "»" header button
+   slides it down to a 64px rail with just a reopen toggle and an
+   icon-only "▶" "Anonimizuj" button (`_build_collapsed_quick_actions_rail`
+   in `gui_app.py`) - `self.status_label`/`self.output_dir_value_label`
+   are simply not built in that state, which `_update_readiness` and
+   `pick_output_dir` already null-check before touching, so no new
+   guards were needed there. `_update_readiness` was taught not to
+   overwrite the collapsed button's icon-only text with
+   `format_anonymize_button_text`'s full label.
+5. Direct follow-up question revealed the magic pen could *already*
+   un-redact an auto-detected rectangle (RMB, or LMB pinned to "erase") -
+   that half of the ask was already shipped. What was missing: approving
+   a file needs to be a deliberate, warned, one-way action. New
+   `ApprovalLockWarningDialog` (`gui_dialogs.py`) - amber warning card,
+   "Nie pokazuj ponownie" checkbox, "Zatwierdź"/"Anuluj" - shown once per
+   dismissal via `gui_app.py`'s `_confirm_then_approve`
+   (`set_review_status`'s two existing callers, the per-card icon button
+   and the bulk "Zatwierdź zaznaczone", now both route through it; an
+   already-approved item is filtered out first so re-clicking "✓" is a
+   silent no-op, not a repeat warning). `ComparisonWindow` gained
+   `self.locked = item.status == REVIEW_STATUS_APPROVED`: locked, the
+   sidebar shows a "🔒 Plik zatwierdzony" notice instead of the tool
+   chips, the per-page canvases skip all four mouse bindings entirely
+   (cursor "arrow" not "tcross"), and the save/cancel row is not built -
+   structurally impossible to produce a pending edit, not just visually
+   discouraged. The "don't show again" checkbox persists via a new
+   generic hint-dismissal trio in `gui_helpers.py` -
+   `hint_is_dismissed`/`dismiss_hint`/`restore_hint`, all built on
+   `ui_hints_config_path`/`load_seen_hints`/`save_seen_hints` (moved here
+   from `gui_comparison_window.py`, which now imports them back - shared
+   by both, and by `gui_dialogs.py`) - and a new "Ostrzeżenie przy
+   zatwierdzaniu" section in Settings > Ogólne can restore it.
+6. Page navigation in the comparison window: `render_document_preview`
+   now returns a `RenderedPreview` NamedTuple (`images`, `page_widgets`,
+   `page_count`) instead of a bare image list - a page-number -> widget
+   map for the "Oryginał" pane, populated alongside the existing
+   `self._page_canvases` the magic-pen result pane already had for its
+   own purposes. `_build_pane_header` gained a second row (◀, an
+   editable page-number entry, "/ N", ▶) - built eagerly but only
+   `pack()`-ed once a render reports `page_count > 1`. Jumping to a page
+   is an anchor-style scroll (`_scroll_frame_to_widget`, using the same
+   private `_parent_canvas`/`bbox("all")`/`yview_moveto` reach-in every
+   other scroll-control method here already uses) - approximate, not
+   pixel-perfect, but lands on the right page. `_go_to_page_absolute`
+   mirrors the same page number onto the other pane while `zoom_linked`
+   is on (reusing that existing toggle as the "sync" flag per the user's
+   own words), guarded with `mirror=False` on the recursive call.
+7. The legend/tool-chip sidebar could get silently clipped on a narrow
+   comparison window - root-caused to packing order: it was packed
+   *after* the expand=True paned splitter, so Tk's pack() (space handed
+   out in packing order, the same rule this project has leaned on
+   several times before) squeezed it first. Fixed at the root by packing
+   it before the splitter now (still visually the right-hand column,
+   since `side="right"` reserves its space from the row's right edge
+   regardless of order) - and made collapsible on top of that
+   (`_build_collapsed_legend_rail`, same "»"/"«" toggle pattern as the
+   Szybkie akcje panel), so the user can choose to trade the legend away
+   for space rather than the window doing it to them. The draw/erase
+   tool chips moved out of this sidebar entirely into the always-visible
+   bottom action bar (next to Zapisz/Anuluj) per the explicit ask that
+   they "stay their own lamps" regardless of sidebar visibility -
+   `_build_tool_chip` rewritten from a wide vertical sidebar card to a
+   compact single `CTkButton`, `_tool_chips` simplified from
+   `dict[str, tuple[CTkFrame, CTkLabel, CTkLabel]]` to
+   `dict[str, CTkButton]`.
+8. A real scan the user tried came back without visual redaction colors
+   again - genuinely could not be reproduced from a synthetic degraded
+   image in several attempts (mild degradation: OCR stayed confident;
+   heavy degradation: both the word-box *and* the plain-text OCR passes
+   found nothing at all, which is correctly-handled total failure, not
+   this bug). Rather than guess at a fix with no way to verify it,
+   `anonymizer.py`'s scanned-PDF branch now records *why*
+   `extract_pdf_word_boxes` gave up (the `OcrUnavailableError.status`
+   code only - no paths, no OCR text) into a new
+   `pdf_redaction_result["visual_redaction_fallback_reason"]`, and
+   `report.py` surfaces it as a new "Visual redaction fallback reason: X"
+   line in the developer report (sanitized through the same
+   `_safe_ocr_status`/`OCR_STATUSES` allowlist the existing OCR section
+   already uses) - the next real occurrence is now diagnosable from the
+   report instead of only guessed at.
+
+Verified live, not just by reading the diff: a background-run script
+instantiated the real `AnonymizerApp` + `show_start_screen()` and toggled
+`_toggle_quick_actions_collapsed()` both ways, confirming
+`status_label`/`anonymize_button` really do become `None`/icon-only and
+come back correctly. A second script built a real 3-page PDF and drove
+`ComparisonWindow` directly - confirmed `original_page_count` /
+`result_page_count` both read 3, `_go_to_page_absolute` moved and
+mirrored correctly, `_toggle_legend_sidebar_collapsed` didn't crash, and
+an `item.status == REVIEW_STATUS_APPROVED` window really did come up with
+`save_button is None` and empty `_tool_chips` - then rebuilt the same
+check for `ApprovalLockWarningDialog` and the new Settings section
+directly, and for `_confirm_then_approve`'s dismissed-hint fast path
+(patching `gui_helpers.ui_hints_config_path` to a temp file, same
+technique the new unit tests use). This project's known sandbox
+limitation with driving the *full* app window came up again for one
+early attempt (a silent, output-less process exit) but resolved once
+re-run as a properly output-redirected background process - not the
+code, a harness quirk noted here for next time. Full suite: 414 tests
+(10 new - hint dismiss/restore round-trips, both
+`format_approval_lock_warning_*` formatters, and the new
+`visual_redaction_fallback_reason` report line, present/absent/
+sanitized). Lint unchanged against the established 77-error baseline.
+
+```text
+b63e665 Second start-screen/comparison-window feedback batch: 8 items
+```
+
 ## Next Logical Step
+
+The 8-item follow-up batch above (file list height, subtle scrollbars,
+half-width drop zone, collapsible Szybkie akcje, approval lock-in warning
++ enforcement, comparison-window page navigation, collapsible legend +
+relocated tool lamps, and the visual-redaction-fallback diagnostic field)
+is done and verified live. One item is not fully closed: item 8 could not
+be reproduced from a synthetic degraded scan in several attempts, so it
+shipped as observability (the new "Visual redaction fallback reason" report
+line) rather than a guessed-at fix - next real occurrence, check that line
+first, or ask the user directly for the actual scan.pdf (or its raw report)
+that triggered the original complaint to root-cause it for real.
 
 The start-screen visual-feedback pass above (sidebar restyle, warning-style
 update banner, Szybkie akcje panel carrying the folder picker and
