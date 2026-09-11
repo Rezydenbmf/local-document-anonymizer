@@ -2541,28 +2541,116 @@ Lint unchanged against the established 77-error baseline.
 eced12b Third start-screen/comparison-window feedback batch: 10 items
 ```
 
+A fourth, shorter round of feedback followed on the same comparison-window
+work, four items:
+
+1. MagicPenHintDialog's first bullet said "po prawej stronie" (on the right
+   side) - reworded to "w prawym oknie edycji" (in the right-hand edit
+   window), more precise.
+2. Real bug, found and fixed: MagicPenHintDialog was built with
+   `ctk.CTkToplevel(app.root)` and `window.transient(app.root)` - transient
+   to the *main app window*, not the comparison window that actually
+   triggered it. On Windows this let the main app get raised as the
+   dialog's "owner", burying the comparison window behind it - confirmed by
+   a direct user report of clicking through what they thought was an
+   unresponsive window before realizing the preview had disappeared behind
+   the app. Fixed by taking an explicit `parent_window` parameter (the
+   comparison window's own Toplevel) instead of always defaulting to
+   `app.root`, and by calling `_bring_window_to_front(parent_window)` when
+   "Rozumiem" closes the dialog, so focus explicitly returns to wherever it
+   came from - verified live: the dialog is now a real Tk child of the
+   comparison window, not of root.
+3. Undo/redo for pending (unsaved) magic-pen edits - whole-state snapshots
+   (`_push_undo_snapshot`/`_undo_last_edit`/`_redo_last_edit`) pushed before
+   every mutation (draw, erase-toggle, cancel-a-pending-add, "Anuluj
+   zmiany"), rather than tracking each action's own inverse individually -
+   simpler and safer for three different mutation shapes, and the state
+   involved (a handful of rects/keys) is cheap to copy. New ↶/↷ buttons next
+   to the tool chips plus Ctrl+Z/Ctrl+Y/Ctrl+Shift+Z, all disabled/enabled
+   to match real stack state. History clears after a successful save (the
+   underlying rect ecosystem changes under it) - verified live end to end:
+   draw two, undo (back to one), redo (back to two), undo again, matching
+   button-state transitions at each step.
+4. The most important one, reported a third time: the same real scanned
+   document again produced placeholder-bracket text instead of colored
+   visual redaction, with no error shown at all - meaning whatever failed
+   was being silently swallowed with zero diagnostic trail. Found a real,
+   fixable gap while re-auditing the exact code path: the text-layer/
+   word-coordinate visual redaction step
+   (`save_word_coordinate_redacted_pdf_copy`, used for *both* a real text
+   layer and successful word-box OCR) was only ever caught with
+   `except RuntimeError` - and nothing in that function actually raises
+   `RuntimeError` for an operational failure (PyMuPDF's own exceptions
+   during `apply_redactions()`/`document.save()` are not `RuntimeError`).
+   Any real failure there would have either propagated as a batch-level
+   crash or - if caught further up - vanished with no record, matching the
+   reported symptom exactly (succeeds, but silently loses the colored
+   boxes). Broadened to `except Exception` (with `# noqa: BLE001`, the same
+   justification this codebase already uses elsewhere for a must-never-
+   crash step with a working fallback right below it), and the exception's
+   *class name only* (never `str(error)`, which could echo a path back) is
+   now recorded into the same `visual_redaction_fallback_reason` field from
+   the previous round - sanitized through a new `_safe_visual_redaction_fallback_reason`
+   (accepts either a known OCR status or anything `str.isidentifier()`
+   accepts, which by construction can never carry document content).
+   Verified for real, not just reasoned about: a new test forces
+   `save_word_coordinate_redacted_pdf_copy` to raise a plain `ValueError`
+   (via `unittest.mock.patch`) on an otherwise-normal text-based PDF and
+   confirms the file still gets a fully correct plain-text-anonymized
+   output (no crash, no data loss) *and* the report now shows
+   `Visual redaction fallback reason: ValueError` - both of those would
+   have been silently wrong before this fix, for any non-RuntimeError
+   failure at this exact step. Whether this specific gap explains the
+   user's exact repeated symptom still cannot be confirmed without the
+   original file or its raw report from a reproducing run - but the
+   robustness/diagnosability gap it closes was real and independently
+   worth fixing regardless.
+
+Verified live wherever possible: the hint dialog's actual Tk parent/master
+relationship (a background script confirmed it as a genuine child of the
+comparison window, not root), the full undo/redo button-state and pending-
+rect-list transitions through several draw/undo/redo/undo cycles, and a
+forced-failure integration test proving the broadened exception handling
+never crashes a file and always leaves a diagnosable trail. Full suite: 426
+tests (2 new). Lint unchanged against the established 77-error baseline.
+
+```text
+6a14ee1 Fourth comparison-window feedback batch: hint z-order fix, undo/redo, visual-redaction failure diagnostics
+```
+
 ## Next Logical Step
 
-The third feedback batch above (10 items: the collapsed-rail packing-order
-regression, the recent-folders shortcut, multi-monitor window centering,
-the processing animation, the magic pen hint dialog + bigger buttons, the
-save-confirmation dialog, and two page-nav fixes) is done. Two things are
-not fully closed and both need something only the user can provide next
-time they come up:
-- Item 10 (scan visual redaction falling back to placeholder-bracket text):
-  still not reproducible from a synthetic degraded scan after two full
-  rounds of attempts. The `visual_redaction_fallback_reason` diagnostic
-  field (added in the previous round, surfaced in the developer report) is
-  the way forward - next occurrence, read that line first, or ask directly
-  for the actual file (or at least that raw report) rather than guess a
-  third time.
+The scanned-PDF visual redaction issue (reported three times now, same
+document each time, always "placeholder-bracket text instead of colored
+boxes, no error shown") is the single most important open item. It is
+still not reproduced firsthand - two rounds of synthetic-degraded-image
+attempts did not trigger it, and the exact character-corruption pattern in
+the user's own screenshots (diacritics selectively lost, base letters
+intact) reads more like genuine OCR misrecognition under real-world
+scan/photo conditions (uneven lighting, a stamp, handwriting, paper
+texture) than anything a Gaussian-blur-and-JPEG synthetic test reproduces.
+Two independent diagnostic fields now exist for whichever failure mode it
+actually is (`visual_redaction_fallback_reason` - the OCR-gave-up status
+code from round 3, and the same field now also populated with a bare
+exception class name when the word-coordinate redaction step itself raises,
+from round 4's broadened exception handling) - **the fastest real path
+forward is the user's own file, or at minimum the raw developer report
+text from a run that reproduces it** (Szczegóły > "Otwórz surowy raport
+(deweloperskie)"); a fourth round of blind guessing is not planned.
+
+Two smaller items from the third batch are also not fully closed, both
+needing something only the user can provide:
 - Item 6 (Ctrl+scroll-to-zoom "stopped working"): the entire live event
   path was verified correct with a real synthetic `<Control-MouseWheel>`
   event - no code regression found. Best-supported theory is the same
-  multi-monitor/mixed-DPI issue as items 3/5, which `center_window_over_parent`
-  should now also fix as a side effect - needs the user to confirm after
-  retesting on their real 3-monitor setup, since a single-display sandbox
-  cannot reproduce a cross-monitor DPI-mismatch bug.
+  multi-monitor/mixed-DPI issue `center_window_over_parent` (round 3) was
+  built to fix - needs the user to confirm after retesting on their real
+  3-monitor setup, since a single-display sandbox cannot reproduce a
+  cross-monitor DPI-mismatch bug.
+- `center_window_over_parent` itself (multi-monitor window placement): the
+  math was verified in isolation, but real on-screen multi-monitor
+  placement cannot be verified in this sandbox at all - needs the user's
+  own hardware to confirm dialogs now open on the correct monitor.
 
 The 8-item follow-up batch before this one (file list height, subtle
 scrollbars, half-width drop zone, collapsible Szybkie akcje, approval

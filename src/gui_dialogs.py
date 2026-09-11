@@ -435,14 +435,24 @@ class MagicPenHintDialog:
     ApprovalLockWarningDialog - restorable from Settings > Ogólne.
     """
 
-    def __init__(self, app: AnonymizerApp) -> None:
-        window = ctk.CTkToplevel(app.root)
+    def __init__(self, app: AnonymizerApp, parent_window: tk.Misc) -> None:
+        # Transient to (and centered over, and refocused back onto on
+        # close) parent_window - the comparison window this hint was
+        # actually triggered from, *not* app.root. A real bug was found
+        # and fixed here: making this transient to app.root instead let
+        # Windows raise the main app window as this dialog's "owner",
+        # burying the comparison window behind it - confirmed directly
+        # by a user report of clicking through what they thought was an
+        # unresponsive window, only to find the preview had gone behind
+        # the main app.
+        self.parent_window = parent_window
+        window = ctk.CTkToplevel(parent_window)
         self.window = window
         window.title("Co możesz zrobić z tym dokumentem?")
-        center_window_over_parent(window, app.root, 440, 380)
+        center_window_over_parent(window, parent_window, 440, 380)
         window.resizable(False, False)
         window.configure(fg_color=COLOR_BG)
-        window.transient(app.root)
+        window.transient(parent_window)
         window.grab_set()
         window.protocol("WM_DELETE_WINDOW", self._close)
 
@@ -459,8 +469,8 @@ class MagicPenHintDialog:
             (
                 "✏",
                 (
-                    "Zaznacz i przeciągnij myszą po prawej stronie, aby ręcznie "
-                    "ukryć coś, co program pominął."
+                    "Zaznacz i przeciągnij myszą w prawym oknie edycji, aby "
+                    "ręcznie ukryć coś, co program pominął."
                 ),
             ),
             (
@@ -535,5 +545,10 @@ class MagicPenHintDialog:
         if self.dont_show_again_var.get():
             dismiss_hint(MAGIC_PEN_HINT_ID)
         self.window.destroy()
+        # View must return to whatever window this hint was raised over
+        # - per direct user feedback, clicking "Rozumiem" left the
+        # comparison window buried behind the main app with nothing
+        # visibly bringing it back.
+        _bring_window_to_front(self.parent_window)
 
 
