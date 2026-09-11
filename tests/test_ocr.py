@@ -390,5 +390,163 @@ class ConfigureTesseractCmdTests(unittest.TestCase):
             ocr._configure_tesseract_cmd(FakePytesseract)
 
 
+class OcrLanguageTests(unittest.TestCase):
+    """_ocr_language - the fix for OCR silently defaulting to English on
+    Polish documents (diacritics/letter combinations misread into
+    plausible-looking garbage) reported from a real scanned contract."""
+
+    def test_prefers_polish_plus_english_when_both_installed(self) -> None:
+        class FakePytesseract:
+            @staticmethod
+            def get_languages(config=""):
+                return ["eng", "pol", "osd"]
+
+        self.assertEqual(ocr._ocr_language(FakePytesseract), "pol+eng")
+
+    def test_falls_back_to_polish_alone_when_english_pack_missing(self) -> None:
+        class FakePytesseract:
+            @staticmethod
+            def get_languages(config=""):
+                return ["pol"]
+
+        self.assertEqual(ocr._ocr_language(FakePytesseract), "pol")
+
+    def test_falls_back_to_english_when_polish_pack_is_not_installed(self) -> None:
+        class FakePytesseract:
+            @staticmethod
+            def get_languages(config=""):
+                return ["eng"]
+
+        self.assertEqual(ocr._ocr_language(FakePytesseract), "eng")
+
+    def test_falls_back_to_english_when_language_list_cannot_be_read(self) -> None:
+        class FakePytesseract:
+            @staticmethod
+            def get_languages(config=""):
+                raise RuntimeError("boom")
+
+        self.assertEqual(ocr._ocr_language(FakePytesseract), "eng")
+
+
+class OcrCallsUseDetectedLanguageTests(unittest.TestCase):
+    """extract_text_from_image/extract_text_from_pdf must actually pass
+    the detected language through to Tesseract, not just have the
+    helper exist unused."""
+
+    def test_image_ocr_passes_detected_language_to_tesseract(self) -> None:
+        calls: list[dict[str, object]] = []
+
+        class FakePytesseract:
+            class pytesseract:
+                tesseract_cmd = "tesseract"
+
+            @staticmethod
+            def get_tesseract_version():
+                return "5.5.3"
+
+            @staticmethod
+            def get_languages(config=""):
+                return ["eng", "pol"]
+
+            @staticmethod
+            def image_to_string(image, lang=None):
+                calls.append({"lang": lang})
+                return "tresc"
+
+        with workspace_temp_dir() as temp_dir:
+            source_path = Path(temp_dir) / "scan.png"
+            from PIL import Image
+
+            Image.new("RGB", (4, 4)).save(source_path)
+
+            with (
+                patch("ocr._pytesseract_module", return_value=FakePytesseract),
+                patch("ocr.shutil.which", return_value="tesseract"),
+            ):
+                extraction = ocr.extract_text_from_image(source_path)
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0]["lang"], "pol+eng")
+        self.assertEqual(extraction.text, "tresc")
+
+    def test_pdf_ocr_passes_detected_language_and_higher_render_zoom(self) -> None:
+        calls: list[dict[str, object]] = []
+        matrices: list[tuple[float, float]] = []
+
+        from io import BytesIO
+
+        from PIL import Image
+
+        tiny_png = BytesIO()
+        Image.new("RGB", (4, 4)).save(tiny_png, format="PNG")
+        tiny_png_bytes = tiny_png.getvalue()
+
+        class FakePytesseract:
+            class pytesseract:
+                tesseract_cmd = "tesseract"
+
+            @staticmethod
+            def get_tesseract_version():
+                return "5.5.3"
+
+            @staticmethod
+            def get_languages(config=""):
+                return ["pol"]
+
+            @staticmethod
+            def image_to_string(image, lang=None):
+                calls.append({"lang": lang})
+                return "tresc strony"
+
+        class FakePixmap:
+            @staticmethod
+            def tobytes(fmt):
+                return tiny_png_bytes
+
+        class FakePage:
+            @staticmethod
+            def get_pixmap(matrix=None):
+                matrices.append((matrix.zoom_x, matrix.zoom_y))
+                return FakePixmap()
+
+        class FakeDocument:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc_info):
+                return False
+
+            def __iter__(self):
+                return iter([FakePage()])
+
+        class FakeMatrix:
+            def __init__(self, zoom_x, zoom_y):
+                self.zoom_x = zoom_x
+                self.zoom_y = zoom_y
+
+        class FakeFitz:
+            Matrix = FakeMatrix
+
+            @staticmethod
+            def open(path):
+                return FakeDocument()
+
+        with workspace_temp_dir() as temp_dir:
+            source_path = Path(temp_dir) / "scan.pdf"
+            write_blank_pdf(source_path)
+
+            with (
+                patch("ocr._pytesseract_module", return_value=FakePytesseract),
+                patch("ocr._fitz_module", return_value=FakeFitz),
+                patch("ocr.shutil.which", return_value="tesseract"),
+            ):
+                extraction = ocr.extract_text_from_pdf(source_path)
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0]["lang"], "pol")
+        self.assertEqual(matrices, [(ocr.OCR_PDF_RENDER_ZOOM, ocr.OCR_PDF_RENDER_ZOOM)])
+        self.assertIn("tresc strony", extraction.text)
+
+
 if __name__ == "__main__":
     unittest.main()

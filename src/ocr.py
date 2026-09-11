@@ -38,6 +38,14 @@ OCR_WARNING_NO_TEXT = "OCR completed but no text was extracted"
 OCR_WARNING_FAILED = "OCR failed safely"
 
 IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".tif", ".tiff")
+# PyMuPDF's default page.get_pixmap() renders at the PDF's native 72 DPI
+# (1 point = 1/72 inch, zoom 1.0) - far below the ~300 DPI Tesseract's
+# own documentation recommends for reliable accuracy, and a real
+# contributor (alongside the wrong-language default _ocr_language fixes)
+# to garbled OCR text on scanned PDFs. A 3x zoom renders at 216 DPI, a
+# solid accuracy/speed/memory tradeoff for multi-page documents without
+# going all the way to 300+ DPI's much larger per-page images.
+OCR_PDF_RENDER_ZOOM = 3.0
 
 
 @dataclass(frozen=True)
@@ -193,6 +201,33 @@ def _configure_tesseract_cmd(pytesseract_module: Any) -> None:
             pass
 
 
+def _ocr_language(pytesseract_module: Any) -> str:
+    """Pick the best installed Tesseract language for this app's target
+    documents (Polish business/legal paperwork).
+
+    Without an explicit `lang`, pytesseract defaults to Tesseract's own
+    default - "eng" - which reads Polish text as if it were English:
+    diacritics (ą, ę, ć, ł, ń, ó, ś, ź, ż) and Polish letter combinations
+    get silently misrecognized into plausible-looking but wrong
+    characters, producing exactly the kind of garbled-but-not-obviously-
+    broken output that's hard to notice until someone reads the result.
+    Prefers "pol+eng" (Polish primary, English still recognized for the
+    English/Latin abbreviations and acronyms that show up in Polish
+    business documents - NIP, REGON, IBAN, etc.); falls back to "eng"
+    alone only when the "pol" trained-data file isn't installed, so OCR
+    still produces *something* rather than failing outright - never
+    raises, since a wrong language degrades quality but a crash here
+    would be worse.
+    """
+    try:
+        available = set(pytesseract_module.get_languages(config=""))
+    except Exception:  # noqa: BLE001 - language detection must never crash OCR
+        return "eng"
+    if "pol" in available:
+        return "pol+eng" if "eng" in available else "pol"
+    return "eng"
+
+
 def detect_ocr_support(input_type: str = OCR_INPUT_TYPE_IMAGE) -> dict[str, object]:
     """Detect optional local OCR dependencies without raising on absence."""
     if input_type not in (OCR_INPUT_TYPE_IMAGE, OCR_INPUT_TYPE_PDF):
@@ -299,7 +334,9 @@ def extract_text_from_image(file_path: str | Path) -> OcrExtraction:
 
     try:
         with image_module.open(path) as image:
-            text = pytesseract_module.image_to_string(image)
+            text = pytesseract_module.image_to_string(
+                image, lang=_ocr_language(pytesseract_module)
+            )
     except Exception as error:
         if _is_tesseract_not_found(error, pytesseract_module):
             raise OcrUnavailableError(
@@ -348,6 +385,8 @@ def extract_text_from_pdf(file_path: str | Path) -> OcrExtraction:
             OCR_WARNING_DEPENDENCY_MISSING,
         )
 
+    lang = _ocr_language(pytesseract_module)
+    render_matrix = fitz_module.Matrix(OCR_PDF_RENDER_ZOOM, OCR_PDF_RENDER_ZOOM)
     text_parts: list[str] = []
     page_count = 0
     document = None
@@ -355,10 +394,10 @@ def extract_text_from_pdf(file_path: str | Path) -> OcrExtraction:
         document = fitz_module.open(path)
         for page in document:
             page_count += 1
-            pixmap = page.get_pixmap()
+            pixmap = page.get_pixmap(matrix=render_matrix)
             image_bytes = pixmap.tobytes("png")
             with image_module.open(BytesIO(image_bytes)) as image:
-                page_text = pytesseract_module.image_to_string(image)
+                page_text = pytesseract_module.image_to_string(image, lang=lang)
             if page_text:
                 text_parts.append(str(page_text))
     except Exception as error:
