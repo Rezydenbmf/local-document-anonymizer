@@ -93,6 +93,22 @@ class OcrExtraction:
     metadata: dict[str, object]
 
 
+@dataclass(frozen=True)
+class OcrWordPageExtraction:
+    """Per-page OCR word boxes (mechanical OCR output only - no text
+    reconstruction/offset-tracking here, see
+    pdf_redaction.word_pages_from_ocr_boxes for that) plus the same safe
+    metadata shape OcrExtraction uses. ``pages`` is a list of
+    ``{"page_number": int, "words": [{"text", "rect", "block_no",
+    "line_no", "word_no"}, ...]}`` - "rect" is already converted to PDF
+    point space (an (x0, y0, x1, y1) tuple), not the OCR render's raw
+    pixel space.
+    """
+
+    pages: list[dict[str, object]]
+    metadata: dict[str, object]
+
+
 class OcrUnavailableError(RuntimeError):
     """Controlled OCR failure without paths, tracebacks, or source text."""
 
@@ -587,6 +603,192 @@ def extract_text_from_pdf(file_path: str | Path) -> OcrExtraction:
             status=OCR_STATUS_AVAILABLE,
             input_type=OCR_INPUT_TYPE_PDF,
             items_processed=page_count,
+        ),
+    )
+
+
+# Tesseract's own confidence score (0-100; -1 for non-text structural
+# lines) for one recognized word. Below this, a word is dropped rather
+# than risk drawing - or failing to draw - a redaction box in the wrong
+# place on a poor-quality scan; the plain-text OCR path (image_to_string
+# above) has no equivalent guard since a wrong character there is just a
+# wrong character, not a rectangle burned into the wrong part of the page.
+MIN_OCR_WORD_CONFIDENCE = 40
+
+
+def _ocr_word_boxes(
+    pytesseract_module: Any, image: Any, lang: str, zoom: float = 1.0
+) -> list[dict[str, object]]:
+    """Run Tesseract's word-level OCR (image_to_data) and return each
+    confidently-recognized word's text plus its bounding box, converted
+    from the OCR render's pixel space to point space by dividing by
+    ``zoom`` (pass 1.0 - a no-op - when the caller is already working in
+    a space where 1 pixel == 1 point, e.g. a synthetic page built at the
+    source image's own pixel dimensions).
+    """
+    data = pytesseract_module.image_to_data(
+        image, lang=lang, output_type=pytesseract_module.Output.DICT
+    )
+    words: list[dict[str, object]] = []
+    for i in range(len(data.get("text", []))):
+        text = str(data["text"][i]).strip()
+        if not text:
+            continue
+        try:
+            confidence = float(data["conf"][i])
+        except (TypeError, ValueError):
+            confidence = -1.0
+        if confidence < MIN_OCR_WORD_CONFIDENCE:
+            continue
+        left = float(data["left"][i]) / zoom
+        top = float(data["top"][i]) / zoom
+        width = float(data["width"][i]) / zoom
+        height = float(data["height"][i]) / zoom
+        words.append(
+            {
+                "text": text,
+                "rect": (left, top, left + width, top + height),
+                "block_no": int(data["block_num"][i]),
+                "line_no": int(data["line_num"][i]),
+                "word_no": int(data["word_num"][i]),
+            }
+        )
+    return words
+
+
+def extract_pdf_word_boxes(file_path: str | Path) -> OcrWordPageExtraction:
+    """OCR each page of a scanned PDF and return word-level text plus
+    bounding boxes in PDF point space - the positional counterpart to
+    extract_text_from_pdf's plain text, letting a caller (see
+    pdf_redaction.word_pages_from_ocr_boxes) draw true colored redaction
+    boxes over a scanned page exactly the way it already does for a
+    PDF's real text layer, instead of only ever falling back to a
+    rebuilt plain-text document. Raises OcrUnavailableError the same way
+    extract_text_from_pdf does on any failure - never returns partial or
+    wrong positional data silently.
+    """
+    path = _ensure_pdf_path(file_path)
+    availability = detect_ocr_support(OCR_INPUT_TYPE_PDF)
+    _raise_if_unavailable(availability, OCR_INPUT_TYPE_PDF)
+
+    pytesseract_module = _pytesseract_module()
+    image_module = _image_module()
+    fitz_module = _fitz_module()
+    if pytesseract_module is None or image_module is None or fitz_module is None:
+        raise OcrUnavailableError(
+            OCR_STATUS_DEPENDENCY_MISSING,
+            OCR_INPUT_TYPE_PDF,
+            OCR_WARNING_DEPENDENCY_MISSING,
+        )
+
+    lang = _ocr_language(pytesseract_module)
+    render_matrix = fitz_module.Matrix(OCR_PDF_RENDER_ZOOM, OCR_PDF_RENDER_ZOOM)
+    pages: list[dict[str, object]] = []
+    document = None
+    try:
+        document = fitz_module.open(path)
+        for page_index, page in enumerate(document, start=1):
+            pixmap = page.get_pixmap(matrix=render_matrix)
+            image_bytes = pixmap.tobytes("png")
+            with image_module.open(BytesIO(image_bytes)) as image:
+                words = _ocr_word_boxes(
+                    pytesseract_module, image, lang, OCR_PDF_RENDER_ZOOM
+                )
+            pages.append({"page_number": page_index, "words": words})
+    except Exception as error:
+        if pytesseract_module is not None and _is_tesseract_not_found(
+            error, pytesseract_module
+        ):
+            raise OcrUnavailableError(
+                OCR_STATUS_ENGINE_NOT_FOUND,
+                OCR_INPUT_TYPE_PDF,
+                OCR_WARNING_ENGINE_NOT_FOUND,
+                items_processed=len(pages),
+            ) from error
+        raise OcrUnavailableError(
+            OCR_STATUS_UNAVAILABLE,
+            OCR_INPUT_TYPE_PDF,
+            OCR_WARNING_FAILED,
+            items_processed=len(pages),
+        ) from error
+    finally:
+        if document is not None and hasattr(document, "close"):
+            document.close()
+
+    if not any(page["words"] for page in pages):
+        raise OcrUnavailableError(
+            OCR_STATUS_UNAVAILABLE,
+            OCR_INPUT_TYPE_PDF,
+            OCR_WARNING_NO_TEXT,
+            items_processed=len(pages),
+        )
+
+    return OcrWordPageExtraction(
+        pages=pages,
+        metadata=build_ocr_metadata(
+            used=True,
+            status=OCR_STATUS_AVAILABLE,
+            input_type=OCR_INPUT_TYPE_PDF,
+            items_processed=len(pages),
+        ),
+    )
+
+
+def extract_image_word_boxes(file_path: str | Path) -> OcrWordPageExtraction:
+    """OCR a single image and return word-level text plus bounding boxes,
+    in the same shape extract_pdf_word_boxes returns - one page, with
+    rects already in the image's own pixel space treated as point space
+    (zoom=1.0), matching how a synthetic one-page PDF built at the
+    image's exact pixel dimensions would be measured. See
+    pdf_redaction.save_word_coordinate_redacted_image_copy for how this
+    becomes a true colored-redaction output for a standalone scan/photo,
+    not just PDF pages.
+    """
+    path = _ensure_image_path(file_path)
+    availability = detect_ocr_support(OCR_INPUT_TYPE_IMAGE)
+    _raise_if_unavailable(availability, OCR_INPUT_TYPE_IMAGE)
+
+    pytesseract_module = _pytesseract_module()
+    image_module = _image_module()
+    if pytesseract_module is None or image_module is None:
+        raise OcrUnavailableError(
+            OCR_STATUS_DEPENDENCY_MISSING,
+            OCR_INPUT_TYPE_IMAGE,
+            OCR_WARNING_DEPENDENCY_MISSING,
+        )
+
+    lang = _ocr_language(pytesseract_module)
+    try:
+        with image_module.open(path) as image:
+            words = _ocr_word_boxes(pytesseract_module, image, lang, zoom=1.0)
+    except Exception as error:
+        if _is_tesseract_not_found(error, pytesseract_module):
+            raise OcrUnavailableError(
+                OCR_STATUS_ENGINE_NOT_FOUND,
+                OCR_INPUT_TYPE_IMAGE,
+                OCR_WARNING_ENGINE_NOT_FOUND,
+            ) from error
+        raise OcrUnavailableError(
+            OCR_STATUS_UNAVAILABLE,
+            OCR_INPUT_TYPE_IMAGE,
+            OCR_WARNING_FAILED,
+        ) from error
+
+    if not words:
+        raise OcrUnavailableError(
+            OCR_STATUS_UNAVAILABLE,
+            OCR_INPUT_TYPE_IMAGE,
+            OCR_WARNING_NO_TEXT,
+            items_processed=1,
+        )
+
+    return OcrWordPageExtraction(
+        pages=[{"page_number": 1, "words": words}],
+        metadata=build_ocr_metadata(
+            used=True,
+            status=OCR_STATUS_AVAILABLE,
+            input_type=OCR_INPUT_TYPE_IMAGE,
+            items_processed=1,
         ),
     )
 

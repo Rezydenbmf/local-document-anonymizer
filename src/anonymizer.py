@@ -38,6 +38,8 @@ try:
         OCR_INPUT_TYPE_PDF,
         OcrUnavailableError,
         build_ocr_not_used_metadata,
+        extract_image_word_boxes,
+        extract_pdf_word_boxes,
         extract_text_with_ocr,
     )
     from .ner import DEFAULT_NER_MODEL, NER_LABELS, NER_STATUSES, anonymize_text_with_ner
@@ -57,7 +59,9 @@ try:
         extract_pdf_word_pages,
         save_rebuilt_review_pdf_from_text,
         save_redacted_pdf_copy,
+        save_word_coordinate_redacted_image_copy,
         save_word_coordinate_redacted_pdf_copy,
+        word_pages_from_ocr_boxes,
     )
     from .report import (
         BATCH_ERROR_EMPTY_TEXT_PDF,
@@ -113,6 +117,8 @@ except ImportError:
         OCR_INPUT_TYPE_PDF,
         OcrUnavailableError,
         build_ocr_not_used_metadata,
+        extract_image_word_boxes,
+        extract_pdf_word_boxes,
         extract_text_with_ocr,
     )
     from ner import DEFAULT_NER_MODEL, NER_LABELS, NER_STATUSES, anonymize_text_with_ner
@@ -132,7 +138,9 @@ except ImportError:
         extract_pdf_word_pages,
         save_rebuilt_review_pdf_from_text,
         save_redacted_pdf_copy,
+        save_word_coordinate_redacted_image_copy,
         save_word_coordinate_redacted_pdf_copy,
+        word_pages_from_ocr_boxes,
     )
     from report import (
         BATCH_ERROR_EMPTY_TEXT_PDF,
@@ -1361,6 +1369,7 @@ def _anonymize_pdf_file_result(
     ner_context = prepare_ner_context(enabled=use_ner, model_name=ner_model_name)
     text_based_pdf = False
     word_pages = []
+    ocr_word_pages: list = []
     try:
         word_pages = extract_pdf_word_pages(source_path)
         source_page_texts = read_pdf_file_pages(source_path)
@@ -1372,18 +1381,33 @@ def _anonymize_pdf_file_result(
     except ValueError as error:
         if "no extractable text" not in str(error):
             raise
-        extraction = extract_text_with_ocr(source_path)
-        text = extraction.text
+        # Try OCR *with* word-level positions first - it produces the same
+        # text a plain OCR pass would (see word_pages_from_ocr_boxes), plus
+        # the coordinates needed for true colored visual redaction on a
+        # scanned page instead of only ever falling back to a rebuilt
+        # plain-text document. Falls back to the original plain-text-only
+        # OCR path unchanged when word-level OCR itself is unavailable
+        # (e.g. no Tesseract) - never a second, redundant OCR pass either
+        # way.
+        try:
+            word_box_extraction = extract_pdf_word_boxes(source_path)
+            ocr_word_pages = word_pages_from_ocr_boxes(word_box_extraction.pages)
+            text = PDF_PAGE_SEPARATOR.join(page.text for page in ocr_word_pages)
+            ocr_result = word_box_extraction.metadata
+        except OcrUnavailableError:
+            extraction = extract_text_with_ocr(source_path)
+            text = extraction.text
+            ocr_result = extraction.metadata
         source_page_texts = []
-        ocr_result = extraction.metadata
         pdf_redaction_result = build_pdf_redaction_skipped_ocr_metadata()
+    active_word_pages = word_pages if text_based_pdf else ocr_word_pages
     pdf_detection_spans = (
         _pdf_detection_spans_for_word_pages(
-            word_pages,
+            active_word_pages,
             sensitive_terms=terms,
             ner_context=ner_context,
         )
-        if text_based_pdf
+        if active_word_pages
         else []
     )
     weak_phone_like_skipped_count = (
@@ -1417,30 +1441,40 @@ def _anonymize_pdf_file_result(
         _merge_counters(counters, ner_counters)
 
     normalized_pdf_output_mode = _normalize_pdf_output_mode(pdf_output_mode)
-    anonymized_pages = _split_anonymized_pdf_pages(
-        anonymized,
-        len(source_page_texts) if text_based_pdf else 0,
-    )
+    # ocr_word_pages joins its page texts with the same PDF_PAGE_SEPARATOR
+    # a real text layer uses (see above) - passing 0 here like the old
+    # OCR-without-coordinates path did would leave those raw separator
+    # markers embedded as literal text in the saved TXT output instead of
+    # splitting them back into real pages.
+    if text_based_pdf:
+        page_count_for_split = len(source_page_texts)
+    elif ocr_word_pages:
+        page_count_for_split = len(ocr_word_pages)
+    else:
+        page_count_for_split = 0
+    anonymized_pages = _split_anonymized_pdf_pages(anonymized, page_count_for_split)
     anonymized_output_text = "\n\n".join(anonymized_pages)
 
-    if normalized_pdf_output_mode == PDF_OUTPUT_MODE_VISUAL and text_based_pdf:
+    if normalized_pdf_output_mode == PDF_OUTPUT_MODE_VISUAL and active_word_pages:
+        text_extraction_label = "text_layer" if text_based_pdf else "ocr_word_coordinates"
         try:
             pdf_redaction_result = save_word_coordinate_redacted_pdf_copy(
                 source_path,
-                word_pages=word_pages,
+                word_pages=active_word_pages,
                 spans=pdf_detection_spans,
                 output_dir=output_dir,
             )
+            pdf_redaction_result["text_extraction"] = text_extraction_label
         except RuntimeError:
             pdf_redaction_result = build_pdf_redaction_metadata(status="unavailable")
-            pdf_redaction_result["text_extraction"] = "text_layer"
+            pdf_redaction_result["text_extraction"] = text_extraction_label
         try:
             review_pdf_result = save_rebuilt_review_pdf_from_text(
                 source_path,
                 anonymized_output_text,
-                page_texts=anonymized_pages,
+                page_texts=anonymized_pages if text_based_pdf else None,
                 output_dir=output_dir,
-                text_extraction="text_layer",
+                text_extraction=text_extraction_label,
             )
             pdf_redaction_result = _attach_auxiliary_review_pdf_metadata(
                 pdf_redaction_result,
@@ -1628,10 +1662,26 @@ def _anonymize_image_file_result(
         sensitive_terms, sensitive_terms_path
     )
     ner_context = prepare_ner_context(enabled=use_ner, model_name=ner_model_name)
-    extraction = extract_text_with_ocr(source_path)
+    # Try OCR *with* word-level positions first - same reasoning as the PDF
+    # path: it produces the same text a plain OCR pass would, plus the
+    # coordinates needed for a true colored-redaction visual PDF alongside
+    # the existing plain-text output, in one OCR pass rather than two.
+    # Falls back to the original plain-text-only OCR path unchanged when
+    # word-level OCR itself is unavailable.
+    ocr_word_pages: list = []
+    try:
+        word_box_extraction = extract_image_word_boxes(source_path)
+        ocr_word_pages = word_pages_from_ocr_boxes(word_box_extraction.pages)
+        ocr_text = ocr_word_pages[0].text if ocr_word_pages else ""
+        ocr_metadata = word_box_extraction.metadata
+    except OcrUnavailableError:
+        extraction = extract_text_with_ocr(source_path)
+        ocr_text = extraction.text
+        ocr_metadata = extraction.metadata
+
     anonymized, counters, dictionary_counters, ner_result = (
         _anonymize_text_with_dictionary_counters(
-            extraction.text,
+            ocr_text,
             sensitive_terms=terms,
             ner_context=ner_context,
         )
@@ -1639,6 +1689,24 @@ def _anonymize_image_file_result(
     output_path = save_anonymized_image_txt_copy(
         source_path, anonymized, output_dir=output_dir
     )
+
+    pdf_redaction_result: dict[str, object] = {}
+    if ocr_word_pages:
+        image_detection_spans = _pdf_detection_spans_for_word_pages(
+            ocr_word_pages, sensitive_terms=terms, ner_context=ner_context
+        )
+        try:
+            pdf_redaction_result = save_word_coordinate_redacted_image_copy(
+                source_path,
+                word_pages=ocr_word_pages,
+                spans=image_detection_spans,
+                output_dir=output_dir,
+            )
+            pdf_redaction_result["text_extraction"] = "ocr_word_coordinates"
+        except RuntimeError:
+            pdf_redaction_result = build_pdf_redaction_metadata(status="unavailable")
+            pdf_redaction_result["text_extraction"] = "ocr_word_coordinates"
+
     llm_review_result = _run_optional_llm_review(
         anonymized,
         use_llm_review=use_llm_review,
@@ -1661,10 +1729,11 @@ def _anonymize_image_file_result(
         report_path,
         counters,
         audit_result,
-        extraction.metadata,
+        ocr_metadata,
         ner_result,
         llm_review_result,
         anonymized,
+        pdf_redaction_result=pdf_redaction_result,
         output_dir=output_dir,
     )
     report_path = _save_anonymization_report(
@@ -1673,9 +1742,10 @@ def _anonymize_image_file_result(
         counters,
         audit_result,
         dictionary_result,
-        extraction.metadata,
+        ocr_metadata,
         ner_result,
         llm_review_result,
+        pdf_redaction_result,
         output_dir=output_dir,
         report_path=report_path,
         checklist_result={"created": True, "output_name": checklist_path.name},
@@ -1686,9 +1756,10 @@ def _anonymize_image_file_result(
         checklist_path,
         counters,
         audit_result,
-        extraction.metadata,
+        ocr_metadata,
         ner_result,
         llm_review_result,
+        pdf_redaction_result,
     )
 
 
