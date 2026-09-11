@@ -20,6 +20,7 @@ try:
         read_txt_file,
     )
     from .file_writers import internal_artifacts_dir
+    from .gui_dialogs import MagicPenHintDialog
     from .gui_helpers import (
         COLOR_ACCENT,
         COLOR_ACCENT_HOVER,
@@ -32,11 +33,16 @@ try:
         COLOR_TEXT_MUTED,
         FONT_FAMILY,
         LEGEND_ITEMS,
+        MAGIC_PEN_HINT_ID,
         ZOOM_LINK_HINT_ID,
         IconTooltip,
         _bring_window_to_front,
         apply_subtle_scrollbar,
+        center_window_over_parent,
         dismiss_hint,
+        format_pending_edit_confirmation_title,
+        format_pending_edit_summary_lines,
+        format_save_button_text,
         hint_is_dismissed,
     )
     from .manual_redaction import (
@@ -64,6 +70,7 @@ except ImportError:
         read_txt_file,
     )
     from file_writers import internal_artifacts_dir
+    from gui_dialogs import MagicPenHintDialog
     from gui_helpers import (
         COLOR_ACCENT,
         COLOR_ACCENT_HOVER,
@@ -76,11 +83,16 @@ except ImportError:
         COLOR_TEXT_MUTED,
         FONT_FAMILY,
         LEGEND_ITEMS,
+        MAGIC_PEN_HINT_ID,
         ZOOM_LINK_HINT_ID,
         IconTooltip,
         _bring_window_to_front,
         apply_subtle_scrollbar,
+        center_window_over_parent,
         dismiss_hint,
+        format_pending_edit_confirmation_title,
+        format_pending_edit_summary_lines,
+        format_save_button_text,
         hint_is_dismissed,
     )
     from manual_redaction import (
@@ -450,7 +462,7 @@ class ComparisonWindow:
         window = ctk.CTkToplevel(app.root)
         self.window = window
         window.title(f"Porównanie - {item.output_name}")
-        window.geometry("1120x780")
+        center_window_over_parent(window, app.root, 1120, 780)
         window.minsize(760, 520)
         window.resizable(True, True)
         window.configure(fg_color=COLOR_BG)
@@ -565,6 +577,20 @@ class ComparisonWindow:
             bottom_actions = ctk.CTkFrame(window, fg_color="transparent")
             bottom_actions.pack(fill="x", padx=20, pady=(0, 8))
 
+            # A standing caption above the tool row - per direct user
+            # feedback that the draw/erase buttons alone were not a
+            # discoverable "signpost" that this document can still be
+            # edited. The one-time MagicPenHintDialog (see
+            # _maybe_show_magic_pen_hint) explains it once in more
+            # detail; this stays visible for as long as the window does.
+            ctk.CTkLabel(
+                bottom_actions,
+                text="✨ Możesz jeszcze poprawić zaznaczenia poniżej:",
+                font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                text_color=COLOR_TEXT_MUTED,
+                anchor="w",
+            ).pack(fill="x", pady=(0, 4))
+
             # Tool "lamps" - per direct user feedback, moved out of the
             # (collapsible) legend sidebar into this always-visible row,
             # so they stay usable even while that sidebar is hidden.
@@ -589,8 +615,8 @@ class ComparisonWindow:
 
             self.save_button = ctk.CTkButton(
                 bottom_actions,
-                text="Zapisz zmiany",
-                width=140,
+                text=format_save_button_text(0),
+                width=190,
                 height=32,
                 corner_radius=8,
                 fg_color=COLOR_ICON_IDLE,
@@ -598,7 +624,7 @@ class ComparisonWindow:
                 text_color=COLOR_TEXT_MUTED,
                 font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
                 state="disabled",
-                command=self._save_pending_changes,
+                command=self._confirm_and_save_pending_changes,
             )
             self.save_button.pack(side="right")
             self.cancel_button = ctk.CTkButton(
@@ -636,6 +662,7 @@ class ComparisonWindow:
         ).pack(pady=(0, 16))
 
         window.after(700, self._maybe_show_zoom_link_hint)
+        window.after(900, self._maybe_show_magic_pen_hint)
         # Opening a preview should visibly come to the front, not appear
         # behind whatever window was already open.
         _bring_window_to_front(window)
@@ -803,6 +830,14 @@ class ComparisonWindow:
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
             text_color=COLOR_TEXT_MUTED,
         ).pack(side="left", padx=(0, 4))
+        # Digits only, at most 3 of them (no real document has 1000+
+        # pages) - a soft typing affordance, not the actual page-range
+        # clamp: _go_to_page_absolute still clamps against the real page
+        # count regardless of what this allows someone to type.
+        page_entry_validate = (
+            self.window.register(self._validate_page_entry_keystroke),
+            "%P",
+        )
         page_entry = ctk.CTkEntry(
             page_nav_row,
             width=36,
@@ -813,6 +848,8 @@ class ComparisonWindow:
             fg_color=COLOR_CARD,
             border_width=1,
             border_color=COLOR_BORDER,
+            validate="key",
+            validatecommand=page_entry_validate,
         )
         page_entry.bind("<Return>", lambda _e, s=side: self._commit_page_entry(s))
         page_entry.bind("<FocusOut>", lambda _e, s=side: self._commit_page_entry(s))
@@ -1007,6 +1044,16 @@ class ComparisonWindow:
         entry.delete(0, "end")
         entry.insert(0, text)
 
+    @staticmethod
+    def _validate_page_entry_keystroke(proposed_value: str) -> bool:
+        """Tk "key" validator for the page-number entry: allow only an
+        empty field (while the user is still typing/clearing it) or up
+        to 3 digits. Returning False here blocks the keystroke outright
+        - Tk's own contract for a "key"-mode validatecommand."""
+        return proposed_value == "" or (
+            proposed_value.isdigit() and len(proposed_value) <= 3
+        )
+
     def _update_zoom_controls(self) -> None:
         if self.original_zoom_label is not None:
             self._set_entry_text(
@@ -1068,12 +1115,15 @@ class ComparisonWindow:
 
     def _update_page_nav_controls(self, side: str, page_count: int) -> None:
         """Show/hide and refresh the page-nav row for ``side`` after a
-        (re)render - hidden entirely for a 0-or-1-page document (nothing
-        to navigate to), matching every other conditionally-shown control
-        in this window. The current page is preserved (clamped into the
-        new range) rather than reset to 1 on every rebuild, so a plain
-        zoom change does not also silently discard where the user was
-        reading.
+        (re)render. Shown whenever there is a real page count (1 or
+        more) - even a single-page document shows "1 / 1" per direct
+        user feedback, rather than only appearing once there is
+        somewhere else to jump to; hidden only for page_count == 0
+        (no PDF pages at all, e.g. a DOCX/TXT/image preview, or the
+        original genuinely unavailable). The current page is preserved
+        (clamped into the new range) rather than reset to 1 on every
+        rebuild, so a plain zoom change does not also silently discard
+        where the user was reading.
         """
         current_attr = "original_current_page" if side == "original" else "result_current_page"
         count_attr = "original_page_count" if side == "original" else "result_page_count"
@@ -1084,7 +1134,7 @@ class ComparisonWindow:
         row = self._page_nav_rows.get(side)
         if row is None:
             return
-        if page_count > 1:
+        if page_count > 0:
             row.pack(fill="x", pady=(4, 0))
         else:
             row.pack_forget()
@@ -1129,6 +1179,22 @@ class ComparisonWindow:
         except tk.TclError:
             pass
 
+    def _flash_page_entry(self, side: str) -> None:
+        """Brief accent-colored border flash on the page entry after a
+        successful jump - positive confirmation the input was actually
+        processed even when the target page was already fully visible
+        and scrolling had no visible effect (common on a short 1-2 page
+        document that already fits the viewport), which otherwise reads
+        as "typing a page number did nothing" even though it worked.
+        """
+        entry = self._page_entries.get(side)
+        if entry is None:
+            return
+        entry.configure(border_color=COLOR_ACCENT, border_width=2)
+        self.window.after(
+            350, lambda: entry.configure(border_color=COLOR_BORDER, border_width=1)
+        )
+
     def _go_to_page_absolute(self, side: str, page_number: int, *, mirror: bool = True) -> None:
         count = self.original_page_count if side == "original" else self.result_page_count
         if count <= 0:
@@ -1143,6 +1209,7 @@ class ComparisonWindow:
             self.result_current_page = page_number
             self._scroll_frame_to_widget(self.right_frame, self._result_page_widget(page_number))
         self._refresh_page_nav_entries()
+        self._flash_page_entry(side)
         # Mirrors the same page number onto the other pane while the two
         # are locked together - same "sync unless the link is off" rule
         # _on_scroll_sync already applies to plain scrolling, reused here
@@ -1282,6 +1349,21 @@ class ComparisonWindow:
             return
         self._link_tooltips[-1].flash(4500)
         dismiss_hint(ZOOM_LINK_HINT_ID)
+
+    def _maybe_show_magic_pen_hint(self) -> None:
+        """Auto-show the "what can I do here" magic pen explainer once,
+        the first time an editable (not locked) comparison window opens
+        - per direct user feedback that the draw/erase controls alone,
+        even made bigger, were too easy to miss as a discoverability cue
+        by themselves. A modal dialog rather than a passive tooltip
+        flash (see _maybe_show_zoom_link_hint) since this needs to
+        actually be read once, not just glimpsed.
+        """
+        if not self.magic_pen_available or self.locked:
+            return
+        if hint_is_dismissed(MAGIC_PEN_HINT_ID):
+            return
+        MagicPenHintDialog(self.app)
 
     def _rebuild_original_pane(self) -> None:
         if self.left_frame is None:
@@ -1520,16 +1602,21 @@ class ComparisonWindow:
         # A compact single button rather than the wider vertical card
         # this used when it lived in the (now-collapsible) sidebar - it
         # sits in a horizontal bottom row now, next to its sibling and
-        # the save/cancel buttons, so it needs to stay narrow.
+        # the save/cancel buttons, so it needs to stay narrow. Given a
+        # visible border and a larger size than the first version - per
+        # direct user feedback that the plain COLOR_BG fill read as flat
+        # text rather than an obviously clickable control.
         chip = ctk.CTkButton(
             parent,
             text=f"{glyph} {label}",
-            height=28,
+            height=34,
             corner_radius=8,
+            border_width=1,
+            border_color=COLOR_BORDER,
             fg_color=COLOR_BG,
             hover_color=COLOR_ICON_IDLE,
             text_color=COLOR_TEXT_MUTED,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=11, weight="bold"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
             command=lambda t=tool: self._toggle_pinned_tool(t),
         )
         chip.pack(side="left", padx=(0, 8))
@@ -1836,8 +1923,10 @@ class ComparisonWindow:
 
     def _update_pending_state(self) -> None:
         has_pending = self._has_pending_changes()
+        count = len(self.pending_remove_keys) + len(self.pending_add_rects)
         if self.save_button is not None:
             self.save_button.configure(
+                text=format_save_button_text(count),
                 state="normal" if has_pending else "disabled",
                 fg_color=COLOR_ACCENT if has_pending else COLOR_ICON_IDLE,
                 text_color="#FFFFFF" if has_pending else COLOR_TEXT_MUTED,
@@ -1845,7 +1934,6 @@ class ComparisonWindow:
         if self.cancel_button is not None:
             self.cancel_button.configure(state="normal" if has_pending else "disabled")
         if self.pen_status_label is not None:
-            count = len(self.pending_remove_keys) + len(self.pending_add_rects)
             self.pen_status_label.configure(
                 text=f"Niezapisane zmiany: {count}" if has_pending else ""
             )
@@ -1856,6 +1944,106 @@ class ComparisonWindow:
         for page_number in list(self._page_canvases.keys()):
             self._redraw_overlay(page_number)
         self._update_pending_state()
+
+    def _confirm_and_save_pending_changes(self) -> None:
+        """Show a content-free summary of the pending edits (counts and
+        page numbers only - never the redacted text itself, see
+        format_pending_edit_summary_lines) and ask for one explicit
+        confirmation before actually regenerating the PDF - per direct
+        user feedback that a plain "Zapisz zmiany" undersold what
+        clicking it actually does.
+        """
+        if not self._has_pending_changes():
+            return
+        added_pages = sorted({rect.page for rect in self.pending_add_rects})
+        removed_pages = sorted(
+            {
+                int(rect_info["page"])
+                for rect_info in self.visible_rects
+                if rect_info_key(rect_info) in self.pending_remove_keys
+            }
+        )
+        summary_lines = format_pending_edit_summary_lines(
+            len(self.pending_add_rects),
+            added_pages,
+            len(self.pending_remove_keys),
+            removed_pages,
+        )
+        self._build_save_confirmation_dialog(summary_lines)
+
+    def _build_save_confirmation_dialog(self, summary_lines: list[str]) -> None:
+        total = len(self.pending_remove_keys) + len(self.pending_add_rects)
+        window = ctk.CTkToplevel(self.window)
+        dialog_height = 190 + 24 * len(summary_lines)
+        window.title(format_pending_edit_confirmation_title(total))
+        center_window_over_parent(window, self.window, 420, dialog_height)
+        window.resizable(False, False)
+        window.configure(fg_color=COLOR_BG)
+        window.transient(self.window)
+        window.grab_set()
+
+        ctk.CTkLabel(
+            window,
+            text=format_pending_edit_confirmation_title(total),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"),
+            text_color=COLOR_TEXT,
+            wraplength=370,
+            justify="left",
+        ).pack(fill="x", padx=20, pady=(20, 8))
+
+        for line in summary_lines:
+            ctk.CTkLabel(
+                window,
+                text=f"• {line}",
+                font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+                text_color=COLOR_TEXT,
+                wraplength=370,
+                justify="left",
+                anchor="w",
+            ).pack(fill="x", padx=24, pady=2)
+
+        ctk.CTkLabel(
+            window,
+            text="Dokument zostanie od razu przebudowany z tymi zmianami.",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+            text_color=COLOR_TEXT_MUTED,
+            wraplength=370,
+            justify="left",
+        ).pack(fill="x", padx=24, pady=(10, 12))
+
+        def _confirm() -> None:
+            window.destroy()
+            self._save_pending_changes()
+
+        actions = ctk.CTkFrame(window, fg_color="transparent")
+        actions.pack(fill="x", padx=20, pady=(0, 20))
+        # Same packing-order-first rule this project always follows for a
+        # primary action next to a secondary one.
+        ctk.CTkButton(
+            actions,
+            text="Zatwierdź",
+            width=120,
+            height=34,
+            corner_radius=8,
+            fg_color=COLOR_ACCENT,
+            hover_color=COLOR_ACCENT_HOVER,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
+            command=_confirm,
+        ).pack(side="right")
+        ctk.CTkButton(
+            actions,
+            text="Anuluj",
+            width=100,
+            height=34,
+            corner_radius=8,
+            fg_color="transparent",
+            hover_color=COLOR_ICON_IDLE,
+            text_color=COLOR_TEXT_MUTED,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            command=window.destroy,
+        ).pack(side="right", padx=(0, 8))
+
+        _bring_window_to_front(window)
 
     def _save_pending_changes(self) -> None:
         if not self._has_pending_changes() or self.source_path is None:

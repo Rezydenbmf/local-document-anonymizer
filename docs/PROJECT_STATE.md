@@ -2427,18 +2427,148 @@ sanitized). Lint unchanged against the established 77-error baseline.
 b63e665 Second start-screen/comparison-window feedback batch: 8 items
 ```
 
+A third round of feedback followed, ten items, after the user's machine froze
+mid-session (confirmed nothing was lost - the prior batch was already fully
+committed and pushed before the freeze):
+
+1. Real regression, found and fixed: `_build_collapsed_quick_actions_rail`
+   packed the reopen button *before* the "Anonimizuj" button - on a short
+   window, that's exactly backwards for which one must never be squeezed
+   out (the established "packed first is protected" rule, violated by the
+   very code meant to apply it). Swapped the order, and replaced the small
+   "«" arrow (reported as "ugly, not an obvious affordance") with a larger
+   accent-filled "☰" button.
+2. The newly-freed space below the file list now shows a compact "Ostatnie
+   foldery wynikowe" card - up to 3 recent output folders with "Otwórz",
+   reusing `self.recent_folders` (already loaded for Historia) rather than
+   a second read. Renders nothing when there's no history yet.
+3 & 5. Settings and the comparison window kept opening on a different
+   monitor than the main app on the user's 3-monitor setup - both used a
+   bare `"WxH"` `.geometry()` string with no position, leaving Tk/Windows to
+   decide. New `center_window_over_parent()` (`gui_helpers.py`) reads the
+   parent's real `winfo_x/y/width/height` and centers the new Toplevel over
+   it instead - applied to all 5 Toplevel constructors in the app (Settings,
+   comparison window, AboutDialog, SummaryDialog, ApprovalLockWarningDialog).
+   Not fully live-verifiable in this sandbox (no real multi-monitor display
+   to test against - a withdrawn/unrealized root reports a bogus 200x200
+   placeholder, confirmed directly), but the fix is the standard, correct
+   approach for this exact class of Tk bug.
+4. A small charming animation ("✏ copies between two 📄") on the
+   processing screen, replacing the static document emoji - a pure
+   `format_processing_animation_frame(step, width)` frame calculation
+   (`gui_helpers.py`), advanced once per real per-file progress event
+   (`_update_processing`) rather than its own `after()`-rescheduled timer:
+   `anonymize_batch` runs synchronously on the main thread, pumped only by
+   `update_idletasks()` (which does not process pending `after()` timers)
+   between files - a separate timer would sit frozen for the whole batch
+   and catch up in one stuttering burst at the end. Tying it to the same
+   real progress event already driving the bar/labels keeps it honest.
+6. Ctrl+scroll-to-zoom "stopped working" per the report - traced the exact
+   live event path (`winfo_containing` → `_pane_side_for_widget` →
+   `_on_ctrl_scroll` → `_adjust_zoom`) with a real synthetic
+   `<Control-MouseWheel>` event at real screen coordinates: it worked
+   correctly end to end, zoom changed as expected. No code regression
+   found. Best-supported working theory: the same multi-monitor issue as
+   3/5, likely compounded by mixed-DPI scaling across monitors throwing off
+   coordinate-based interactions - the `center_window_over_parent` fix
+   should resolve this too since it keeps the window on the same monitor
+   (and DPI context) as the main app; needs the user to confirm after
+   retesting, since this specific failure mode cannot be reproduced in a
+   single-display sandbox.
+7. The draw/erase magic-pen buttons "too small to notice as a feature."
+   Three changes together: (a) the buttons themselves are bigger now
+   (height 28→34, a visible border, larger font) and moved to an
+   always-visible bottom row with a standing "✨ Możesz jeszcze poprawić
+   zaznaczenia poniżej" caption; (b) a new `MagicPenHintDialog`
+   (`gui_dialogs.py`) auto-shows once, the first time an editable
+   comparison window opens - three plain-language bullets (draw, erase,
+   "stays editable until approved"), with its own persisted "Nie pokazuj
+   ponownie" (`MAGIC_PEN_HINT_ID`) restorable from Settings; (c)
+   `SettingsDialog`'s restore-hint section was generalized from one
+   copy-pasted approval-only block into a shared `_build_hint_restore_row`
+   both hints now use. A fuller animated interactive tutorial (simulated
+   cursor movements demonstrating draw/erase) was floated by the user as
+   an idea - assessed and flagged as a real, larger undertaking (no
+   ready-made timeline/animation framework in plain Tkinter) rather than
+   attempted here; the static hint dialog delivers most of the
+   discoverability value at a fraction of the risk and effort.
+8. "Zapisz zmiany" renamed to a live-updating "Zaakceptuj edycję (N)"
+   (`format_save_button_text`), and clicking it now opens a confirmation
+   dialog first - a content-free summary (`format_pending_edit_summary_lines`):
+   counts and *page numbers* of added/removed rects, deliberately never the
+   redacted text itself, since showing the actual hidden word inside an
+   "are you sure?" dialog would defeat the entire point of anonymizing it.
+   New unit test explicitly asserts no document content (a PESEL, an "@")
+   ever appears in that summary.
+9. Two real page-navigation bugs, found by driving the actual entry-commit
+   code path (not just calling the methods directly) live: (a) the nav row
+   was hidden entirely for a 1-page document instead of showing "1 / 1" -
+   fixed (`_update_page_nav_controls` now shows for any `page_count > 0`,
+   not only `> 1`); (b) typing an out-of-range page number actually *did*
+   clamp and update correctly in every test - the "ignoruje to" symptom is
+   most likely a short document already fitting entirely in the viewport,
+   where `yview_moveto` genuinely has nothing to scroll to. Addressed with
+   a brief accent-colored border flash on the entry after every successful
+   jump, so committing a page number always gives visible confirmation even
+   when the scroll position itself doesn't move. Also added a digits-only,
+   3-character keystroke validator to the page entry.
+10. The exact same real scanned document from the previous round again
+    produced placeholder-bracket text instead of colored visual redaction.
+    Still not reproducible from a synthetic degraded image after several
+    more attempts this round (2-page test cases behaved identically to the
+    working case). No further guessing attempted - the diagnostic field
+    added last round (`visual_redaction_fallback_reason`) is the way
+    forward; this needs the user's actual file, or at minimum the raw
+    developer report from a run that reproduces it, to root-cause for
+    real.
+
+Verified live wherever the sandbox allows it (not just by reading the diff):
+background-run scripts drove the real `AnonymizerApp` and `ComparisonWindow`
+through actual Tk widgets and real synthetic events - the collapsed rail on
+a deliberately short window (button stays mapped/visible), the processing
+animation advancing correctly per real progress callback, a real
+`<Control-MouseWheel>` event resolving through the full pane-detection
+chain, the magic pen hint dialog auto-opening after its scheduled delay,
+the save-confirmation dialog opening with the right button text and page
+numbers and correctly leaving pending edits untouched on Cancel, and the
+page-nav entry's clamp/flash behavior on both a 1-page and a 2-page
+document. `center_window_over_parent`'s actual on-screen placement is the
+one thing this sandbox cannot verify (no real multi-monitor display) - the
+math was checked in isolation instead. Full suite: 424 tests (17 new).
+Lint unchanged against the established 77-error baseline.
+
+```text
+eced12b Third start-screen/comparison-window feedback batch: 10 items
+```
+
 ## Next Logical Step
 
-The 8-item follow-up batch above (file list height, subtle scrollbars,
-half-width drop zone, collapsible Szybkie akcje, approval lock-in warning
-+ enforcement, comparison-window page navigation, collapsible legend +
-relocated tool lamps, and the visual-redaction-fallback diagnostic field)
-is done and verified live. One item is not fully closed: item 8 could not
-be reproduced from a synthetic degraded scan in several attempts, so it
-shipped as observability (the new "Visual redaction fallback reason" report
-line) rather than a guessed-at fix - next real occurrence, check that line
-first, or ask the user directly for the actual scan.pdf (or its raw report)
-that triggered the original complaint to root-cause it for real.
+The third feedback batch above (10 items: the collapsed-rail packing-order
+regression, the recent-folders shortcut, multi-monitor window centering,
+the processing animation, the magic pen hint dialog + bigger buttons, the
+save-confirmation dialog, and two page-nav fixes) is done. Two things are
+not fully closed and both need something only the user can provide next
+time they come up:
+- Item 10 (scan visual redaction falling back to placeholder-bracket text):
+  still not reproducible from a synthetic degraded scan after two full
+  rounds of attempts. The `visual_redaction_fallback_reason` diagnostic
+  field (added in the previous round, surfaced in the developer report) is
+  the way forward - next occurrence, read that line first, or ask directly
+  for the actual file (or at least that raw report) rather than guess a
+  third time.
+- Item 6 (Ctrl+scroll-to-zoom "stopped working"): the entire live event
+  path was verified correct with a real synthetic `<Control-MouseWheel>`
+  event - no code regression found. Best-supported theory is the same
+  multi-monitor/mixed-DPI issue as items 3/5, which `center_window_over_parent`
+  should now also fix as a side effect - needs the user to confirm after
+  retesting on their real 3-monitor setup, since a single-display sandbox
+  cannot reproduce a cross-monitor DPI-mismatch bug.
+
+The 8-item follow-up batch before this one (file list height, subtle
+scrollbars, half-width drop zone, collapsible Szybkie akcje, approval
+lock-in warning + enforcement, comparison-window page navigation,
+collapsible legend + relocated tool lamps, and the visual-redaction-fallback
+diagnostic field) is done and verified live.
 
 The start-screen visual-feedback pass above (sidebar restyle, warning-style
 update banner, Szybkie akcje panel carrying the folder picker and

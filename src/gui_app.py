@@ -93,6 +93,7 @@ try:
         format_anonymize_button_text,
         format_batch_error_items,
         format_drop_result,
+        format_processing_animation_frame,
         format_readiness_pl,
         format_recent_folder_timestamp,
         format_review_heading_subtitle,
@@ -207,6 +208,7 @@ except ImportError:
         format_anonymize_button_text,
         format_batch_error_items,
         format_drop_result,
+        format_processing_animation_frame,
         format_readiness_pl,
         format_recent_folder_timestamp,
         format_review_heading_subtitle,
@@ -290,6 +292,8 @@ class AnonymizerApp:
         self.progress_bar: ctk.CTkProgressBar | None = None
         self.progress_status_label: ctk.CTkLabel | None = None
         self.progress_file_label: ctk.CTkLabel | None = None
+        self.processing_animation_label: ctk.CTkLabel | None = None
+        self._processing_animation_step = 0
         self.review_cards_frame: ctk.CTkFrame | None = None
         self.review_summary_label: ctk.CTkLabel | None = None
         self.export_button: ctk.CTkButton | None = None
@@ -542,6 +546,7 @@ class AnonymizerApp:
             )
 
     def _clear_content(self) -> None:
+        self.processing_animation_label = None
         for widget in self.content.winfo_children():
             widget.destroy()
 
@@ -1295,13 +1300,21 @@ class AnonymizerApp:
 
     def _build_collapsed_quick_actions_rail(self, parent: ctk.CTkFrame) -> ctk.CTkFrame:
         """The slim stand-in for _build_quick_settings_panel once
-        collapsed: a reopen toggle and the "Anonimizuj" button, icon-only
+        collapsed: the "Anonimizuj" button and a reopen toggle, icon-only
         since there is no room for a label - per direct user feedback,
         the button must stay reachable even while the rest of "Szybkie
         akcje" is hidden away. self.status_label and
         self.output_dir_value_label are intentionally left unset (not
         built here) - _update_readiness and pick_output_dir already
         null-check both before touching them.
+
+        self.anonymize_button is packed *first* here, before the reopen
+        button - the same "packed first is never the one squeezed out"
+        rule this project leans on everywhere else. A real bug was found
+        and fixed here: the previous version packed the reopen button
+        first, which could crowd the anonymize button off a short window
+        instead of the other way around - exactly backwards for which of
+        the two actually has to stay reachable.
         """
         panel = ctk.CTkFrame(
             parent,
@@ -1314,21 +1327,6 @@ class AnonymizerApp:
         panel.pack_propagate(False)
         inner = ctk.CTkFrame(panel, fg_color="transparent")
         inner.pack(fill="both", expand=True, padx=10, pady=14)
-
-        reopen_button = ctk.CTkButton(
-            inner,
-            text="«",
-            width=36,
-            height=28,
-            corner_radius=8,
-            fg_color=COLOR_ICON_IDLE,
-            hover_color=COLOR_ACCENT_HOVER,
-            text_color=COLOR_TEXT,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=13),
-            command=self._toggle_quick_actions_collapsed,
-        )
-        reopen_button.pack(side="top")
-        IconTooltip(reopen_button, "Pokaż szybkie akcje")
 
         self.status_label = None
         self.output_dir_value_label = None
@@ -1347,6 +1345,26 @@ class AnonymizerApp:
         )
         self.anonymize_button.pack(side="bottom")
         IconTooltip(self.anonymize_button, "Anonimizuj")
+
+        # A bigger, accent-colored, clearly-clickable control instead of
+        # the small muted "«" arrow from the first version - per direct
+        # feedback that arrow "looked ugly" and wasn't an obvious
+        # "restore this panel" affordance. "☰" reads as "more/menu"
+        # without needing a label this narrow a rail has no room for.
+        reopen_button = ctk.CTkButton(
+            inner,
+            text="☰",
+            width=40,
+            height=36,
+            corner_radius=8,
+            fg_color=COLOR_ACCENT,
+            hover_color=COLOR_ACCENT_HOVER,
+            text_color="#FFFFFF",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=16, weight="bold"),
+            command=self._toggle_quick_actions_collapsed,
+        )
+        reopen_button.pack(side="top")
+        IconTooltip(reopen_button, "Pokaż szybkie akcje")
 
         return panel
 
@@ -1437,11 +1455,100 @@ class AnonymizerApp:
         apply_subtle_scrollbar(self.file_card_frame)
         self._refresh_file_cards()
 
+        # Fills the vertical space the file list left behind (per direct
+        # user feedback that it looked "too bare" now) with something
+        # actually useful rather than decoration: a shortcut back into
+        # recently used output folders, reusing data already loaded for
+        # the Historia screen instead of a second source of truth.
+        self._build_recent_folders_shortcut(scroll_region)
+
         # Folder picker, status text and "Anonimizuj" itself now live in
         # the "Szybkie akcje" panel built above (see
         # _build_quick_settings_panel) - this just syncs their initial
         # state/text to the current selection.
         self._update_readiness()
+
+    def _build_recent_folders_shortcut(self, parent: ctk.CTkFrame) -> None:
+        """A compact "Ostatnie foldery wynikowe" card - up to 3 most
+        recent entries, reusing self.recent_folders (already loaded for
+        the Historia screen, see _prepare_default_output_dir/__init__)
+        rather than a second read of history_config_path. Silently
+        renders nothing when there is no history yet, rather than an
+        empty/awkward card - a first-run window is already sparse enough
+        without an extra empty box telling the user so.
+        """
+        if not self.recent_folders:
+            return
+        card = ctk.CTkFrame(
+            parent,
+            corner_radius=12,
+            fg_color=COLOR_CARD,
+            border_width=1,
+            border_color=COLOR_BORDER,
+        )
+        card.pack(fill="x", pady=(0, 14))
+        inner = ctk.CTkFrame(card, fg_color="transparent")
+        inner.pack(fill="x", padx=16, pady=12)
+
+        header_row = ctk.CTkFrame(inner, fg_color="transparent")
+        header_row.pack(fill="x", pady=(0, 8))
+        ctk.CTkLabel(
+            header_row,
+            text="Ostatnie foldery wynikowe",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
+            text_color=COLOR_TEXT,
+            anchor="w",
+        ).pack(side="left")
+        ctk.CTkButton(
+            header_row,
+            text="Zobacz wszystkie →",
+            fg_color="transparent",
+            hover_color=COLOR_ICON_IDLE,
+            text_color=COLOR_ACCENT,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            height=22,
+            command=self.show_history_screen,
+        ).pack(side="right")
+
+        for entry in self.recent_folders[:3]:
+            folder_path = entry.get("path", "")
+            exists = Path(folder_path).is_dir()
+            row = ctk.CTkFrame(inner, fg_color="transparent")
+            row.pack(fill="x", pady=3)
+            ctk.CTkLabel(
+                row,
+                text="\U0001f4c1",
+                font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            ).pack(side="left", padx=(0, 8))
+            ctk.CTkLabel(
+                row,
+                text=Path(folder_path).name or folder_path,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                text_color=COLOR_TEXT if exists else COLOR_TEXT_MUTED,
+                anchor="w",
+            ).pack(side="left", fill="x", expand=True)
+            if exists:
+                ctk.CTkButton(
+                    row,
+                    text="Otwórz",
+                    width=70,
+                    height=24,
+                    corner_radius=6,
+                    fg_color="transparent",
+                    border_width=1,
+                    border_color=COLOR_BORDER,
+                    hover_color=COLOR_ICON_IDLE,
+                    text_color=COLOR_TEXT,
+                    font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+                    command=lambda p=folder_path: self.open_history_folder(p),
+                ).pack(side="right")
+            else:
+                ctk.CTkLabel(
+                    row,
+                    text="nie istnieje",
+                    font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+                    text_color=COLOR_HIGH_RISK,
+                ).pack(side="right")
 
     def _output_dir_display_text(self) -> str:
         if self.output_dir is None:
@@ -1723,12 +1830,27 @@ class AnonymizerApp:
         wrapper = ctk.CTkFrame(self.content, fg_color="transparent")
         wrapper.place(relx=0.5, rely=0.42, anchor="center")
 
-        ctk.CTkLabel(
+        # A small charming animation (a pencil "copying" between two
+        # pages) instead of a single static document emoji - per direct
+        # user feedback that the processing screen felt bare. Advanced
+        # one frame per _update_processing call (see below) rather than
+        # its own independent after()-rescheduled timer: anonymize_batch
+        # runs synchronously on the main thread, only pumped by
+        # update_idletasks() between files (not update(), which is what
+        # actually processes pending after() timers) - a separate timer
+        # would sit frozen for the whole batch and only catch up in one
+        # stuttering burst once the blocking call finally returned.
+        # Driving it from the same real per-file progress event the
+        # progress bar/labels already use keeps it honestly tied to
+        # actual progress instead of a fake, disconnected animation.
+        self._processing_animation_step = 0
+        self.processing_animation_label = ctk.CTkLabel(
             wrapper,
-            text="\U0001f4c4",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=48),
+            text=format_processing_animation_frame(0),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=28),
             text_color=COLOR_ACCENT,
-        ).pack(pady=(0, 24))
+        )
+        self.processing_animation_label.pack(pady=(0, 24))
 
         self.progress_bar = ctk.CTkProgressBar(
             wrapper, width=320, height=10, corner_radius=5, progress_color=COLOR_ACCENT
@@ -1761,6 +1883,16 @@ class AnonymizerApp:
             )
         if self.progress_file_label is not None:
             self.progress_file_label.configure(text=path.name)
+        if self.processing_animation_label is not None:
+            # Advanced one frame per real progress event rather than its
+            # own independent timer - see the comment in
+            # show_processing_screen for why a separate after()-driven
+            # timer would not actually animate during the batch's
+            # synchronous run.
+            self._processing_animation_step += 1
+            self.processing_animation_label.configure(
+                text=format_processing_animation_frame(self._processing_animation_step)
+            )
         self.root.update_idletasks()
 
     # ------------------------------------------------------------------
