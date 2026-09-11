@@ -273,11 +273,14 @@ def save_seen_hints(config_path: Path, hint_ids: set[str]) -> None:
 # Hint ids stored in ui_hints_config_path(). ZOOM_LINK_HINT_ID marks the
 # comparison window's zoom-link toggle tooltip as already auto-flashed
 # once; APPROVAL_LOCK_HINT_ID marks the "approving locks this file"
-# warning (see ApprovalLockWarningDialog in gui_dialogs.py) as dismissed
-# via its own "Nie pokazuj ponownie" checkbox - both survive an app
-# restart and both can be brought back from Settings > Ogólne.
+# warning (see ApprovalLockWarningDialog in gui_dialogs.py) as dismissed;
+# MAGIC_PEN_HINT_ID marks the first-open "what can I do here" magic pen
+# intro (see MagicPenHintDialog) as dismissed - all three survive an app
+# restart via their own "Nie pokazuj ponownie" checkbox, and can be
+# brought back from Settings > Ogólne.
 ZOOM_LINK_HINT_ID = "zoom_link_toggle"
 APPROVAL_LOCK_HINT_ID = "approval_lock_warning"
+MAGIC_PEN_HINT_ID = "magic_pen_intro"
 
 
 def hint_is_dismissed(hint_id: str) -> bool:
@@ -462,6 +465,37 @@ def open_path_with_default_app(path: Path) -> None:
 
     opener = "open" if sys.platform == "darwin" else "xdg-open"
     subprocess.Popen([opener, str(path)])
+
+
+def center_window_over_parent(
+    window: tk.Misc, parent: tk.Misc, width: int, height: int
+) -> None:
+    """Position a new Toplevel's geometry centered over ``parent``'s
+    current on-screen position, instead of leaving Tk/the OS to decide.
+
+    Without an explicit position, a bare "WxH" geometry string can open
+    on a different monitor than the parent window on a multi-monitor
+    Windows setup - confirmed directly by a user report: Settings and
+    the comparison window kept opening on a laptop's own screen while
+    the main app sat on a different monitor entirely, reading as a
+    stray, unrelated window rather than a dialog that belongs to the
+    app being used. Falls back to the bare size string (letting Tk/the
+    OS decide, the previous behavior) if the parent's geometry cannot
+    be read for any reason, rather than fail a dialog open over a
+    cosmetic placement detail.
+    """
+    try:
+        parent.update_idletasks()
+        parent_x = parent.winfo_x()
+        parent_y = parent.winfo_y()
+        parent_width = parent.winfo_width()
+        parent_height = parent.winfo_height()
+    except tk.TclError:
+        window.geometry(f"{width}x{height}")
+        return
+    x = parent_x + max((parent_width - width) // 2, 0)
+    y = parent_y + max((parent_height - height) // 2, 0)
+    window.geometry(f"{width}x{height}+{x}+{y}")
 
 
 def _bring_window_to_front(window: tk.Misc) -> None:
@@ -857,6 +891,29 @@ def format_review_heading_subtitle(count: int) -> str:
     return f"{count} dokumentów zostało przetworzonych."
 
 
+PROCESSING_ANIMATION_WIDTH = 10
+
+
+def format_processing_animation_frame(step: int, width: int = PROCESSING_ANIMATION_WIDTH) -> str:
+    """Return one frame of a small "pencil copies a page" text animation
+    shown on the processing screen - per direct user feedback that a
+    plain progress bar felt bare and a small, simple, charming animation
+    would be nicer while a batch runs. A pencil "✏" ping-pongs between
+    two page emoji, one step per call; the caller drives ``step`` up by
+    one on a timer (see AnonymizerApp._tick_processing_animation) - this
+    function itself is a pure, stateless frame-position calculation so
+    it can be tested without a running Tk loop.
+    """
+    safe_width = max(width, 2)
+    cycle_length = safe_width * 2 - 2
+    position = step % cycle_length
+    if position >= safe_width:
+        position = cycle_length - position
+    dots_before = "·" * position
+    dots_after = "·" * (safe_width - 1 - position)
+    return f"\U0001f4c4 {dots_before}✏️{dots_after} \U0001f4c4"
+
+
 def format_anonymize_button_text(input_file_count: int) -> str:
     """Label the main action button with the selected count, matching the
     mockup's "Anonimizuj 3 pliki" - falls back to the plain verb alone
@@ -890,6 +947,79 @@ def format_approval_lock_warning_text(count: int) -> str:
         f"{subject} po zatwierdzeniu {verb} już edytowalne magic penem - "
         "aby wprowadzić zmiany, trzeba będzie uruchomić anonimizację od nowa."
     )
+
+
+def _pl_edit_word(count: int) -> str:
+    """Return the grammatically correct Polish word for "edit(s)" in the
+    accusative case - both call sites use it as the object of a verb
+    ("Zaakceptuj ...", "Zatwierdzić ..."), where singular "edycja"
+    (nominative) would be wrong; "edycję" is the correct singular form
+    there. The 2-4 and 5+ plural forms are the same in both cases, so
+    only the count == 1 branch needed to change.
+    """
+    if count == 1:
+        return "edycję"
+    last_digit = count % 10
+    last_two = count % 100
+    if 2 <= last_digit <= 4 and not (12 <= last_two <= 14):
+        return "edycje"
+    return "edycji"
+
+
+def format_save_button_text(pending_count: int) -> str:
+    """Label the magic pen's save button with the pending-edit count,
+    e.g. "Zaakceptuj edycję (3)" - renamed from the previous plain
+    "Zapisz zmiany" per direct user feedback that "save" undersold what
+    the button actually does (approving edits that then get baked into
+    a regenerated PDF), and that seeing how many pending edits are about
+    to be applied is useful before clicking it.
+    """
+    if pending_count <= 0:
+        return "Zaakceptuj edycję"
+    return f"Zaakceptuj {_pl_edit_word(pending_count)} ({pending_count})"
+
+
+def format_pending_edit_confirmation_title(pending_count: int) -> str:
+    """Title for the magic pen's save-confirmation dialog, e.g.
+    "Zatwierdzić 3 edycje?" - correctly pluralized for Polish."""
+    return f"Zatwierdzić {pending_count} {_pl_edit_word(pending_count)}?"
+
+
+def format_page_list(pages: Sequence[int]) -> str:
+    """Format a sorted, deduplicated sequence of 1-based page numbers
+    for display, e.g. [1, 2, 4] -> "1, 2, 4". Empty input returns ""."""
+    return ", ".join(str(page) for page in pages)
+
+
+def _pl_page_word(pages: Sequence[int]) -> str:
+    return "strona" if len(pages) == 1 else "strony"
+
+
+def format_pending_edit_summary_lines(
+    added_count: int,
+    added_pages: Sequence[int],
+    removed_count: int,
+    removed_pages: Sequence[int],
+) -> list[str]:
+    """Plain-language, content-free summary of an editable PDF's pending
+    manual edits - counts and page numbers only, deliberately never the
+    redacted text itself: showing the actual word being hidden inside an
+    "are you sure you want to apply this?" confirmation would defeat the
+    entire point of anonymizing it in the first place. Used by
+    ComparisonWindow's save confirmation (see also format_save_button_text
+    for the button's own label)."""
+    lines: list[str] = []
+    if added_count:
+        lines.append(
+            f"Dodane ręczne zaznaczenia: {added_count} "
+            f"({_pl_page_word(added_pages)} {format_page_list(added_pages)})"
+        )
+    if removed_count:
+        lines.append(
+            f"Cofnięte automatyczne zaznaczenia: {removed_count} "
+            f"({_pl_page_word(removed_pages)} {format_page_list(removed_pages)})"
+        )
+    return lines
 
 
 def format_short_path(path: Path, max_length: int = 48) -> str:

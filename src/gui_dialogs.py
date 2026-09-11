@@ -30,11 +30,13 @@ try:
         COLOR_WARNING_SOFT,
         COLOR_WARNING_TEXT,
         FONT_FAMILY,
+        MAGIC_PEN_HINT_ID,
         RISK_STYLES,
         RISK_SUMMARY_TEXT_PL,
         _bring_window_to_front,
         apply_subtle_scrollbar,
         category_label_pl,
+        center_window_over_parent,
         dismiss_hint,
         format_approval_lock_warning_text,
         format_approval_lock_warning_title,
@@ -61,11 +63,13 @@ except ImportError:
         COLOR_WARNING_SOFT,
         COLOR_WARNING_TEXT,
         FONT_FAMILY,
+        MAGIC_PEN_HINT_ID,
         RISK_STYLES,
         RISK_SUMMARY_TEXT_PL,
         _bring_window_to_front,
         apply_subtle_scrollbar,
         category_label_pl,
+        center_window_over_parent,
         dismiss_hint,
         format_approval_lock_warning_text,
         format_approval_lock_warning_title,
@@ -91,7 +95,7 @@ class AboutDialog:
         window = ctk.CTkToplevel(app.root)
         self.window = window
         window.title("O programie")
-        window.geometry("420x360")
+        center_window_over_parent(window, app.root, 420, 360)
         window.resizable(False, False)
         window.configure(fg_color=COLOR_BG)
         window.transient(app.root)
@@ -182,7 +186,7 @@ class SummaryDialog:
         window = ctk.CTkToplevel(app.root)
         self.window = window
         window.title("Szczegóły")
-        window.geometry("480x520")
+        center_window_over_parent(window, app.root, 480, 520)
         window.configure(fg_color=COLOR_BG)
         window.transient(app.root)
         window.grab_set()
@@ -328,7 +332,7 @@ class ApprovalLockWarningDialog:
         window = ctk.CTkToplevel(app.root)
         self.window = window
         window.title(format_approval_lock_warning_title(count))
-        window.geometry("420x300")
+        center_window_over_parent(window, app.root, 420, 300)
         window.resizable(False, False)
         window.configure(fg_color=COLOR_BG)
         window.transient(app.root)
@@ -416,6 +420,120 @@ class ApprovalLockWarningDialog:
         self.on_confirm()
 
     def _cancel(self) -> None:
+        self.window.destroy()
+
+
+class MagicPenHintDialog:
+    """A first-open "what can I do here" explainer for the magic pen,
+    shown once (see ComparisonWindow._maybe_show_magic_pen_hint) the
+    first time a comparison window with an editable (not locked) PDF
+    opens - per direct user feedback that the draw/erase buttons alone
+    were "too small to notice" and a first-time user would have no idea
+    this editing capability even existed. Purely informational (one
+    "Rozumiem" button, not a confirm/cancel choice) with the same
+    persisted "Nie pokazuj ponownie" pattern as
+    ApprovalLockWarningDialog - restorable from Settings > Ogólne.
+    """
+
+    def __init__(self, app: AnonymizerApp) -> None:
+        window = ctk.CTkToplevel(app.root)
+        self.window = window
+        window.title("Co możesz zrobić z tym dokumentem?")
+        center_window_over_parent(window, app.root, 440, 380)
+        window.resizable(False, False)
+        window.configure(fg_color=COLOR_BG)
+        window.transient(app.root)
+        window.grab_set()
+        window.protocol("WM_DELETE_WINDOW", self._close)
+
+        ctk.CTkLabel(
+            window,
+            text="✏️ Ten dokument można jeszcze poprawić",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"),
+            text_color=COLOR_TEXT,
+            wraplength=390,
+            justify="left",
+        ).pack(fill="x", padx=20, pady=(20, 12))
+
+        for glyph, text in (
+            (
+                "✏",
+                (
+                    "Zaznacz i przeciągnij myszą po prawej stronie, aby ręcznie "
+                    "ukryć coś, co program pominął."
+                ),
+            ),
+            (
+                "🖱",
+                (
+                    "Kliknij prawym przyciskiem na kolorowym zaznaczeniu (albo "
+                    "użyj przycisku „Usuń zaznaczenie”), aby cofnąć "
+                    "automatyczną anonimizację tego fragmentu."
+                ),
+            ),
+            (
+                "✓",
+                (
+                    "Dopóki nie klikniesz „Zatwierdź”, dokument pozostaje "
+                    "w pełni edytowalny - po zatwierdzeniu edycja nie jest już "
+                    "możliwa."
+                ),
+            ),
+        ):
+            row = ctk.CTkFrame(window, fg_color="transparent")
+            row.pack(fill="x", padx=20, pady=4)
+            ctk.CTkLabel(
+                row,
+                text=glyph,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=14),
+                text_color=COLOR_ACCENT,
+                width=24,
+            ).pack(side="left", anchor="n")
+            ctk.CTkLabel(
+                row,
+                text=text,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+                text_color=COLOR_TEXT,
+                wraplength=340,
+                justify="left",
+                anchor="w",
+            ).pack(side="left", fill="x", expand=True)
+
+        self.dont_show_again_var = tk.BooleanVar(value=False)
+        ctk.CTkCheckBox(
+            window,
+            text="Nie pokazuj ponownie",
+            variable=self.dont_show_again_var,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            text_color=COLOR_TEXT,
+            fg_color=COLOR_ACCENT,
+            hover_color=COLOR_ACCENT_HOVER,
+        ).pack(anchor="w", padx=24, pady=(12, 4))
+        ctk.CTkLabel(
+            window,
+            text="Możesz przywrócić tę podpowiedź w Ustawienia > Ogólne.",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+            text_color=COLOR_TEXT_MUTED,
+            anchor="w",
+        ).pack(fill="x", padx=24, pady=(0, 12))
+
+        ctk.CTkButton(
+            window,
+            text="Rozumiem",
+            width=120,
+            height=34,
+            corner_radius=8,
+            fg_color=COLOR_ACCENT,
+            hover_color=COLOR_ACCENT_HOVER,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
+            command=self._close,
+        ).pack(pady=(0, 20))
+
+        _bring_window_to_front(window)
+
+    def _close(self) -> None:
+        if self.dont_show_again_var.get():
+            dismiss_hint(MAGIC_PEN_HINT_ID)
         self.window.destroy()
 
 

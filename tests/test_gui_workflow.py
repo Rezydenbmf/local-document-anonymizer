@@ -56,11 +56,16 @@ from gui import (
     format_dictionary_result,
     format_drop_result,
     format_llm_model_selector_state,
+    format_page_list,
+    format_pending_edit_confirmation_title,
+    format_pending_edit_summary_lines,
+    format_processing_animation_frame,
     format_processing_status,
     format_readiness_pl,
     format_recent_folder_timestamp,
     format_review_heading_subtitle,
     format_review_summary_line,
+    format_save_button_text,
     format_selected_file_count,
     format_short_path,
     hint_is_dismissed,
@@ -455,6 +460,82 @@ class GuiWorkflowTests(unittest.TestCase):
         self.assertEqual(format_anonymize_button_text(1), "Anonimizuj 1 plik")
         self.assertEqual(format_anonymize_button_text(3), "Anonimizuj 3 pliki")
         self.assertEqual(format_anonymize_button_text(5), "Anonimizuj 5 plików")
+
+    def test_processing_animation_frame_starts_and_ends_with_a_page(self) -> None:
+        frame = format_processing_animation_frame(0)
+        self.assertTrue(frame.startswith("\U0001f4c4"))
+        self.assertTrue(frame.endswith("\U0001f4c4"))
+        self.assertIn("✏", frame)
+
+    def test_processing_animation_frame_ping_pongs_the_pencil(self) -> None:
+        width = 5
+        cycle_length = width * 2 - 2
+
+        def dot_count_before_pencil(step: int) -> int:
+            frame = format_processing_animation_frame(step, width=width)
+            before, _, _after = frame.partition("✏")
+            return before.count("·")
+
+        positions = [dot_count_before_pencil(step) for step in range(cycle_length)]
+        self.assertEqual(positions, [0, 1, 2, 3, 4, 3, 2, 1])
+
+    def test_processing_animation_frame_repeats_after_one_full_cycle(self) -> None:
+        width = 5
+        cycle_length = width * 2 - 2
+        self.assertEqual(
+            format_processing_animation_frame(0, width=width),
+            format_processing_animation_frame(cycle_length, width=width),
+        )
+        self.assertEqual(
+            format_processing_animation_frame(3, width=width),
+            format_processing_animation_frame(3 + cycle_length, width=width),
+        )
+
+    def test_format_save_button_text_with_no_pending_edits(self) -> None:
+        self.assertEqual(format_save_button_text(0), "Zaakceptuj edycję")
+
+    def test_format_save_button_text_pluralizes_polish_edit_counts(self) -> None:
+        self.assertEqual(format_save_button_text(1), "Zaakceptuj edycję (1)")
+        self.assertEqual(format_save_button_text(3), "Zaakceptuj edycje (3)")
+        self.assertEqual(format_save_button_text(5), "Zaakceptuj edycji (5)")
+
+    def test_format_page_list_joins_page_numbers(self) -> None:
+        self.assertEqual(format_page_list([1, 2, 4]), "1, 2, 4")
+        self.assertEqual(format_page_list([1]), "1")
+        self.assertEqual(format_page_list([]), "")
+
+    def test_format_pending_edit_summary_lines_covers_additions_and_removals(
+        self,
+    ) -> None:
+        lines = format_pending_edit_summary_lines(2, [1, 2], 1, [1])
+        self.assertEqual(len(lines), 2)
+        self.assertIn("Dodane ręczne zaznaczenia: 2", lines[0])
+        self.assertIn("strony 1, 2", lines[0])
+        self.assertIn("Cofnięte automatyczne zaznaczenia: 1", lines[1])
+        self.assertIn("strona 1", lines[1])
+
+    def test_format_pending_edit_summary_lines_omits_empty_categories(self) -> None:
+        lines = format_pending_edit_summary_lines(1, [1], 0, [])
+        self.assertEqual(len(lines), 1)
+        self.assertIn("Dodane ręczne zaznaczenia: 1", lines[0])
+
+    def test_format_pending_edit_summary_lines_never_include_document_text(
+        self,
+    ) -> None:
+        # A confirmation dialog must stay content-free - showing the
+        # actual redacted word would defeat the point of anonymizing it.
+        lines = format_pending_edit_summary_lines(1, [1], 1, [2])
+        combined = " ".join(lines)
+        self.assertNotIn("PESEL", combined)
+        self.assertNotIn("@", combined)
+
+    def test_format_pending_edit_confirmation_title_pluralizes(self) -> None:
+        self.assertEqual(
+            format_pending_edit_confirmation_title(1), "Zatwierdzić 1 edycję?"
+        )
+        self.assertEqual(
+            format_pending_edit_confirmation_title(3), "Zatwierdzić 3 edycje?"
+        )
 
     def test_gui_formats_short_path_keeps_full_short_paths(self) -> None:
         self.assertEqual(format_short_path(Path("C:/Wyniki")), "C:\\Wyniki")

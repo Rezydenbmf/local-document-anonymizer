@@ -28,10 +28,12 @@ try:
         COLOR_TEXT,
         COLOR_TEXT_MUTED,
         FONT_FAMILY,
+        MAGIC_PEN_HINT_ID,
         PDF_OUTPUT_SETTINGS_BY_LABEL,
         PDF_OUTPUT_SHORT_LABELS,
         IconTooltip,
         _bring_window_to_front,
+        center_window_over_parent,
         environment_status_lookup,
         format_llm_model_selector_state,
         hint_is_dismissed,
@@ -61,10 +63,12 @@ except ImportError:
         COLOR_TEXT,
         COLOR_TEXT_MUTED,
         FONT_FAMILY,
+        MAGIC_PEN_HINT_ID,
         PDF_OUTPUT_SETTINGS_BY_LABEL,
         PDF_OUTPUT_SHORT_LABELS,
         IconTooltip,
         _bring_window_to_front,
+        center_window_over_parent,
         environment_status_lookup,
         format_llm_model_selector_state,
         hint_is_dismissed,
@@ -88,7 +92,7 @@ class SettingsDialog:
         self.app = app
         self.window = ctk.CTkToplevel(app.root)
         self.window.title("Ustawienia")
-        self.window.geometry("560x700")
+        center_window_over_parent(self.window, app.root, 560, 700)
         self.window.configure(fg_color=COLOR_BG)
         self.window.transient(app.root)
         self.window.grab_set()
@@ -110,6 +114,7 @@ class SettingsDialog:
         self.detection_tab: ctk.CTkFrame | None = None
         self._ocr_language_code_by_label: dict[str, str] = {}
         self.approval_warning_status_label: ctk.CTkLabel | None = None
+        self.magic_pen_hint_status_label: ctk.CTkLabel | None = None
 
         self._build(initial_tab)
 
@@ -269,14 +274,30 @@ class SettingsDialog:
             "Dymki tłumaczące np. narzędzia łapki/lupy w podglądzie porównania",
             self.show_hints_var,
         )
-        self._build_restore_approval_warning_section(tab)
+        self.approval_warning_status_label = self._build_hint_restore_row(
+            tab,
+            title="Ostrzeżenie przy zatwierdzaniu",
+            hint_id=APPROVAL_LOCK_HINT_ID,
+            shown_text="Widoczne przy każdym zatwierdzaniu",
+        )
+        self.magic_pen_hint_status_label = self._build_hint_restore_row(
+            tab,
+            title="Podpowiedź o edycji dokumentu",
+            hint_id=MAGIC_PEN_HINT_ID,
+            shown_text="Widoczna przy pierwszym otwarciu edytowalnego dokumentu",
+        )
 
-    def _build_restore_approval_warning_section(self, parent: ctk.CTkFrame) -> None:
-        """A "bring it back" action for the approval lock-in warning
-        (ApprovalLockWarningDialog) once someone has dismissed it via its
-        own "Nie pokazuj ponownie" checkbox - that checkbox has no other
-        way to be undone, per direct user feedback that a permanently
-        dismissible one-way warning still needs a way back.
+    def _build_hint_restore_row(
+        self, parent: ctk.CTkFrame, *, title: str, hint_id: str, shown_text: str
+    ) -> ctk.CTkLabel:
+        """A "bring it back" row for a one-time hint/warning dismissed via
+        its own "Nie pokazuj ponownie" checkbox - that checkbox has no
+        other way to be undone, per direct user feedback that a
+        permanently dismissible one-way hint still needs a way back.
+        Shared by every such hint in the app (see APPROVAL_LOCK_HINT_ID,
+        MAGIC_PEN_HINT_ID in gui_helpers.py) instead of one copy-pasted
+        section per hint. Returns the status label so a later refresh
+        (see _restore_hint) has something to update.
         """
         frame = self._section_frame(parent)
         row = ctk.CTkFrame(frame, fg_color="transparent")
@@ -285,19 +306,19 @@ class SettingsDialog:
         text_col.pack(side="left", fill="x", expand=True)
         ctk.CTkLabel(
             text_col,
-            text="Ostrzeżenie przy zatwierdzaniu",
+            text=title,
             font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
             text_color=COLOR_TEXT,
             anchor="w",
         ).pack(fill="x")
-        self.approval_warning_status_label = ctk.CTkLabel(
+        status_label = ctk.CTkLabel(
             text_col,
-            text=self._approval_warning_status_text(),
+            text=self._hint_restore_status_text(hint_id, shown_text),
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
             text_color=COLOR_TEXT_MUTED,
             anchor="w",
         )
-        self.approval_warning_status_label.pack(fill="x")
+        status_label.pack(fill="x")
         ctk.CTkButton(
             row,
             text="Przywróć",
@@ -310,21 +331,21 @@ class SettingsDialog:
             hover_color=COLOR_ICON_IDLE,
             text_color=COLOR_TEXT,
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-            command=self._restore_approval_warning,
+            command=lambda: self._restore_hint(hint_id, shown_text, status_label),
         ).pack(side="right")
+        return status_label
 
     @staticmethod
-    def _approval_warning_status_text() -> str:
-        if hint_is_dismissed(APPROVAL_LOCK_HINT_ID):
+    def _hint_restore_status_text(hint_id: str, shown_text: str) -> str:
+        if hint_is_dismissed(hint_id):
             return "Ukryte (zaznaczono \"Nie pokazuj ponownie\")"
-        return "Widoczne przy każdym zatwierdzaniu"
+        return shown_text
 
-    def _restore_approval_warning(self) -> None:
-        restore_hint(APPROVAL_LOCK_HINT_ID)
-        if self.approval_warning_status_label is not None:
-            self.approval_warning_status_label.configure(
-                text=self._approval_warning_status_text()
-            )
+    def _restore_hint(
+        self, hint_id: str, shown_text: str, status_label: ctk.CTkLabel
+    ) -> None:
+        restore_hint(hint_id)
+        status_label.configure(text=self._hint_restore_status_text(hint_id, shown_text))
 
     def _section_frame(self, parent: ctk.CTkFrame) -> ctk.CTkFrame:
         frame = ctk.CTkFrame(
