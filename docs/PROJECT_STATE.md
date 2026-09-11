@@ -2136,6 +2136,87 @@ one this change introduced).
 1ba33db Make Polish the explicit OCR baseline + language-pack management
 ```
 
+Direct follow-up from the user, looking at their own scanned-document result:
+why does a scanned PDF only get placeholder-tag text ([NER_PERSON], [DATA],
+...) instead of the same colored redaction boxes a real-text-layer PDF
+already gets? Root-caused in the code rather than guessed: `pdf_redaction.py`
+already has a full word-coordinate visual-redaction pipeline, but it only
+ever received words from `extract_pdf_word_pages` (PyMuPDF's real PDF text
+layer) - OCR text (`pytesseract.image_to_string`) carries no position data
+at all, so a scanned page had nothing to map a detected span onto and always
+fell back to a rebuilt plain-text document. Confirmed while investigating:
+PyMuPDF's `page.apply_redactions()` already blanks out *image* pixels under
+a redaction rect by default (`images=2`), not just text - meaning the
+entire existing colored-redaction pipeline would work unchanged on a
+scanned page, the only missing piece was positional OCR data to feed it.
+User confirmed scope directly: both scanned PDFs and standalone images
+("PDF-y i obrazy naraz").
+
+`ocr.py` gained `extract_pdf_word_boxes`/`extract_image_word_boxes`, using
+`pytesseract.image_to_data` (not `image_to_string`) to get per-word text
+plus pixel bounding boxes, converted to PDF point space (dividing by the
+known render zoom for PDF pages; 1:1 for a plain image). Low-confidence
+words (`MIN_OCR_WORD_CONFIDENCE = 40`) are dropped rather than risk a
+redaction box landing in the wrong place on a poor scan - a guard the
+plain-text OCR path has no equivalent of, since a wrong character there is
+just a wrong character, not a misplaced rectangle. `pdf_redaction.py` gained
+`word_pages_from_ocr_boxes`, converting that raw data into the exact same
+`PdfWord`/`PdfWordPage` shape `extract_pdf_word_pages` already produces from
+a real text layer - refactored the shared text/offset-reconstruction logic
+(line-break-between-source-lines convention) into one `_build_word_page`
+helper both now call, rather than duplicating it - so every existing
+word-coordinate function (`compute_redaction_rects`,
+`save_word_coordinate_redacted_pdf_copy`, ...) works identically regardless
+of whether the words came from a text layer or OCR, with zero new
+special-casing needed in that layer. For standalone images, a new
+`save_word_coordinate_redacted_image_copy` wraps the source image in a
+synthetic one-page PDF sized at the image's own pixel dimensions (1 pixel =
+1 point, matching how `extract_image_word_boxes` measured its OCR boxes)
+and reuses `save_word_coordinate_redacted_pdf_copy` entirely rather than
+reimplementing redaction - the synthetic PDF is a temporary implementation
+detail, cleaned up regardless of outcome. A new `build_image_visual_pdf_path`
+names the output the same `_ANON_VISUAL.pdf` convention PDF sources already
+use.
+
+`anonymizer.py`'s scanned-PDF branch now tries word-box OCR first - it
+produces the same text a plain OCR pass would (via the word pages' own
+reconstructed text) plus the coordinates needed for visual redaction, in
+one OCR pass rather than two; falls back to the original plain-text-only
+OCR path unchanged when word-level OCR itself is unavailable. Found and
+fixed while wiring this in: joining OCR page text with the same
+`PDF_PAGE_SEPARATOR` a real text layer uses (needed so detection sees
+real page boundaries) but not also passing the real page count to
+`_split_anonymized_pdf_pages` would have left raw separator characters
+embedded as literal text in the saved TXT output for a multi-page scan -
+never shipped, since it was verified with a real driving script before
+being trusted, not assumed correct from reading the diff. The image
+pipeline (previously TXT-only, no visual output ever existed for images)
+gained the same word-box-first OCR + optional visual PDF, reusing
+`_pdf_detection_spans_for_word_pages` (the same span-detection function the
+PDF path already uses) rather than inventing a second detection path.
+Review-item resolution (`review.preferred_review_output_path`) needed *no*
+change at all - it already finds a companion `_ANON_VISUAL.pdf` purely by
+filename pattern next to any `_ANON.txt`, regardless of what kind of source
+produced it.
+
+Verified for real, no mocks, through the actual public API the GUI calls
+(`anonymize_pdf_file_with_audit`, `anonymize_image_file`) rather than only
+through `pdf_redaction.py` directly: rendered real Polish text (PESEL, a
+name, an email) into an image-only PDF page and a standalone image (both
+with zero real text layer, forcing the OCR path), ran the real pipeline,
+and re-OCR'd the resulting `_ANON_VISUAL.pdf` to confirm the sensitive
+value is genuinely gone - not just "some rectangle got drawn somewhere" -
+while the unrelated name stays legible, proving the redaction is targeted,
+not blanket. Full suite: 404 tests (10 new, including two real end-to-end
+integration tests gated with `@unittest.skipUnless` on a real local
+Tesseract + Polish pack being present, the same graceful-skip treatment
+this project already gives every other OCR-dependent test), lint improved
+by 2 versus the established baseline.
+
+```text
+8deb41c Add true colored visual redaction for scanned PDFs and images
+```
+
 ## Next Logical Step
 
 The pilot-feedback batch's Stage B (mockup visual-fidelity pass) is done -
