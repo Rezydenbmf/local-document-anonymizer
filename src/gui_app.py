@@ -59,6 +59,11 @@ try:
         COLOR_NEEDS_REVIEW_SOFT,
         COLOR_OK,
         COLOR_OK_SOFT,
+        COLOR_SIDEBAR_BG,
+        COLOR_SIDEBAR_HOVER,
+        COLOR_SIDEBAR_TEXT,
+        COLOR_SIDEBAR_TEXT_MUTED,
+        COLOR_SIDEBAR_TRUST_BG,
         COLOR_TEXT,
         COLOR_TEXT_MUTED,
         COLOR_WARNING,
@@ -70,7 +75,6 @@ try:
         LEGEND_ITEMS,
         MANUAL_REVIEW_WARNING,
         PDF_OUTPUT_LABEL_VISUAL_REDACTION,
-        QUICK_SETTINGS_MIN_WIDTH,
         QUICK_SETTINGS_PANEL_WIDTH,
         RISK_STYLES,
         SCRIPT_FONT_FAMILY,
@@ -165,6 +169,11 @@ except ImportError:
         COLOR_NEEDS_REVIEW_SOFT,
         COLOR_OK,
         COLOR_OK_SOFT,
+        COLOR_SIDEBAR_BG,
+        COLOR_SIDEBAR_HOVER,
+        COLOR_SIDEBAR_TEXT,
+        COLOR_SIDEBAR_TEXT_MUTED,
+        COLOR_SIDEBAR_TRUST_BG,
         COLOR_TEXT,
         COLOR_TEXT_MUTED,
         COLOR_WARNING,
@@ -176,7 +185,6 @@ except ImportError:
         LEGEND_ITEMS,
         MANUAL_REVIEW_WARNING,
         PDF_OUTPUT_LABEL_VISUAL_REDACTION,
-        QUICK_SETTINGS_MIN_WIDTH,
         QUICK_SETTINGS_PANEL_WIDTH,
         RISK_STYLES,
         SCRIPT_FONT_FAMILY,
@@ -370,7 +378,13 @@ class AnonymizerApp:
         self.content.pack(side="left", fill="both", expand=True, padx=20, pady=16)
 
     def _build_sidebar(self, parent: ctk.CTkFrame) -> ctk.CTkFrame:
-        sidebar = ctk.CTkFrame(parent, fg_color=COLOR_CARD, corner_radius=0, width=208)
+        # Dark navy, not the plain white card used elsewhere - a light
+        # sidebar blended into the rest of the (also light) app and was
+        # easy to miss/ignore; a distinct dark panel reads as permanent
+        # navigation rather than just another content card.
+        sidebar = ctk.CTkFrame(
+            parent, fg_color=COLOR_SIDEBAR_BG, corner_radius=0, width=208
+        )
         sidebar.pack_propagate(False)
 
         # The whole brand row (icon + name) is clickable and always goes
@@ -400,7 +414,7 @@ class AnonymizerApp:
             brand_text_col,
             text=APP_TITLE,
             font=ctk.CTkFont(family=FONT_FAMILY, size=16, weight="bold"),
-            text_color=COLOR_TEXT,
+            text_color="#FFFFFF",
             cursor="hand2",
         )
         brand_title_label.pack(anchor="w")
@@ -408,7 +422,7 @@ class AnonymizerApp:
             brand_text_col,
             text="Anonimizator dokumentów",
             font=ctk.CTkFont(family=FONT_FAMILY, size=10),
-            text_color=COLOR_TEXT_MUTED,
+            text_color=COLOR_SIDEBAR_TEXT,
             cursor="hand2",
         )
         brand_subtitle_label.pack(anchor="w")
@@ -439,8 +453,8 @@ class AnonymizerApp:
                 height=38,
                 corner_radius=8,
                 fg_color="transparent",
-                hover_color=COLOR_ICON_IDLE,
-                text_color=COLOR_TEXT_MUTED,
+                hover_color=COLOR_SIDEBAR_HOVER,
+                text_color=COLOR_SIDEBAR_TEXT,
                 font=ctk.CTkFont(family=FONT_FAMILY, size=13),
                 command=command,
             )
@@ -452,7 +466,7 @@ class AnonymizerApp:
         # Empty expanding spacer pushes the trust badge to the bottom.
         ctk.CTkFrame(sidebar, fg_color="transparent").pack(fill="both", expand=True)
 
-        trust_card = ctk.CTkFrame(sidebar, fg_color=COLOR_BG, corner_radius=10)
+        trust_card = ctk.CTkFrame(sidebar, fg_color=COLOR_SIDEBAR_TRUST_BG, corner_radius=10)
         trust_card.pack(fill="x", padx=14, pady=16)
         trust_title_row = ctk.CTkFrame(trust_card, fg_color="transparent")
         trust_title_row.pack(fill="x", padx=12, pady=(10, 2))
@@ -464,16 +478,16 @@ class AnonymizerApp:
         ).pack(side="left", padx=(0, 4))
         ctk.CTkLabel(
             trust_title_row,
-            text="Przetwarzanie lokalne",
+            text="Działa lokalnie",
             font=ctk.CTkFont(family=FONT_FAMILY, size=11, weight="bold"),
-            text_color=COLOR_TEXT,
+            text_color="#FFFFFF",
             anchor="w",
         ).pack(side="left")
         ctk.CTkLabel(
             trust_card,
-            text="Pliki nie opuszczają\ntwojego komputera.",
+            text="Twoje dane nie opuszczają\ntego komputera.\nBez internetu. Bez chmury.",
             font=ctk.CTkFont(family=FONT_FAMILY, size=10),
-            text_color=COLOR_TEXT_MUTED,
+            text_color=COLOR_SIDEBAR_TEXT,
             justify="left",
             anchor="w",
         ).pack(fill="x", padx=12, pady=(0, 10))
@@ -482,7 +496,7 @@ class AnonymizerApp:
             sidebar,
             text=f"v{APP_VERSION}",
             font=ctk.CTkFont(family=FONT_FAMILY, size=9),
-            text_color=COLOR_TEXT_MUTED,
+            text_color=COLOR_SIDEBAR_TEXT_MUTED,
         ).pack(anchor="w", padx=18, pady=(0, 10))
 
         self._update_sidebar_active_state()
@@ -505,8 +519,9 @@ class AnonymizerApp:
                 continue
             is_active = key == active_key
             button.configure(
-                fg_color=COLOR_ACCENT_SOFT if is_active else "transparent",
-                text_color=COLOR_ACCENT if is_active else COLOR_TEXT_MUTED,
+                fg_color=COLOR_ACCENT if is_active else "transparent",
+                text_color="#FFFFFF" if is_active else COLOR_SIDEBAR_TEXT,
+                hover_color=COLOR_ACCENT_HOVER if is_active else COLOR_SIDEBAR_HOVER,
             )
 
     def _clear_content(self) -> None:
@@ -638,17 +653,20 @@ class AnonymizerApp:
         if not issues and not updates:
             return
 
-        # Missing/broken dependencies are more actionable than "a newer
-        # version exists" - the warning styling wins when both are present.
+        # Both "something's missing" and "a library update is available"
+        # use the same warning/amber treatment now - a plain blue "info"
+        # card for updates read as too easy to miss/dismiss compared to
+        # the OCR-style warning card, per direct user feedback comparing
+        # the two side by side.
         is_warning = bool(issues)
         header_text = (
             "⚠ Niektóre funkcje mogą nie działać w pełni:"
             if is_warning
-            else "⬆ Dostępne aktualizacje bibliotek:"
+            else "⚠ Dostępne aktualizacje bibliotek:"
         )
-        bg_color = COLOR_WARNING_SOFT if is_warning else COLOR_ACCENT_SOFT
-        border_color = COLOR_WARNING if is_warning else COLOR_ACCENT
-        header_color = COLOR_WARNING_TEXT if is_warning else COLOR_ACCENT_HOVER
+        bg_color = COLOR_WARNING_SOFT
+        border_color = COLOR_WARNING
+        header_color = COLOR_WARNING_TEXT
 
         card = ctk.CTkFrame(
             parent,
@@ -936,14 +954,30 @@ class AnonymizerApp:
         ).pack(side="right")
 
     def _build_quick_settings_panel(self, parent: ctk.CTkFrame) -> ctk.CTkFrame:
-        """A start-screen shortcut to the most-used detection settings,
-        mirroring the mockup's "Domyślne ustawienia" card. Deliberately
-        only wraps settings that are real, already-wired toggles
-        (self.use_ner, self.use_llm_review) - OCR has no such toggle in
-        this app (it runs automatically when available, there is nothing
-        to switch off), so that row stays a read-only status like it
-        already is in the full Settings dialog, rather than adding a
-        checkbox that would not actually control anything.
+        """The start screen's right-hand "Szybkie akcje" (quick actions)
+        card - the most-used detection settings plus, per direct user
+        feedback, the output-folder picker and the "Anonimizuj" button
+        itself, moved here from the bottom of the center column so that
+        column can show more of the selected-file list.
+
+        Moving the primary action button in here brought back the exact
+        hazard the "pinned bottom bar" pattern in show_start_screen was
+        built to prevent: the settings above (checkboxes, OCR status,
+        dictionary row) can grow taller than the panel, and this panel
+        is also always visible now (the old QUICK_SETTINGS_MIN_WIDTH
+        hide-below-880px gate is gone, since a hidden panel would mean a
+        hidden "Anonimizuj" button). So the same fix is reapplied one
+        level deeper: action_bar (folder picker, status text, the
+        button) is packed *first* with side="bottom" so it always claims
+        its space, and everything else scrolls in the region above it -
+        the button can never be pushed out of reach, on any window size.
+
+        Deliberately only wraps settings that are real, already-wired
+        toggles (self.use_ner, self.use_llm_review) - OCR has no such
+        toggle in this app (it runs automatically when available, there
+        is nothing to switch off), so that row stays a read-only status
+        like it already is in the full Settings dialog, rather than
+        adding a checkbox that would not actually control anything.
         """
         panel = ctk.CTkFrame(
             parent,
@@ -954,8 +988,11 @@ class AnonymizerApp:
             width=QUICK_SETTINGS_PANEL_WIDTH,
         )
         panel.pack_propagate(False)
-        inner = ctk.CTkFrame(panel, fg_color="transparent")
-        inner.pack(fill="both", expand=True, padx=14, pady=14)
+
+        action_bar = ctk.CTkFrame(panel, fg_color="transparent")
+        action_bar.pack(side="bottom", fill="x", padx=14, pady=(0, 14))
+        inner = ctk.CTkScrollableFrame(panel, fg_color="transparent")
+        inner.pack(side="top", fill="both", expand=True, padx=14, pady=(14, 0))
 
         header_row = ctk.CTkFrame(inner, fg_color="transparent", cursor="hand2")
         header_row.pack(fill="x", pady=(0, 10))
@@ -969,7 +1006,7 @@ class AnonymizerApp:
         ).pack(side="left", padx=(0, 6))
         ctk.CTkLabel(
             header_row,
-            text="Domyślne ustawienia",
+            text="Szybkie akcje",
             font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
             text_color=COLOR_TEXT,
             cursor="hand2",
@@ -1130,7 +1167,84 @@ class AnonymizerApp:
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
             anchor="w",
             command=self.open_settings,
-        ).pack(fill="x", pady=(4, 0))
+        ).pack(fill="x", pady=(4, 10))
+
+        # --- pinned action bar: folder picker + status + "Anonimizuj" ---
+        # A thin top border visually separates this always-reachable
+        # action area from the settings that scroll above it.
+        ctk.CTkFrame(action_bar, fg_color=COLOR_BORDER, height=1).pack(
+            fill="x", pady=(0, 10)
+        )
+        ctk.CTkLabel(
+            action_bar,
+            text="Folder wynikowy",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
+            text_color=COLOR_TEXT,
+            anchor="w",
+        ).pack(fill="x", pady=(0, 4))
+        path_field = ctk.CTkFrame(
+            action_bar,
+            corner_radius=8,
+            fg_color=COLOR_BG,
+            border_width=1,
+            border_color=COLOR_BORDER,
+        )
+        path_field.pack(fill="x", pady=(0, 6))
+        path_field_inner = ctk.CTkFrame(path_field, fg_color="transparent")
+        path_field_inner.pack(fill="x", padx=10, pady=7)
+        ctk.CTkLabel(
+            path_field_inner,
+            text="\U0001f4c1",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13),
+        ).pack(side="left", padx=(0, 8))
+        # The panel is narrow, so the path text and the "Zmień" button
+        # stack instead of sitting side by side (as they did in the old
+        # wide bottom_bar) - side by side here would squeeze both down
+        # to the point of being unreadable/unclickable.
+        self.output_dir_value_label = ctk.CTkLabel(
+            path_field_inner,
+            text=self._output_dir_display_text(),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            text_color=COLOR_TEXT,
+            anchor="w",
+        )
+        self.output_dir_value_label.pack(side="left", fill="x", expand=True)
+        ctk.CTkButton(
+            action_bar,
+            text="Zmień",
+            height=30,
+            corner_radius=8,
+            fg_color="transparent",
+            border_width=1,
+            border_color=COLOR_BORDER,
+            hover_color=COLOR_ICON_IDLE,
+            text_color=COLOR_TEXT,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            command=self.pick_output_dir,
+        ).pack(fill="x", pady=(0, 10))
+
+        self.status_label = ctk.CTkLabel(
+            action_bar,
+            text=format_readiness_pl(
+                len(self.selected_paths), self.output_dir is not None
+            ),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLOR_TEXT_MUTED,
+        )
+        self.status_label.pack(pady=(0, 8))
+
+        self.anonymize_button = ctk.CTkButton(
+            action_bar,
+            text="Anonimizuj",
+            height=48,
+            corner_radius=10,
+            fg_color=COLOR_ACCENT,
+            hover_color=COLOR_ACCENT_HOVER,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=16, weight="bold"),
+            state="disabled",
+            command=self.start_anonymize,
+        )
+        self.anonymize_button.pack(fill="x")
 
         return panel
 
@@ -1139,41 +1253,26 @@ class AnonymizerApp:
         self._update_sidebar_active_state()
         self._clear_content()
 
-        # Two regions: a pinned bottom bar (output folder + the
-        # "Anonimizuj" button - the controls that must stay reachable no
-        # matter what) packed *first* with side="bottom" so it always
-        # gets its space claimed, and a scrollable upper region for
-        # everything else, taking whatever is left. Without this, a
-        # short window (or - before FILE_LIST_MAX_HEIGHT - simply enough
-        # selected files) could push the button below the window with no
-        # way to reach it at all, since self.content itself never
-        # scrolled. The file list additionally gets its own small bounded
-        # scroll area inside this outer one, so a long file list doesn't
-        # by itself push the drop zone and header far out of view.
-        # A second, narrower column on the right holds the quick-settings
-        # panel (see _build_quick_settings_panel) - packed *before* the
-        # main column, and only above QUICK_SETTINGS_MIN_WIDTH, so it
-        # claims its fixed width first and never squeezes the main flow
-        # down to something unusable on a narrower window.
+        # A narrower column on the right holds the always-visible
+        # "Szybkie akcje" quick-actions panel (see
+        # _build_quick_settings_panel) - packed *before* the main
+        # column so it claims its fixed width first. That panel now
+        # also carries the output-folder picker and the "Anonimizuj"
+        # button (moved out of this column per direct user feedback),
+        # which is why it is no longer hidden below a minimum window
+        # width the way it used to be: hiding it would have hidden the
+        # button too. The freed-up main column is now pure scrollable
+        # content - drop zone + file list - so more of the file list is
+        # visible at once, which was the other half of that same
+        # feedback.
         columns_row = ctk.CTkFrame(self.content, fg_color="transparent")
         columns_row.pack(fill="both", expand=True)
-        # update_idletasks forces Tk to actually compute current geometry
-        # first - without it, winfo_width() can still report a stale/
-        # unrealized placeholder size (e.g. right at app startup, before
-        # the first real layout pass), which would wrongly hide this
-        # panel on a plenty-wide window and never show it again since
-        # nothing else re-triggers a rebuild.
-        self.root.update_idletasks()
-        show_quick_settings = self.root.winfo_width() >= QUICK_SETTINGS_MIN_WIDTH
-        if show_quick_settings:
-            self._build_quick_settings_panel(columns_row).pack(
-                side="right", fill="y", padx=(12, 0)
-            )
+        self._build_quick_settings_panel(columns_row).pack(
+            side="right", fill="y", padx=(12, 0)
+        )
         main_col = ctk.CTkFrame(columns_row, fg_color="transparent")
         main_col.pack(side="left", fill="both", expand=True)
 
-        bottom_bar = ctk.CTkFrame(main_col, fg_color="transparent")
-        bottom_bar.pack(side="bottom", fill="x")
         scroll_region = ctk.CTkScrollableFrame(main_col, fg_color="transparent")
         scroll_region.pack(side="top", fill="both", expand=True)
 
@@ -1223,74 +1322,10 @@ class AnonymizerApp:
         self.file_card_frame.pack(fill="x", pady=(0, 14))
         self._refresh_file_cards()
 
-        ctk.CTkLabel(
-            bottom_bar,
-            text="Folder wynikowy",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
-            text_color=COLOR_TEXT,
-            anchor="w",
-        ).pack(fill="x", pady=(6, 4))
-        output_row = ctk.CTkFrame(bottom_bar, fg_color="transparent")
-        output_row.pack(fill="x", pady=(0, 6))
-        path_field = ctk.CTkFrame(
-            output_row,
-            corner_radius=8,
-            fg_color=COLOR_CARD,
-            border_width=1,
-            border_color=COLOR_BORDER,
-        )
-        path_field.pack(side="left", fill="x", expand=True, padx=(0, 8))
-        path_field_inner = ctk.CTkFrame(path_field, fg_color="transparent")
-        path_field_inner.pack(fill="x", padx=10, pady=7)
-        ctk.CTkLabel(
-            path_field_inner,
-            text="\U0001f4c1",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=13),
-        ).pack(side="left", padx=(0, 8))
-        self.output_dir_value_label = ctk.CTkLabel(
-            path_field_inner,
-            text=self._output_dir_display_text(),
-            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
-            text_color=COLOR_TEXT,
-            anchor="w",
-        )
-        self.output_dir_value_label.pack(side="left", fill="x", expand=True)
-        ctk.CTkButton(
-            output_row,
-            text="Zmień",
-            width=90,
-            height=36,
-            corner_radius=8,
-            fg_color="transparent",
-            border_width=1,
-            border_color=COLOR_BORDER,
-            hover_color=COLOR_ICON_IDLE,
-            text_color=COLOR_TEXT,
-            command=self.pick_output_dir,
-        ).pack(side="right")
-
-        self.status_label = ctk.CTkLabel(
-            bottom_bar,
-            text=format_readiness_pl(
-                len(self.selected_paths), self.output_dir is not None
-            ),
-            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-            text_color=COLOR_TEXT_MUTED,
-        )
-        self.status_label.pack(pady=(4, 10))
-
-        self.anonymize_button = ctk.CTkButton(
-            bottom_bar,
-            text="Anonimizuj",
-            height=48,
-            corner_radius=10,
-            fg_color=COLOR_ACCENT,
-            hover_color=COLOR_ACCENT_HOVER,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=16, weight="bold"),
-            state="disabled",
-            command=self.start_anonymize,
-        )
-        self.anonymize_button.pack(fill="x", pady=(0, 4))
+        # Folder picker, status text and "Anonimizuj" itself now live in
+        # the "Szybkie akcje" panel built above (see
+        # _build_quick_settings_panel) - this just syncs their initial
+        # state/text to the current selection.
         self._update_readiness()
 
     def _output_dir_display_text(self) -> str:
