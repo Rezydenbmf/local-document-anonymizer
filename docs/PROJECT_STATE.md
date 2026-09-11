@@ -1935,6 +1935,80 @@ this project's usual pattern), lint unchanged against baseline.
 5f351cc Fix 5 findings from senior-level self code review
 ```
 
+The user asked directly whether `src/gui.py` (5436 lines by this point) could
+reasonably be split for readability, and whether that carried real risk -
+answered with a concrete assessment (module map, backward-compat strategy,
+staged plan) before touching anything, then executed it once confirmed.
+`gui.py` is now a thin ~470-line entry point/facade; the implementation
+moved into 5 new sibling modules along the file's own existing class/
+responsibility boundaries - no logic was rewritten, only relocated:
+
+- `gui_helpers.py` (~1090 lines): every module-level constant (colors,
+  fonts, `LEGEND_ITEMS`, window sizing, etc.) and pure formatting/parsing
+  function, plus the two small reusable widgets `DnDCTk`/`IconTooltip`.
+- `gui_app.py` (~2095 lines): `AnonymizerApp` - still the largest piece,
+  deliberately not split further (its methods share extensive `self`
+  state across the start/history/processing/review screens; splitting
+  *that* is a separate, materially riskier decision not made here).
+- `gui_settings_dialog.py` (~340 lines): `SettingsDialog`.
+- `gui_comparison_window.py` (~1450 lines): `ComparisonWindow` plus the
+  zoom/PDF-point/document-preview pure helpers it (and the review
+  screen) share.
+- `gui_dialogs.py` (~225 lines): `AboutDialog`, `SummaryDialog`.
+
+Mechanically extracted with a one-off script (exact line-range text
+slicing, never a re-serialized/reformatted rewrite, so every comment and
+blank line survives byte-for-byte) rather than by hand, specifically to
+rule out transcription mistakes across ~5400 lines; a diff-based check
+confirmed the six slices reconstruct the original file exactly (one
+cosmetic blank line aside). Two real risks were found and resolved
+*before* anything touched the real source tree, both while regenerating
+into a scratch folder first: (1) `src/` has no `__init__.py`, so - just
+like the existing upstream package imports already had to handle -
+every cross-file import between the new `gui_*` modules needed the same
+`try: from .module import X / except ImportError: from module import X`
+dual form, not a bare relative import, or the "import as a top-level
+script" path tests use would break. (2) `SettingsDialog`/`ComparisonWindow`/
+`AboutDialog`/`SummaryDialog` all take `app: AnonymizerApp` as a
+constructor parameter - a real circular import between `gui_app.py` and
+each of them - resolved with `from __future__ import annotations` in
+those three modules plus a `TYPE_CHECKING`-guarded import, so the
+annotation is never evaluated at runtime. `gui.py` re-imports every name
+the old flat file exposed (both genuinely defined names and ones only
+ever imported-through, like `ReviewItem`) and declares them in `__all__`
+so `from gui import X` - used extensively by `tests/test_gui_workflow.py`
+- keeps working completely unchanged; a script-driven check confirmed
+all 64 names that file imports from `gui` resolve. `main.py`'s
+`from gui import start_gui` needed no change at all.
+
+Running the real test suite surfaced the one class of break this kind of
+split can cause that static checks can't catch: two tests used
+`mock.patch("gui.ctk...")` / `patch("gui.sys.platform", ...)` to reach
+internals that now live in `gui_comparison_window.py` instead - fixed by
+retargeting those two patches, the only test changes needed. Lint (both
+per-file and whole-repo) came back to the exact same baseline as before
+(79 project-wide, the 1 known `BLE001` now living in `gui_app.py` instead
+of `gui.py`) after adding `__all__` to `gui.py` (a normal, idiomatic fix
+for a facade module - without it, ruff flagged the ~190 intentional
+re-export imports as unused) and running `ruff check --fix` for import
+ordering across the new files. Verified end-to-end with a real driving
+script: constructs the real app, visits every screen (start/history),
+opens and closes the real Settings and About dialogs, adds files and
+confirms the button-text wiring still works across the new module
+boundary, and opens a real `ComparisonWindow` against a real PDF pair
+with the magic pen and the hand/zoom pointer tools all exercised -- all
+passed. (Screenshots from that same run captured this coding session's
+own window instead of the app's, an environment quirk of this sandbox
+unrelated to the code change; deleted immediately per this project's
+established handling for that failure mode, and not reattempted - the
+text-based assertions already gave strong enough confidence.) Full
+suite: 377 tests (unchanged - a pure relocation, no behavior changed),
+lint unchanged against baseline.
+
+```text
+9d05751 Split src/gui.py (5436 lines) into 6 focused modules
+```
+
 ## Next Logical Step
 
 The pilot-feedback batch's Stage B (mockup visual-fidelity pass) is done -
