@@ -692,14 +692,18 @@ class GuiWorkflowTests(unittest.TestCase):
         self.assertEqual(canvas_point_to_pdf_point(10, 10, 0), (10.0, 10.0))
 
     def test_ctk_widget_scaling_factor_returns_tracker_value(self) -> None:
-        with patch("gui.ctk.ScalingTracker.get_widget_scaling", return_value=1.25):
+        with patch(
+            "gui_comparison_window.ctk.ScalingTracker.get_widget_scaling",
+            return_value=1.25,
+        ):
             self.assertEqual(ctk_widget_scaling_factor(object()), 1.25)
 
     def test_ctk_widget_scaling_factor_falls_back_to_one_on_error(self) -> None:
         # Cosmetic-only lookup: any failure (e.g. a widget the tracker
         # never registered) must never crash the preview.
         with patch(
-            "gui.ctk.ScalingTracker.get_widget_scaling", side_effect=KeyError("boom")
+            "gui_comparison_window.ctk.ScalingTracker.get_widget_scaling",
+            side_effect=KeyError("boom"),
         ):
             self.assertEqual(ctk_widget_scaling_factor(object()), 1.0)
 
@@ -765,7 +769,7 @@ class GuiWorkflowTests(unittest.TestCase):
         self.assertEqual(scroll_sync_units(FakeWheelEvent(num=5)), 1)
 
     def test_scroll_sync_units_handles_macos_delta(self) -> None:
-        with patch("gui.sys.platform", "darwin"):
+        with patch("gui_comparison_window.sys.platform", "darwin"):
             self.assertEqual(scroll_sync_units(FakeWheelEvent(delta=3)), -3)
             self.assertEqual(scroll_sync_units(FakeWheelEvent(delta=-3)), 3)
 
