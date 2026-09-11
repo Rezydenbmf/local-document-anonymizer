@@ -36,6 +36,7 @@ try:
     from .gui_comparison_window import ComparisonWindow
     from .gui_dialogs import (
         AboutDialog,
+        ApprovalLockWarningDialog,
         SummaryDialog,
     )
     from .gui_helpers import (
@@ -46,6 +47,7 @@ try:
         APP_TAGLINE,
         APP_TITLE,
         APP_VERSION,
+        APPROVAL_LOCK_HINT_ID,
         COLOR_ACCENT,
         COLOR_ACCENT_HOVER,
         COLOR_ACCENT_SOFT,
@@ -83,6 +85,7 @@ try:
         WINDOW_MIN_WIDTH,
         DnDCTk,
         IconTooltip,
+        apply_subtle_scrollbar,
         default_output_directory,
         environment_status_lookup,
         file_type_badge,
@@ -96,6 +99,7 @@ try:
         format_review_summary_line,
         format_short_path,
         get_file_type_icon,
+        hint_is_dismissed,
         history_config_path,
         load_recent_folders,
         open_path_with_default_app,
@@ -146,6 +150,7 @@ except ImportError:
     from gui_comparison_window import ComparisonWindow
     from gui_dialogs import (
         AboutDialog,
+        ApprovalLockWarningDialog,
         SummaryDialog,
     )
     from gui_helpers import (
@@ -156,6 +161,7 @@ except ImportError:
         APP_TAGLINE,
         APP_TITLE,
         APP_VERSION,
+        APPROVAL_LOCK_HINT_ID,
         COLOR_ACCENT,
         COLOR_ACCENT_HOVER,
         COLOR_ACCENT_SOFT,
@@ -193,6 +199,7 @@ except ImportError:
         WINDOW_MIN_WIDTH,
         DnDCTk,
         IconTooltip,
+        apply_subtle_scrollbar,
         default_output_directory,
         environment_status_lookup,
         file_type_badge,
@@ -206,6 +213,7 @@ except ImportError:
         format_review_summary_line,
         format_short_path,
         get_file_type_icon,
+        hint_is_dismissed,
         history_config_path,
         load_recent_folders,
         open_path_with_default_app,
@@ -248,6 +256,15 @@ class AnonymizerApp:
         self.pdf_output_label = PDF_OUTPUT_LABEL_VISUAL_REDACTION
         self.auto_open_on_approve = True
         self.show_usage_hints = True
+        # Collapsed to a slim rail (see _build_quick_settings_panel) once
+        # the user clicks the panel's own collapse toggle - per direct
+        # feedback that "Szybkie akcje" can get in the way and should be
+        # hideable, with only the "Anonimizuj" button itself guaranteed
+        # to stay reachable either way. A runtime-only preference (not
+        # persisted to disk): unlike the one-time hints in
+        # ui_hints_config_path, this is an active layout choice for the
+        # current session, not a "never show me this again" warning.
+        self.quick_actions_collapsed = False
 
         self.review_dir: Path | None = None
         self.review_items: list[ReviewItem] = []
@@ -978,7 +995,16 @@ class AnonymizerApp:
         is nothing to switch off), so that row stays a read-only status
         like it already is in the full Settings dialog, rather than
         adding a checkbox that would not actually control anything.
+
+        Collapsible: a header button slides this whole card away to a
+        slim rail (see _build_collapsed_quick_actions_rail) - per direct
+        user feedback the panel can get in the way and should be
+        hideable, with the reopen control and the "Anonimizuj" button
+        itself guaranteed to stay reachable either way.
         """
+        if self.quick_actions_collapsed:
+            return self._build_collapsed_quick_actions_rail(parent)
+
         panel = ctk.CTkFrame(
             parent,
             corner_radius=12,
@@ -993,6 +1019,7 @@ class AnonymizerApp:
         action_bar.pack(side="bottom", fill="x", padx=14, pady=(0, 14))
         inner = ctk.CTkScrollableFrame(panel, fg_color="transparent")
         inner.pack(side="top", fill="both", expand=True, padx=14, pady=(14, 0))
+        apply_subtle_scrollbar(inner)
 
         header_row = ctk.CTkFrame(inner, fg_color="transparent", cursor="hand2")
         header_row.pack(fill="x", pady=(0, 10))
@@ -1011,6 +1038,20 @@ class AnonymizerApp:
             text_color=COLOR_TEXT,
             cursor="hand2",
         ).pack(side="left")
+        collapse_button = ctk.CTkButton(
+            header_row,
+            text="»",
+            width=22,
+            height=20,
+            corner_radius=6,
+            fg_color="transparent",
+            hover_color=COLOR_ICON_IDLE,
+            text_color=COLOR_TEXT_MUTED,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            command=self._toggle_quick_actions_collapsed,
+        )
+        collapse_button.pack(side="right")
+        IconTooltip(collapse_button, "Ukryj szybkie akcje")
 
         env_status = environment_status_lookup(self.environment_items)
 
@@ -1248,6 +1289,67 @@ class AnonymizerApp:
 
         return panel
 
+    def _toggle_quick_actions_collapsed(self) -> None:
+        self.quick_actions_collapsed = not self.quick_actions_collapsed
+        self.show_start_screen()
+
+    def _build_collapsed_quick_actions_rail(self, parent: ctk.CTkFrame) -> ctk.CTkFrame:
+        """The slim stand-in for _build_quick_settings_panel once
+        collapsed: a reopen toggle and the "Anonimizuj" button, icon-only
+        since there is no room for a label - per direct user feedback,
+        the button must stay reachable even while the rest of "Szybkie
+        akcje" is hidden away. self.status_label and
+        self.output_dir_value_label are intentionally left unset (not
+        built here) - _update_readiness and pick_output_dir already
+        null-check both before touching them.
+        """
+        panel = ctk.CTkFrame(
+            parent,
+            corner_radius=12,
+            fg_color=COLOR_CARD,
+            border_width=1,
+            border_color=COLOR_BORDER,
+            width=64,
+        )
+        panel.pack_propagate(False)
+        inner = ctk.CTkFrame(panel, fg_color="transparent")
+        inner.pack(fill="both", expand=True, padx=10, pady=14)
+
+        reopen_button = ctk.CTkButton(
+            inner,
+            text="«",
+            width=36,
+            height=28,
+            corner_radius=8,
+            fg_color=COLOR_ICON_IDLE,
+            hover_color=COLOR_ACCENT_HOVER,
+            text_color=COLOR_TEXT,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13),
+            command=self._toggle_quick_actions_collapsed,
+        )
+        reopen_button.pack(side="top")
+        IconTooltip(reopen_button, "Pokaż szybkie akcje")
+
+        self.status_label = None
+        self.output_dir_value_label = None
+
+        self.anonymize_button = ctk.CTkButton(
+            inner,
+            text="▶",
+            width=36,
+            height=54,
+            corner_radius=10,
+            fg_color=COLOR_ACCENT,
+            hover_color=COLOR_ACCENT_HOVER,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=16, weight="bold"),
+            state="disabled",
+            command=self.start_anonymize,
+        )
+        self.anonymize_button.pack(side="bottom")
+        IconTooltip(self.anonymize_button, "Anonimizuj")
+
+        return panel
+
     def show_start_screen(self) -> None:
         self.active_screen = "start"
         self._update_sidebar_active_state()
@@ -1275,20 +1377,32 @@ class AnonymizerApp:
 
         scroll_region = ctk.CTkScrollableFrame(main_col, fg_color="transparent")
         scroll_region.pack(side="top", fill="both", expand=True)
+        apply_subtle_scrollbar(scroll_region)
 
         self._build_header_row(scroll_region)
         self._build_resume_review_banner(scroll_region)
 
         self._build_status_banner(scroll_region)
 
+        # Half the column's width, centered - a 3-column grid (weights
+        # 1:2:1) rather than a fixed pixel width, so it stays exactly
+        # half regardless of window size. Per direct user feedback: the
+        # full-width drop zone from the mockup-matching pass looked too
+        # large/heavy once the file list below it could show more items.
+        drop_wrap = ctk.CTkFrame(scroll_region, fg_color="transparent")
+        drop_wrap.pack(fill="x", pady=(0, 4))
+        drop_wrap.grid_columnconfigure(0, weight=1)
+        drop_wrap.grid_columnconfigure(1, weight=2)
+        drop_wrap.grid_columnconfigure(2, weight=1)
+
         drop_frame = ctk.CTkFrame(
-            scroll_region,
+            drop_wrap,
             corner_radius=16,
             fg_color=COLOR_ACCENT_SOFT,
             border_width=2,
             border_color=COLOR_BORDER,
         )
-        drop_frame.pack(fill="x", pady=(0, 4))
+        drop_frame.grid(row=0, column=1, sticky="ew")
 
         self.drop_hint_label = ctk.CTkLabel(
             drop_frame,
@@ -1320,6 +1434,7 @@ class AnonymizerApp:
             height=FILE_LIST_MAX_HEIGHT,
         )
         self.file_card_frame.pack(fill="x", pady=(0, 14))
+        apply_subtle_scrollbar(self.file_card_frame)
         self._refresh_file_cards()
 
         # Folder picker, status text and "Anonimizuj" itself now live in
@@ -1449,9 +1564,14 @@ class AnonymizerApp:
             )
         if self.anonymize_button is not None:
             ready = bool(self.selected_paths) and self.output_dir is not None
-            self.anonymize_button.configure(
-                text=format_anonymize_button_text(len(self.selected_paths))
-            )
+            if not self.quick_actions_collapsed:
+                # The collapsed rail's button is icon-only ("▶", no room
+                # for a label) - leave its text alone there rather than
+                # overwrite it with "Anonimizuj N plików" on every
+                # refresh; IconTooltip already explains what it does.
+                self.anonymize_button.configure(
+                    text=format_anonymize_button_text(len(self.selected_paths))
+                )
             if ready:
                 self.anonymize_button.configure(
                     state="normal",
@@ -1513,6 +1633,7 @@ class AnonymizerApp:
             self.content, fg_color="transparent", label_text=""
         )
         scroll.pack(fill="both", expand=True)
+        apply_subtle_scrollbar(scroll)
 
         if not self.recent_folders:
             ctk.CTkLabel(
@@ -1788,6 +1909,7 @@ class AnonymizerApp:
             self.content, fg_color="transparent", label_text=""
         )
         scroll.pack(fill="both", expand=True, pady=(0, 10))
+        apply_subtle_scrollbar(scroll)
         self.review_cards_frame = scroll
         self._refresh_review_cards()
 
@@ -1987,7 +2109,7 @@ class AnonymizerApp:
             text_color=COLOR_OK,
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
             state="disabled",
-            command=lambda: self._bulk_set_status(REVIEW_STATUS_APPROVED),
+            command=self._bulk_approve_selected,
         )
         self.bulk_approve_button.pack(side="right")
 
@@ -2020,6 +2142,45 @@ class AnonymizerApp:
         # Clear the selection once acted on, rather than leaving the same
         # files pre-selected for a second, likely-accidental bulk action.
         self.selected_review_output_names = set()
+        self._refresh_review_cards()
+        self._update_bulk_action_state()
+
+    def _bulk_approve_selected(self) -> None:
+        targets = [
+            item
+            for item in self.review_items
+            if item.output_name in self.selected_review_output_names
+        ]
+        self._confirm_then_approve(targets)
+
+    def _confirm_then_approve(self, items: list[ReviewItem]) -> None:
+        """Approve one or more review items - unless the user has already
+        dismissed ApprovalLockWarningDialog for good, show it once (even
+        for a multi-file bulk approve - one dialog covering all of them,
+        not one per file) before actually changing anything, since
+        approving permanently locks each file's magic-pen editing (see
+        ComparisonWindow.locked). Already-approved items are dropped from
+        ``items`` first - re-clicking "✓" on one changes nothing, so it
+        must not re-show a warning about a lock that is already in effect.
+        """
+        items = [item for item in items if item.status != REVIEW_STATUS_APPROVED]
+        if not items:
+            return
+        if hint_is_dismissed(APPROVAL_LOCK_HINT_ID):
+            self._approve_items_confirmed(items)
+            return
+        ApprovalLockWarningDialog(
+            self, len(items), lambda: self._approve_items_confirmed(items)
+        )
+
+    def _approve_items_confirmed(self, items: list[ReviewItem]) -> None:
+        approved_names = {item.output_name for item in items}
+        for item in items:
+            self.set_review_status(item, REVIEW_STATUS_APPROVED)
+        # Same "clear the acted-on selection" behavior _bulk_set_status
+        # already has - a no-op for the single-item card button, where
+        # that item was never part of the selection in the first place.
+        self.selected_review_output_names -= approved_names
         self._refresh_review_cards()
         self._update_bulk_action_state()
 
@@ -2232,7 +2393,7 @@ class AnonymizerApp:
         self._build_status_icon_button(
             actions, "✓", "Zatwierdź", COLOR_OK,
             item.status == REVIEW_STATUS_APPROVED,
-            lambda: self.set_review_status(item, REVIEW_STATUS_APPROVED),
+            lambda: self._confirm_then_approve([item]),
         )
         self._build_status_icon_button(
             actions, "!", "Wymaga przeglądu", COLOR_NEEDS_REVIEW,

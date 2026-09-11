@@ -1,9 +1,11 @@
-"""Small informational modals: AboutDialog ("O programie") and
-SummaryDialog ("Szczegóły")."""
+"""Small informational modals: AboutDialog ("O programie"),
+SummaryDialog ("Szczegóły"), and ApprovalLockWarningDialog (the
+one-time-dismissible "approving locks this file" confirmation)."""
 
 from __future__ import annotations
 
 import tkinter as tk
+from collections.abc import Callable
 
 import customtkinter as ctk
 from PIL import Image
@@ -14,6 +16,7 @@ try:
         APP_ICON_PATH,
         APP_TITLE,
         APP_VERSION,
+        APPROVAL_LOCK_HINT_ID,
         COLOR_ACCENT,
         COLOR_ACCENT_HOVER,
         COLOR_BG,
@@ -23,11 +26,18 @@ try:
         COLOR_OK,
         COLOR_TEXT,
         COLOR_TEXT_MUTED,
+        COLOR_WARNING,
+        COLOR_WARNING_SOFT,
+        COLOR_WARNING_TEXT,
         FONT_FAMILY,
         RISK_STYLES,
         RISK_SUMMARY_TEXT_PL,
         _bring_window_to_front,
+        apply_subtle_scrollbar,
         category_label_pl,
+        dismiss_hint,
+        format_approval_lock_warning_text,
+        format_approval_lock_warning_title,
         risk_style_key,
     )
     from .review import ReviewItem
@@ -37,6 +47,7 @@ except ImportError:
         APP_ICON_PATH,
         APP_TITLE,
         APP_VERSION,
+        APPROVAL_LOCK_HINT_ID,
         COLOR_ACCENT,
         COLOR_ACCENT_HOVER,
         COLOR_BG,
@@ -46,11 +57,18 @@ except ImportError:
         COLOR_OK,
         COLOR_TEXT,
         COLOR_TEXT_MUTED,
+        COLOR_WARNING,
+        COLOR_WARNING_SOFT,
+        COLOR_WARNING_TEXT,
         FONT_FAMILY,
         RISK_STYLES,
         RISK_SUMMARY_TEXT_PL,
         _bring_window_to_front,
+        apply_subtle_scrollbar,
         category_label_pl,
+        dismiss_hint,
+        format_approval_lock_warning_text,
+        format_approval_lock_warning_title,
         risk_style_key,
     )
     from review import ReviewItem
@@ -229,6 +247,7 @@ class SummaryDialog:
             window, fg_color="transparent", label_text=""
         )
         chips_frame.pack(fill="both", expand=True, padx=20, pady=(6, 6))
+        apply_subtle_scrollbar(chips_frame)
         categories = summary.get("categories")
         if isinstance(categories, list) and categories:
             for label, count in categories:
@@ -285,5 +304,118 @@ class SummaryDialog:
             font=ctk.CTkFont(family=FONT_FAMILY, size=10),
             command=lambda: app.open_review_checklist(item),
         ).pack(anchor="w")
+
+
+class ApprovalLockWarningDialog:
+    """Confirmation shown before approving one or more review items -
+    approving is a one-way action (see ComparisonWindow.locked): the
+    magic pen stops accepting edits on an approved file, so
+    re-anonymizing the source from scratch is the only way back. Direct
+    user feedback: silently approving needs an explicit warning first,
+    not just a status change - but also a "Nie pokazuj ponownie"
+    checkbox that persists across restarts (see dismiss_hint /
+    APPROVAL_LOCK_HINT_ID in gui_helpers.py), since a warning nobody can
+    ever turn off gets clicked through on autopilot anyway. Settings >
+    Ogólne can bring it back once dismissed.
+
+    ``on_confirm`` is called (and the window destroyed) only once the
+    user actually clicks "Zatwierdź" - cancelling or closing the window
+    leaves the review status untouched.
+    """
+
+    def __init__(self, app: AnonymizerApp, count: int, on_confirm: Callable[[], None]) -> None:
+        self.on_confirm = on_confirm
+        window = ctk.CTkToplevel(app.root)
+        self.window = window
+        window.title(format_approval_lock_warning_title(count))
+        window.geometry("420x300")
+        window.resizable(False, False)
+        window.configure(fg_color=COLOR_BG)
+        window.transient(app.root)
+        window.grab_set()
+        window.protocol("WM_DELETE_WINDOW", self._cancel)
+
+        banner = ctk.CTkFrame(
+            window,
+            corner_radius=10,
+            fg_color=COLOR_WARNING_SOFT,
+            border_width=1,
+            border_color=COLOR_WARNING,
+        )
+        banner.pack(fill="x", padx=20, pady=(20, 12))
+        ctk.CTkLabel(
+            banner,
+            text="⚠ Zatwierdzenie jest ostateczne",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+            text_color=COLOR_WARNING_TEXT,
+            anchor="w",
+        ).pack(fill="x", padx=14, pady=(12, 4))
+        ctk.CTkLabel(
+            banner,
+            text=format_approval_lock_warning_text(count),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            text_color=COLOR_WARNING_TEXT,
+            anchor="w",
+            wraplength=350,
+            justify="left",
+        ).pack(fill="x", padx=14, pady=(0, 12))
+
+        self.dont_show_again_var = tk.BooleanVar(value=False)
+        ctk.CTkCheckBox(
+            window,
+            text="Nie pokazuj ponownie",
+            variable=self.dont_show_again_var,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            text_color=COLOR_TEXT,
+            fg_color=COLOR_ACCENT,
+            hover_color=COLOR_ACCENT_HOVER,
+        ).pack(anchor="w", padx=24, pady=(4, 4))
+        ctk.CTkLabel(
+            window,
+            text="Możesz przywrócić to ostrzeżenie w Ustawienia > Ogólne.",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+            text_color=COLOR_TEXT_MUTED,
+            anchor="w",
+        ).pack(fill="x", padx=24, pady=(0, 16))
+
+        actions = ctk.CTkFrame(window, fg_color="transparent")
+        actions.pack(fill="x", padx=20, pady=(0, 20))
+        # Same packing-order-first rule this project always follows for a
+        # primary action next to a secondary one: "Zatwierdź" is packed
+        # before "Anuluj" so it is never the one squeezed off narrow.
+        ctk.CTkButton(
+            actions,
+            text="Zatwierdź",
+            width=120,
+            height=34,
+            corner_radius=8,
+            fg_color=COLOR_ACCENT,
+            hover_color=COLOR_ACCENT_HOVER,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
+            command=self._confirm,
+        ).pack(side="right")
+        ctk.CTkButton(
+            actions,
+            text="Anuluj",
+            width=100,
+            height=34,
+            corner_radius=8,
+            fg_color="transparent",
+            hover_color=COLOR_ICON_IDLE,
+            text_color=COLOR_TEXT_MUTED,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            command=self._cancel,
+        ).pack(side="right", padx=(0, 8))
+
+        _bring_window_to_front(window)
+
+    def _confirm(self) -> None:
+        if self.dont_show_again_var.get():
+            dismiss_hint(APPROVAL_LOCK_HINT_ID)
+        self.window.destroy()
+        self.on_confirm()
+
+    def _cancel(self) -> None:
+        self.window.destroy()
 
 

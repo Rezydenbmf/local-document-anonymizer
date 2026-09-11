@@ -1370,6 +1370,7 @@ def _anonymize_pdf_file_result(
     text_based_pdf = False
     word_pages = []
     ocr_word_pages: list = []
+    word_box_fallback_reason: str | None = None
     try:
         word_pages = extract_pdf_word_pages(source_path)
         source_page_texts = read_pdf_file_pages(source_path)
@@ -1394,7 +1395,15 @@ def _anonymize_pdf_file_result(
             ocr_word_pages = word_pages_from_ocr_boxes(word_box_extraction.pages)
             text = PDF_PAGE_SEPARATOR.join(page.text for page in ocr_word_pages)
             ocr_result = word_box_extraction.metadata
-        except OcrUnavailableError:
+        except OcrUnavailableError as word_box_error:
+            # Recorded (status code only - no paths, no OCR text) so a
+            # scan that silently fell back to the old placeholder-text
+            # style, rather than getting colored visual redaction, is
+            # actually diagnosable afterwards from the developer report
+            # instead of only ever guessed at - this exact gap made a
+            # real user report ("skan znowu nie ma kolorami anonimizacji")
+            # impossible to root-cause without the original file.
+            word_box_fallback_reason = word_box_error.status
             extraction = extract_text_with_ocr(source_path)
             text = extraction.text
             ocr_result = extraction.metadata
@@ -1526,6 +1535,14 @@ def _anonymize_pdf_file_result(
     if weak_phone_like_skipped_count:
         pdf_redaction_result["weak_phone_like_skipped"] = (
             weak_phone_like_skipped_count
+        )
+    if word_box_fallback_reason is not None:
+        # Status-code only (see OcrUnavailableError) - lets a developer
+        # report distinguish *why* a scan fell back to the old
+        # placeholder-text style instead of colored visual redaction,
+        # instead of that being unanswerable after the fact.
+        pdf_redaction_result["visual_redaction_fallback_reason"] = (
+            word_box_fallback_reason
         )
     output_path = save_anonymized_pdf_txt_copy(
         source_path, anonymized_output_text, output_dir=output_dir

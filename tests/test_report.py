@@ -331,6 +331,74 @@ class ReportTests(unittest.TestCase):
         self.assertIn("PDF redaction warning: PDF redaction may be partial", report_text)
         self.assertNotIn("Example Test Clinic", report_text)
 
+    def test_pdf_report_omits_visual_redaction_fallback_reason_by_default(self) -> None:
+        report_text = build_report_text(
+            counters={"EMAIL": 1},
+            input_extension=".pdf",
+            output_extension=".txt",
+            category_order=SUPPORTED_LABELS,
+            pdf_redaction_result={
+                "used": False,
+                "status": "skipped",
+                "output_name": "document_ANON.txt",
+                "text_extraction": "ocr_word_coordinates",
+                "redaction_count": 0,
+                "counters": {},
+                "true_redaction": False,
+            },
+        )
+
+        self.assertNotIn("Visual redaction fallback reason", report_text)
+
+    def test_pdf_report_surfaces_visual_redaction_fallback_reason_for_scans(
+        self,
+    ) -> None:
+        # A scan whose word-level OCR gave up (see OcrUnavailableError)
+        # falls back to the old placeholder-text style instead of true
+        # colored visual redaction - this field is what makes *why* that
+        # happened diagnosable afterwards, rather than only guessed at.
+        report_text = build_report_text(
+            counters={"EMAIL": 1},
+            input_extension=".pdf",
+            output_extension=".txt",
+            category_order=SUPPORTED_LABELS,
+            pdf_redaction_result={
+                "used": False,
+                "status": "skipped",
+                "output_name": "document_ANON.txt",
+                "text_extraction": "ocr_fallback",
+                "redaction_count": 0,
+                "counters": {},
+                "true_redaction": False,
+                "visual_redaction_fallback_reason": "unavailable",
+            },
+        )
+
+        self.assertIn("Visual redaction fallback reason: unavailable", report_text)
+
+    def test_pdf_report_sanitizes_unrecognized_visual_redaction_fallback_reason(
+        self,
+    ) -> None:
+        report_text = build_report_text(
+            counters={"EMAIL": 1},
+            input_extension=".pdf",
+            output_extension=".txt",
+            category_order=SUPPORTED_LABELS,
+            pdf_redaction_result={
+                "used": False,
+                "status": "skipped",
+                "output_name": "document_ANON.txt",
+                "text_extraction": "ocr_fallback",
+                "redaction_count": 0,
+                "counters": {},
+                "true_redaction": False,
+                "visual_redaction_fallback_reason": "<script>not a real status</script>",
+            },
+        )
+
+        self.assertIn("Visual redaction fallback reason: unavailable", report_text)
+        self.assertNotIn("<script>", report_text)
+
     def test_batch_summary_marks_partial_pdf_redaction_with_safe_warning(self) -> None:
         summary_text = build_batch_summary_text(
             input_count=1,

@@ -396,6 +396,14 @@ def _pdf_redaction_section_lines(
     text_extraction = _safe_pdf_text_extraction(
         pdf_redaction_result.get("text_extraction", "")
     )
+    raw_visual_redaction_fallback_reason = pdf_redaction_result.get(
+        "visual_redaction_fallback_reason"
+    )
+    visual_redaction_fallback_reason = (
+        _safe_ocr_status(raw_visual_redaction_fallback_reason)
+        if raw_visual_redaction_fallback_reason is not None
+        else None
+    )
     original_layout_redaction_used = bool(
         pdf_redaction_result.get("original_layout_redaction_used", False)
     )
@@ -465,6 +473,17 @@ def _pdf_redaction_section_lines(
         f"Weak phone-like numeric values skipped: {weak_phone_like_skipped}",
         "PDF redaction color legend:",
     ]
+    if visual_redaction_fallback_reason is not None:
+        # Only present when a scan fell back to the old placeholder-text
+        # style instead of true colored visual redaction - the reason
+        # extract_pdf_word_boxes gave up (see OcrUnavailableError), so
+        # that failure is diagnosable from this report instead of only
+        # ever guessed at.
+        lines.insert(
+            3,
+            "Visual redaction fallback reason: "
+            f"{visual_redaction_fallback_reason}",
+        )
     for color, meaning in PDF_REDACTION_COLOR_LEGEND:
         lines.append(f"* {color}: {meaning}")
     if scope == "safe":
