@@ -1,12 +1,11 @@
 """Tests for optional local OCR foundation."""
 
-from pathlib import Path
 import os
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
-
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
@@ -680,6 +679,149 @@ class DownloadLanguagePackTests(unittest.TestCase):
 
         self.assertFalse(ok)
         self.assertTrue(error)
+
+
+class OcrWordBoxesTests(unittest.TestCase):
+    """_ocr_word_boxes / extract_pdf_word_boxes / extract_image_word_boxes -
+    the positional counterpart to plain-text OCR that makes true colored
+    visual redaction possible on a scanned page instead of only ever
+    falling back to a rebuilt plain-text document (the user's direct
+    "I want to keep the graphic style" request)."""
+
+    @staticmethod
+    def _fake_image_to_data(confidences):
+        """A minimal fake of pytesseract.image_to_data's DICT output
+        shape, one word per entry, sharing the same real field layout
+        (parallel lists indexed by word)."""
+
+        class FakeOutput:
+            DICT = "dict"
+
+        class FakePytesseract:
+            Output = FakeOutput
+
+            @staticmethod
+            def image_to_data(image, lang=None, output_type=None):
+                n = len(confidences)
+                return {
+                    "text": [f"word{i}" for i in range(n)],
+                    "conf": confidences,
+                    "left": [10 * i for i in range(n)],
+                    "top": [5] * n,
+                    "width": [8] * n,
+                    "height": [12] * n,
+                    "block_num": [0] * n,
+                    "line_num": [0] * n,
+                    "word_num": list(range(n)),
+                }
+
+        return FakePytesseract
+
+    def test_drops_low_confidence_and_structural_entries(self) -> None:
+        fake = self._fake_image_to_data([90, 10, -1, 50])
+        words = ocr._ocr_word_boxes(fake, image=object(), lang="pol", zoom=1.0)
+
+        self.assertEqual([w["text"] for w in words], ["word0", "word3"])
+
+    def test_converts_pixel_rect_to_point_space_using_zoom(self) -> None:
+        fake = self._fake_image_to_data([95])
+        words = ocr._ocr_word_boxes(fake, image=object(), lang="pol", zoom=2.0)
+
+        self.assertEqual(len(words), 1)
+        # left=0, top=5, width=8, height=12 at zoom=2.0 -> divided by 2
+        self.assertEqual(words[0]["rect"], (0.0, 2.5, 4.0, 8.5))
+
+    def test_drops_blank_text_even_with_high_confidence(self) -> None:
+        class FakeOutput:
+            DICT = "dict"
+
+        class FakePytesseract:
+            Output = FakeOutput
+
+            @staticmethod
+            def image_to_data(image, lang=None, output_type=None):
+                return {
+                    "text": ["  ", "real"],
+                    "conf": [99, 99],
+                    "left": [0, 10],
+                    "top": [0, 0],
+                    "width": [5, 5],
+                    "height": [5, 5],
+                    "block_num": [0, 0],
+                    "line_num": [0, 0],
+                    "word_num": [0, 1],
+                }
+
+        words = ocr._ocr_word_boxes(FakePytesseract, image=object(), lang="pol")
+        self.assertEqual([w["text"] for w in words], ["real"])
+
+    def test_extract_image_word_boxes_returns_one_page_with_words(self) -> None:
+        fake = self._fake_image_to_data([90, 92, 88])
+
+        class FakePytesseract:
+            class pytesseract:
+                tesseract_cmd = "tesseract"
+
+            Output = fake.Output
+            image_to_data = fake.image_to_data
+
+            @staticmethod
+            def get_tesseract_version():
+                return "5.5.3"
+
+            @staticmethod
+            def get_languages(config=""):
+                return ["pol", "eng"]
+
+        with workspace_temp_dir() as temp_dir:
+            from PIL import Image
+
+            image_path = Path(temp_dir) / "scan.png"
+            Image.new("RGB", (100, 50)).save(image_path)
+
+            with (
+                patch("ocr._pytesseract_module", return_value=FakePytesseract),
+                patch("ocr.shutil.which", return_value="tesseract"),
+            ):
+                extraction = ocr.extract_image_word_boxes(image_path)
+
+        self.assertEqual(extraction.metadata["status"], OCR_STATUS_AVAILABLE)
+        self.assertEqual(len(extraction.pages), 1)
+        self.assertEqual(extraction.pages[0]["page_number"], 1)
+        self.assertEqual(len(extraction.pages[0]["words"]), 3)
+
+    def test_extract_image_word_boxes_raises_when_nothing_confident_found(
+        self,
+    ) -> None:
+        fake = self._fake_image_to_data([5, 10])  # all below the confidence floor
+
+        class FakePytesseract:
+            class pytesseract:
+                tesseract_cmd = "tesseract"
+
+            Output = fake.Output
+            image_to_data = fake.image_to_data
+
+            @staticmethod
+            def get_tesseract_version():
+                return "5.5.3"
+
+            @staticmethod
+            def get_languages(config=""):
+                return ["pol"]
+
+        with workspace_temp_dir() as temp_dir:
+            from PIL import Image
+
+            image_path = Path(temp_dir) / "scan.png"
+            Image.new("RGB", (100, 50)).save(image_path)
+
+            with (
+                patch("ocr._pytesseract_module", return_value=FakePytesseract),
+                patch("ocr.shutil.which", return_value="tesseract"),
+                self.assertRaises(OcrUnavailableError),
+            ):
+                ocr.extract_image_word_boxes(image_path)
 
 
 if __name__ == "__main__":

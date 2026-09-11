@@ -6,11 +6,13 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 import re
+import tempfile
 import textwrap
 
 try:
     from .file_writers import (
         build_collision_safe_path,
+        build_image_visual_pdf_path,
         build_original_redacted_pdf_path,
         build_pdf_visual_path,
         build_pdf_review_path,
@@ -19,6 +21,7 @@ try:
 except ImportError:
     from file_writers import (
         build_collision_safe_path,
+        build_image_visual_pdf_path,
         build_original_redacted_pdf_path,
         build_pdf_visual_path,
         build_pdf_review_path,
@@ -405,6 +408,56 @@ def _load_fitz_module():
     return fitz
 
 
+def _build_word_page(
+    fitz,
+    page_number: int,
+    normalized_words: Sequence[
+        tuple[str, tuple[float, float, float, float], int, int, int]
+    ],
+) -> PdfWordPage:
+    """Shared text/offset reconstruction for extract_pdf_word_pages and
+    word_pages_from_ocr_boxes - the exact same line-break-between-PDF-
+    lines convention either way, regardless of whether the words came
+    from the PDF's real text layer or from OCR.
+
+    Keeps a line break between source lines instead of flattening the
+    whole page into one run-on line: a single joined line loses the
+    sentence/line context NER needs and can make a short standalone
+    label word (for example "PESEL" or "Data") look like part of a
+    longer proper-noun phrase to the NER model.
+    """
+    text_parts: list[str] = []
+    words: list[PdfWord] = []
+    offset = 0
+    previous_block_line: tuple[int, int] | None = None
+    for token, rect, block_no, line_no, word_no in normalized_words:
+        if not token:
+            continue
+        current_block_line = (block_no, line_no)
+        if text_parts:
+            separator = "\n" if current_block_line != previous_block_line else " "
+            text_parts.append(separator)
+            offset += 1
+        start = offset
+        text_parts.append(token)
+        offset += len(token)
+        words.append(
+            PdfWord(
+                text=token,
+                rect=fitz.Rect(rect),
+                start_offset=start,
+                end_offset=offset,
+                block_no=block_no,
+                line_no=line_no,
+                word_no=word_no,
+            )
+        )
+        previous_block_line = current_block_line
+    return PdfWordPage(
+        page_number=page_number, text="".join(text_parts), words=tuple(words)
+    )
+
+
 def extract_pdf_word_pages(source_path: str | Path) -> list[PdfWordPage]:
     """Extract normalized per-page text with word coordinate ranges."""
     fitz = _load_fitz_module()
@@ -416,51 +469,51 @@ def extract_pdf_word_pages(source_path: str | Path) -> list[PdfWordPage]:
                 raw_words,
                 key=lambda item: (int(item[5]), int(item[6]), int(item[7])),
             )
-            text_parts: list[str] = []
-            words: list[PdfWord] = []
-            offset = 0
-            previous_block_line: tuple[int, int] | None = None
-            for raw_word in sorted_words:
-                token = str(raw_word[4])
-                if not token:
-                    continue
-                block_no = int(raw_word[5])
-                line_no = int(raw_word[6])
-                current_block_line = (block_no, line_no)
-                if text_parts:
-                    # Keep a line break between PDF text lines instead of
-                    # flattening the whole page into one run-on line. A
-                    # single joined line loses the sentence/line context
-                    # that NER needs and can make short standalone label
-                    # words (for example "PESEL" or "Data") look like part
-                    # of a longer proper-noun phrase to the NER model.
-                    separator = (
-                        "\n" if current_block_line != previous_block_line else " "
-                    )
-                    text_parts.append(separator)
-                    offset += 1
-                start = offset
-                text_parts.append(token)
-                offset += len(token)
-                words.append(
-                    PdfWord(
-                        text=token,
-                        rect=fitz.Rect(raw_word[:4]),
-                        start_offset=start,
-                        end_offset=offset,
-                        block_no=block_no,
-                        line_no=line_no,
-                        word_no=int(raw_word[7]),
-                    )
-                )
-                previous_block_line = current_block_line
-            pages.append(
-                PdfWordPage(
-                    page_number=page_index,
-                    text="".join(text_parts),
-                    words=tuple(words),
-                )
+            normalized = [
+                (str(word[4]), tuple(word[:4]), int(word[5]), int(word[6]), int(word[7]))
+                for word in sorted_words
+            ]
+            pages.append(_build_word_page(fitz, page_index, normalized))
+    return pages
+
+
+def word_pages_from_ocr_boxes(
+    ocr_pages: Sequence[dict[str, object]],
+) -> list[PdfWordPage]:
+    """Convert ocr.extract_pdf_word_boxes/extract_image_word_boxes's raw
+    per-page word-box data into the same PdfWord/PdfWordPage shape
+    extract_pdf_word_pages produces from a real PDF text layer - so
+    every existing word-coordinate function (compute_redaction_rects,
+    save_word_coordinate_redacted_pdf_copy, ...) works identically
+    whether the words came from a real PDF text layer or from OCR. This
+    is the piece that lets a scanned page get the same true colored
+    redaction boxes a text-layer PDF already gets, instead of only ever
+    falling back to a rebuilt plain-text document.
+    """
+    fitz = _load_fitz_module()
+    pages: list[PdfWordPage] = []
+    for ocr_page in ocr_pages:
+        raw_words = sorted(
+            ocr_page.get("words", []),
+            key=lambda word: (
+                int(word["block_no"]),
+                int(word["line_no"]),
+                int(word["word_no"]),
+            ),
+        )
+        normalized = [
+            (
+                str(word["text"]),
+                tuple(word["rect"]),
+                int(word["block_no"]),
+                int(word["line_no"]),
+                int(word["word_no"]),
             )
+            for word in raw_words
+        ]
+        pages.append(
+            _build_word_page(fitz, int(ocr_page["page_number"]), normalized)
+        )
     return pages
 
 
@@ -758,6 +811,59 @@ def save_word_coordinate_redacted_pdf_copy(
         unmapped_categories=unmapped,
         applied_rects=applied_rects,
     )
+
+
+def save_word_coordinate_redacted_image_copy(
+    source_path: str | Path,
+    *,
+    word_pages: Sequence[PdfWordPage],
+    spans: Iterable[PdfRedactionSpan],
+    output_dir: str | Path | None = None,
+    output_path: str | Path | None = None,
+) -> dict[str, object]:
+    """Create a true-redacted, colored visual PDF for a standalone
+    scanned image - the image-source counterpart to
+    save_word_coordinate_redacted_pdf_copy, reusing it entirely rather
+    than reimplementing redaction.
+
+    Wraps the source image in a synthetic one-page PDF sized at the
+    image's own pixel dimensions (so 1 pixel == 1 PDF point, matching
+    how ocr.extract_image_word_boxes already measured its OCR word boxes
+    with zoom=1.0 - no extra scaling needed anywhere in between), then
+    calls the exact same word-coordinate redaction function a scanned
+    PDF page already uses - including PyMuPDF's redaction blanking out
+    the *image* pixels under a redaction rect (images=2, its own
+    default), not just text, which is what actually makes this work for
+    a page that is nothing but a picture. The synthetic PDF is a
+    temporary implementation detail, cleaned up regardless of outcome -
+    only the real output (or, on failure, nothing) is left behind.
+    """
+    fitz = _load_fitz_module()
+    source = Path(source_path)
+    if output_path is not None:
+        resolved_output_path = Path(output_path)
+    else:
+        resolved_output_path = build_collision_safe_path(
+            build_image_visual_pdf_path(source, output_dir=output_dir)
+        )
+
+    probe_pixmap = fitz.Pixmap(str(source))
+    width, height = probe_pixmap.width, probe_pixmap.height
+    probe_pixmap = None  # release before insert_image reopens the same file
+
+    with tempfile.TemporaryDirectory() as staging_dir:
+        synthetic_path = Path(staging_dir) / "synthetic_source.pdf"
+        with fitz.open() as synthetic_document:
+            page = synthetic_document.new_page(width=width, height=height)
+            page.insert_image(fitz.Rect(0, 0, width, height), filename=str(source))
+            synthetic_document.save(synthetic_path)
+
+        return save_word_coordinate_redacted_pdf_copy(
+            synthetic_path,
+            word_pages=word_pages,
+            spans=spans,
+            output_path=resolved_output_path,
+        )
 
 
 def _redact_pattern_matches(page, page_text: str) -> dict[str, int]:

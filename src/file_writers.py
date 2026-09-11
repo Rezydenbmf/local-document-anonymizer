@@ -196,6 +196,20 @@ def build_anonymized_image_txt_path(
     return _output_directory(path, output_dir) / f"{path.stem}{ANON_SUFFIX}{TXT_EXTENSION}"
 
 
+def build_image_visual_pdf_path(
+    source_path: str | Path, output_dir: str | Path | None = None
+) -> Path:
+    """Return the word-coordinate visual redaction PDF output path for an
+    image source file - a PDF wrapping the (redacted) image, named after
+    the same _ANON_VISUAL convention build_pdf_visual_path uses for PDF
+    sources, not the source image's own extension."""
+    path = _ensure_image_path(source_path)
+    return (
+        _output_directory(path, output_dir)
+        / f"{path.stem}{ANON_VISUAL_SUFFIX}{PDF_EXTENSION}"
+    )
+
+
 def build_report_path(
     source_path: str | Path, output_dir: str | Path | None = None
 ) -> Path:
