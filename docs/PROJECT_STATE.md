@@ -2217,7 +2217,96 @@ by 2 versus the established baseline.
 8deb41c Add true colored visual redaction for scanned PDFs and images
 ```
 
+Direct follow-up from the user testing the redesigned start screen against
+their own mockups, three concrete pieces of feedback given together: (1)
+the sidebar's light `COLOR_CARD` background "blended into the app" and
+users could miss/ignore it - wanted the dark-navy mockup treatment
+instead; (2) the library-update reminder banner used the same soft-blue
+"info" styling regardless of content, which read as too easy to dismiss
+next to the amber/orange OCR-unavailable warning card shown side by side
+in the same screenshots; (3) the "Anonimizuj" button was "too big" versus
+the mockups and belonged in the bottom-right corner, where the quick-
+settings card already sat - moving it there would also free vertical
+space in the center column for the file list, and the output-folder
+picker should move into that same card, renamed "Szybkie akcje" (quick
+actions) per the user's own suggested name.
+
+`gui_helpers.py` gained five sidebar color tokens (`COLOR_SIDEBAR_BG`,
+`_HOVER`, `_TEXT`, `_TEXT_MUTED`, `_TRUST_BG`) - `COLOR_SIDEBAR_BG` reuses
+`COLOR_PRIMARY`, a dark-navy token defined back in Stage 1 of the
+DocShield redesign but never actually referenced anywhere until now.
+`gui_app.py`'s `_build_sidebar` and `_update_sidebar_active_state` switch
+every sidebar surface (frame background, wordmark, nav-button text/hover,
+the "Działa lokalnie" trust card, version label) from the old
+card/muted-text palette to these new tokens, with the active nav item
+still using the existing `COLOR_ACCENT` so it keeps standing out against
+the now-dark background rather than blending into it the way the old
+light-on-light styling did. `_build_status_banner` no longer branches its
+colors on whether real "issues" are present versus only an update being
+available - both cases now render with the same amber `COLOR_WARNING` /
+`COLOR_WARNING_SOFT` / `COLOR_WARNING_TEXT` treatment (and a matching "⚠"
+header) the OCR-unavailable case already used, addressing the "should
+look like a warning, not routine info" feedback directly; the existing
+Aktualizuj/Napraw/Zainstaluj action buttons needed no change, already
+using `COLOR_ACCENT` blue-on-amber.
+
+Moving the "Anonimizuj" button surfaced a real conflict with a fix from
+earlier this session: the quick-settings panel was hidden below
+`QUICK_SETTINGS_MIN_WIDTH` (880px) - fine while it only held secondary
+toggles, but hiding it once it also holds the primary action button would
+have reintroduced the exact "critical control can become completely
+unreachable" bug the pinned-bottom-bar pattern was built to prevent in
+the first place. Flagged to the user before starting, then fixed by
+construction rather than by exception: `_build_quick_settings_panel` (now
+titled "Szybkie akcje", per the user's own name for it) is always built
+and shown - the `QUICK_SETTINGS_MIN_WIDTH` gate and the
+`update_idletasks`/`winfo_width` check that drove it are gone entirely -
+and internally the panel now uses the identical pinned-bottom-bar +
+scrollable-region-above pattern already proven in `show_start_screen`:
+an `action_bar` (folder picker, status text, "Anonimizuj") is packed
+*first* with `side="bottom"`, a `CTkScrollableFrame` holding the
+checkboxes/OCR status/dictionary row/"Więcej ustawień" link is packed
+second with `side="top", fill="both", expand=True` - the action area
+always claims its space regardless of how tall the settings above grow
+or how short the window is. The now-narrow (240px) panel stacks the
+folder-path field and its "Zmień" button vertically instead of the wide
+column's old side-by-side layout, which would otherwise squeeze both
+into an unreadable/unclickable width. `show_start_screen`'s own
+`main_col` lost its now-empty `bottom_bar` entirely - the scrollable
+drop-zone/file-list region claims the freed vertical space, the second
+half of the user's request ("wtedy tez zyskamy przestrzen... bedzie ich
+widac wiecej"). `self.status_label`, `self.anonymize_button` and
+`self.output_dir_value_label` are unaffected by the move since
+`_update_readiness` and `pick_output_dir` only ever reference them as
+instance attributes, never by parent widget.
+
+`QUICK_SETTINGS_MIN_WIDTH` itself stays defined in `gui_helpers.py`
+(still re-exported through the `gui.py` compatibility shim) even though
+nothing in `gui_app.py` reads it anymore, rather than deleting a public
+name a downstream import could still rely on.
+
+Verified via `ruff check` (unchanged against the established 77-error
+baseline) and the full suite (404 tests, all pre-existing - this is a
+pure layout/styling change with no new behavior to add coverage for).
+Live-driving the actual Tk window to confirm visually was attempted but
+the process exited with no output before reaching a screenshot, the same
+sandbox-environment unreliability noted earlier in this document for GUI
+verification; not retried, relying instead on the code-level guarantee
+that `action_bar` is packed before the scrollable region (the same
+ordering already verified working for the outer `show_start_screen`
+layout) plus the passing import/lint/test checks.
+
+```text
+68132a9 Restyle sidebar/update banner and move Anonimizuj + folder picker into Szybkie akcje panel
+```
+
 ## Next Logical Step
+
+The start-screen visual-feedback pass above (sidebar restyle, warning-style
+update banner, Szybkie akcje panel carrying the folder picker and
+"Anonimizuj") is done. No further redesign work is planned without a fresh,
+explicit user decision to start one - next is real pilot use of this build
+and further changes only from what that surfaces, same as every prior round.
 
 The pilot-feedback batch's Stage B (mockup visual-fidelity pass) is done -
 see its narrative above. Both scope calls flagged before starting it held:
