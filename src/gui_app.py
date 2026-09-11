@@ -27,8 +27,10 @@ try:
         ENV_ITEM_OCR,
         INSTALL_ACTION_OPEN_URL,
         INSTALL_ACTION_SPACY_MODEL,
+        INSTALL_ACTION_TESSDATA_DOWNLOAD,
         check_environment,
         install_ner_model,
+        install_tesseract_language,
     )
     from .file_writers import internal_artifacts_dir
     from .gui_comparison_window import ComparisonWindow
@@ -131,8 +133,10 @@ except ImportError:
         ENV_ITEM_OCR,
         INSTALL_ACTION_OPEN_URL,
         INSTALL_ACTION_SPACY_MODEL,
+        INSTALL_ACTION_TESSDATA_DOWNLOAD,
         check_environment,
         install_ner_model,
+        install_tesseract_language,
     )
     from file_writers import internal_artifacts_dir
     from gui_comparison_window import ComparisonWindow
@@ -568,6 +572,27 @@ class AnonymizerApp:
         # install actually worked instead of just hiding the button.
         self._start_environment_check()
 
+    def _install_tesseract_language_clicked(self, lang_code: str) -> None:
+        if ENV_ITEM_OCR in self.environment_installing:
+            return
+        self.environment_installing.add(ENV_ITEM_OCR)
+        if self.active_screen == "start":
+            self.show_start_screen()
+
+        def worker() -> None:
+            ok, error = install_tesseract_language(lang_code)
+            self.root.after(0, lambda: self._on_tesseract_language_install_done(ok, error))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_tesseract_language_install_done(self, ok: bool, error: str) -> None:
+        self.environment_installing.discard(ENV_ITEM_OCR)
+        if not ok and error:
+            messagebox.showerror("Pakiet językowy", error)
+        # Re-run the full check rather than assuming success - confirms the
+        # install actually worked instead of just hiding the button.
+        self._start_environment_check()
+
     def _update_package_clicked(self, package: str) -> None:
         if package in self.package_updates_installing:
             return
@@ -712,6 +737,20 @@ class AnonymizerApp:
                     text_color=COLOR_TEXT,
                     font=ctk.CTkFont(family=FONT_FAMILY, size=10),
                     command=lambda url=item.install_target: webbrowser.open(url),
+                ).pack(side="right", padx=(8, 0))
+            elif item.install_action == INSTALL_ACTION_TESSDATA_DOWNLOAD:
+                ctk.CTkButton(
+                    row,
+                    text="Zainstaluj pakiet polski",
+                    width=170,
+                    height=26,
+                    corner_radius=8,
+                    fg_color=COLOR_ACCENT,
+                    hover_color=COLOR_ACCENT_HOVER,
+                    font=ctk.CTkFont(family=FONT_FAMILY, size=10, weight="bold"),
+                    command=lambda target=item.install_target: (
+                        self._install_tesseract_language_clicked(target)
+                    ),
                 ).pack(side="right", padx=(8, 0))
 
         if issues and updates:

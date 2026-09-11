@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import threading
 import tkinter as tk
 from pathlib import Path
-from tkinter import filedialog
+from tkinter import filedialog, messagebox
 
 import customtkinter as ctk
 
@@ -13,6 +14,7 @@ try:
         ENV_ITEM_LLM,
         ENV_ITEM_NER,
         ENV_ITEM_OCR,
+        install_tesseract_language,
     )
     from .gui_helpers import (
         COLOR_ACCENT,
@@ -33,11 +35,16 @@ try:
         format_llm_model_selector_state,
     )
     from .llm_review import list_installed_models
+    from .ocr import (
+        COMMON_OCR_LANGUAGES_PL,
+        list_installed_languages,
+    )
 except ImportError:
     from environment_check import (
         ENV_ITEM_LLM,
         ENV_ITEM_NER,
         ENV_ITEM_OCR,
+        install_tesseract_language,
     )
     from gui_helpers import (
         COLOR_ACCENT,
@@ -58,6 +65,10 @@ except ImportError:
         format_llm_model_selector_state,
     )
     from llm_review import list_installed_models
+    from ocr import (
+        COMMON_OCR_LANGUAGES_PL,
+        list_installed_languages,
+    )
 
 from typing import TYPE_CHECKING
 
@@ -85,6 +96,13 @@ class SettingsDialog:
         self.show_hints_var = tk.BooleanVar(value=app.show_usage_hints)
         self.sensitive_terms_path = app.sensitive_terms_path
         self.environment_status = environment_status_lookup(app.environment_items)
+        self.installed_ocr_languages = list_installed_languages()
+        self.ocr_language_installing = False
+        self.ocr_language_status_label: ctk.CTkLabel | None = None
+        self.ocr_language_add_var: tk.StringVar | None = None
+        self.ocr_language_add_button: ctk.CTkButton | None = None
+        self.detection_tab: ctk.CTkFrame | None = None
+        self._ocr_language_code_by_label: dict[str, str] = {}
 
         self._build(initial_tab)
 
@@ -121,7 +139,8 @@ class SettingsDialog:
         )
         tabview.pack(fill="both", expand=True, padx=20, pady=(0, 6))
 
-        self._build_detection_tab(tabview.add("Wykrywanie danych"))
+        self.detection_tab = tabview.add("Wykrywanie danych")
+        self._build_detection_tab(self.detection_tab)
         self._build_pdf_tab(tabview.add("Dokumenty PDF"))
         self._build_dictionary_tab(tabview.add("Słownik"))
         self._build_general_tab(tabview.add("Ogólne"))
@@ -163,12 +182,18 @@ class SettingsDialog:
             self.llm_var,
             status_ok=self.environment_status.get(ENV_ITEM_LLM),
         )
-        self._build_status_row(
-            tab,
-            "OCR (skany, obrazy)",
-            "Automatyczne, wymaga lokalnego Tesseracta",
-            status_ok=self.environment_status.get(ENV_ITEM_OCR),
-        )
+        self._build_ocr_language_section(tab)
+
+    def _refresh_detection_tab(self) -> None:
+        """Rebuild the "Wykrywanie danych" tab in place after a language
+        pack finishes installing, so the status dot and the "Dograj"
+        dropdown reflect what's actually installed now rather than what
+        was true when the dialog first opened."""
+        if self.detection_tab is None or not self.detection_tab.winfo_exists():
+            return
+        for widget in self.detection_tab.winfo_children():
+            widget.destroy()
+        self._build_detection_tab(self.detection_tab)
 
     def _build_pdf_tab(self, tab: ctk.CTkFrame) -> None:
         pdf_section = self._section_frame(tab)
@@ -336,6 +361,151 @@ class SettingsDialog:
             text_color=COLOR_TEXT_MUTED,
             anchor="w",
         ).pack(fill="x")
+
+    def _installed_ocr_language_names(self) -> str:
+        if not self.installed_ocr_languages:
+            return "Nie wykryto żadnego zainstalowanego języka."
+        names = ", ".join(
+            COMMON_OCR_LANGUAGES_PL.get(code, code)
+            for code in self.installed_ocr_languages
+        )
+        return f"Aktualnie obsługiwane języki: {names}."
+
+    def _build_ocr_language_section(self, parent: ctk.CTkFrame) -> None:
+        """OCR status plus language-pack management - polski is this
+        app's baseline OCR language (see ocr.PRIMARY_OCR_LANGUAGE); this
+        section shows what's actually installed and lets the user add
+        another language pack without leaving the app, since silently
+        missing the Polish pack is exactly what produced garbled OCR
+        text before this was surfaced anywhere.
+        """
+        status_ok = self.environment_status.get(ENV_ITEM_OCR)
+        frame = self._section_frame(parent)
+        row = ctk.CTkFrame(frame, fg_color="transparent")
+        row.pack(fill="x", padx=14, pady=12)
+        text_col = ctk.CTkFrame(row, fg_color="transparent")
+        text_col.pack(fill="x")
+        title_row = ctk.CTkFrame(text_col, fg_color="transparent")
+        title_row.pack(fill="x")
+        self._build_status_dot(title_row, status_ok)
+        ctk.CTkLabel(
+            title_row,
+            text="OCR (skany, obrazy)",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+            text_color=COLOR_TEXT,
+            anchor="w",
+        ).pack(side="left", fill="x")
+        ctk.CTkLabel(
+            text_col,
+            text="Automatyczne, wymaga lokalnego Tesseracta. Polski jest "
+            "językiem podstawowym, angielski dodatkowym.",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLOR_TEXT_MUTED,
+            anchor="w",
+            wraplength=460,
+            justify="left",
+        ).pack(fill="x", pady=(0, 6))
+
+        self.ocr_language_status_label = ctk.CTkLabel(
+            text_col,
+            text=self._installed_ocr_language_names(),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLOR_TEXT,
+            anchor="w",
+            wraplength=460,
+            justify="left",
+        )
+        self.ocr_language_status_label.pack(fill="x", pady=(0, 8))
+
+        addable = {
+            code: label
+            for code, label in COMMON_OCR_LANGUAGES_PL.items()
+            if code not in self.installed_ocr_languages
+        }
+        if not addable:
+            return
+
+        add_row = ctk.CTkFrame(text_col, fg_color="transparent")
+        add_row.pack(fill="x")
+        ctk.CTkLabel(
+            add_row,
+            text="Dograj pakiet językowy:",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLOR_TEXT_MUTED,
+        ).pack(side="left", padx=(0, 8))
+        sorted_addable = dict(sorted(addable.items(), key=lambda pair: pair[1]))
+        # The variable holds the OptionMenu's selected *label* (what the
+        # widget actually shows/sets), not a language code - initializing
+        # it to a code here silently broke "Dograj" (the code lookup by
+        # label always missed, so the click did nothing at all).
+        self.ocr_language_add_var = tk.StringVar(value=next(iter(sorted_addable.values())))
+        ctk.CTkOptionMenu(
+            add_row,
+            values=list(sorted_addable.values()),
+            variable=self.ocr_language_add_var,
+            width=140,
+            height=28,
+            fg_color=COLOR_ICON_IDLE,
+            button_color=COLOR_BORDER,
+            button_hover_color=COLOR_BORDER,
+            text_color=COLOR_TEXT,
+            dropdown_fg_color=COLOR_CARD,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+        ).pack(side="left", padx=(0, 8))
+        self._ocr_language_code_by_label = {v: k for k, v in sorted_addable.items()}
+        self.ocr_language_add_button = ctk.CTkButton(
+            add_row,
+            text="Dograj",
+            width=80,
+            height=28,
+            corner_radius=8,
+            fg_color=COLOR_ACCENT,
+            hover_color=COLOR_ACCENT_HOVER,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11, weight="bold"),
+            command=self._add_ocr_language_clicked,
+        )
+        self.ocr_language_add_button.pack(side="left")
+
+    def _add_ocr_language_clicked(self) -> None:
+        if self.ocr_language_installing or self.ocr_language_add_var is None:
+            return
+        label = self.ocr_language_add_var.get()
+        lang_code = self._ocr_language_code_by_label.get(label)
+        if not lang_code:
+            return
+        self.ocr_language_installing = True
+        if self.ocr_language_add_button is not None:
+            self.ocr_language_add_button.configure(state="disabled", text="Dograję...")
+
+        def worker() -> None:
+            ok, error = install_tesseract_language(lang_code)
+            self.window.after(0, lambda: self._on_ocr_language_install_done(ok, error))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_ocr_language_install_done(self, ok: bool, error: str) -> None:
+        self.ocr_language_installing = False
+        if not self.window.winfo_exists():
+            return
+        if not ok:
+            messagebox.showerror(
+                "Pakiet językowy", error or "Nie udało się dograć pakietu językowego."
+            )
+            if self.ocr_language_add_button is not None:
+                self.ocr_language_add_button.configure(state="normal", text="Dograj")
+            return
+        # Refresh the installed-language list from the real, current state
+        # rather than assuming success - confirms the file actually landed
+        # somewhere Tesseract will read it from.
+        self.installed_ocr_languages = list_installed_languages()
+        self.environment_status[ENV_ITEM_OCR] = True
+        if self.ocr_language_status_label is not None:
+            self.ocr_language_status_label.configure(
+                text=self._installed_ocr_language_names()
+            )
+        # Rebuild the tab so the "Dograj" row drops the language that is
+        # now installed and the status dot turns green.
+        self._refresh_detection_tab()
 
     def _build_static_info_row(
         self, parent: ctk.CTkFrame, title: str, subtitle: str

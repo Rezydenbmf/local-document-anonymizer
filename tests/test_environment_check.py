@@ -43,14 +43,46 @@ class CheckNerEnvironmentTests(unittest.TestCase):
 
 
 class CheckOcrEnvironmentTests(unittest.TestCase):
-    def test_available_when_tesseract_found(self) -> None:
-        with patch(
-            "environment_check.detect_ocr_support", return_value={"status": "available"}
+    def test_available_when_tesseract_and_polish_are_both_found(self) -> None:
+        with (
+            patch(
+                "environment_check.detect_ocr_support",
+                return_value={"status": "available"},
+            ),
+            patch(
+                "environment_check.list_installed_languages",
+                return_value=["pol", "eng"],
+            ),
         ):
             item = ec.check_ocr_environment()
 
         self.assertTrue(item.ok)
         self.assertIsNone(item.install_action)
+        self.assertIn("polski", item.detail_pl)
+        self.assertIn("angielski", item.detail_pl)
+
+    def test_polish_missing_offers_tessdata_download_not_engine_url(self) -> None:
+        # The exact real-world case that prompted this whole check: the
+        # Tesseract engine is genuinely installed and working (English-
+        # only), so the old engine-only check reported "available" - but
+        # this app's baseline language, Polish, is missing, which is what
+        # actually produced garbled OCR on a real scanned document.
+        with (
+            patch(
+                "environment_check.detect_ocr_support",
+                return_value={"status": "available"},
+            ),
+            patch(
+                "environment_check.list_installed_languages",
+                return_value=["eng"],
+            ),
+        ):
+            item = ec.check_ocr_environment()
+
+        self.assertFalse(item.ok)
+        self.assertEqual(item.install_action, ec.INSTALL_ACTION_TESSDATA_DOWNLOAD)
+        self.assertEqual(item.install_target, ec.PRIMARY_OCR_LANGUAGE)
+        self.assertIn("polski", item.detail_pl)
 
     def test_engine_not_found_offers_download_url(self) -> None:
         with patch(
@@ -72,6 +104,17 @@ class CheckOcrEnvironmentTests(unittest.TestCase):
 
         self.assertFalse(item.ok)
         self.assertEqual(item.install_action, ec.INSTALL_ACTION_OPEN_URL)
+
+
+class InstallTesseractLanguageTests(unittest.TestCase):
+    def test_delegates_to_ocr_download_language_pack(self) -> None:
+        with patch(
+            "environment_check.download_language_pack", return_value=(True, "")
+        ) as mocked:
+            result = ec.install_tesseract_language("pol")
+
+        mocked.assert_called_once_with("pol")
+        self.assertEqual(result, (True, ""))
 
 
 class CheckLlmEnvironmentTests(unittest.TestCase):
@@ -112,6 +155,10 @@ class CheckEnvironmentTests(unittest.TestCase):
             patch("environment_check.check_ner_model_installed", return_value="available"),
             patch(
                 "environment_check.detect_ocr_support", return_value={"status": "available"}
+            ),
+            patch(
+                "environment_check.list_installed_languages",
+                return_value=["pol", "eng"],
             ),
             patch(
                 "environment_check.list_installed_models", return_value=("available", [])

@@ -2047,6 +2047,95 @@ feature catches elsewhere in the codebase).
 a96fd3a Fix garbled OCR on Polish documents: wrong language + low DPI
 ```
 
+Direct follow-up requested by the user right after the OCR-language fix
+above: make Polish the app's explicit baseline OCR language (not just a
+preference inside one function), English the explicit secondary, and
+give Settings both a "what's currently supported" view and a way to add
+another language pack without leaving the app.
+
+`ocr.py` gained the actual policy as named constants -
+`PRIMARY_OCR_LANGUAGE = "pol"`, `SECONDARY_OCR_LANGUAGE = "eng"` -
+`_ocr_language()` now reads from these instead of hardcoded strings.
+`list_installed_languages()` wraps `pytesseract.get_languages()` (never
+raises, empty list on any failure), filtering out `osd`/`equ` (Tesseract
+auxiliary data, not real languages) and ordering the result Polish-first
+via a new pure `order_languages_primary_first()` - any "installed/
+supported languages" display consistently reflects the Polish-first
+policy instead of a plain alphabetical list that would bury Polish
+behind "angielski". `download_language_pack()` downloads one
+`.traineddata` file from the `tesseract-ocr/tessdata_fast` GitHub repo
+(the smaller/faster variant, a better fit for an on-demand desktop
+download than the much larger "best"-accuracy models) into the resolved
+tessdata directory (`TESSDATA_PREFIX` if set, else next to the resolved
+tesseract binary) - a plain data file Tesseract already reads from, not
+an installer, so - unlike Tesseract/Ollama themselves - this is safely
+automatable as long as the folder is writable; writes to a `.part` file
+first and only renames it into place on full success, so a failed
+download never leaves a corrupt trained-data file behind. A short,
+curated `COMMON_OCR_LANGUAGES_PL` (12 languages plausible for a
+Polish-market user, not Tesseract's full 100+ catalog) drives both the
+Settings dropdown and the "supported languages" display text.
+
+`environment_check.check_ocr_environment()` now checks two things where
+it used to check one: the Tesseract engine itself (unchanged - still
+offers the existing "Pobierz" flow when missing), and, separately,
+whether the Polish pack specifically is installed once the engine is
+confirmed present - the exact real case that produced garbled OCR text
+before the language fix above: Tesseract genuinely installed and
+working, English-only, which passed the old engine-only check while
+still silently misreading Polish. That case now gets its own message
+("Tesseract jest zainstalowany, ale brakuje polskiego pakietu...") and
+its own install action (`INSTALL_ACTION_TESSDATA_DOWNLOAD`) distinct
+from "Tesseract not installed at all". When OCR is fully available, the
+status detail now also lists which languages are installed. A thin
+`install_tesseract_language()` delegates to `ocr.download_language_pack`.
+
+GUI wiring in two places, both reusing this project's existing
+install-action patterns rather than inventing new ones: (1) the
+start-screen environment banner (`gui_app.py`) gained a branch for
+`INSTALL_ACTION_TESSDATA_DOWNLOAD` - a "Zainstaluj pakiet polski" button
+following the exact same background-thread +
+`root.after(0, callback)` + re-check-rather-than-assume-success shape
+`_install_ner_model_clicked` already established. (2) Settings' detection
+tab replaced the old plain OCR status row with a new
+`_build_ocr_language_section`: status dot, the "supported languages"
+line, and - only when a common language isn't installed yet - a
+`CTkOptionMenu` + "Dograj" button wired to the same install-then-
+re-verify shape, rebuilding just that one tab in place afterward
+(`_refresh_detection_tab`) rather than the whole dialog.
+
+Two real bugs were caught only by driving the actual click through real
+Tk widgets rather than testing the pieces in isolation - both fixed
+before anything shipped. (1) The OptionMenu's bound `StringVar` was
+seeded with a language *code* (e.g. `"ces"`) instead of the *label* the
+widget actually shows and sets (`"czeski"`); the code-by-label lookup
+inside the click handler always missed, so clicking "Dograj" silently
+did nothing at all - never raised, never showed an error, just no-op'd.
+(2) Two of this change's own new tests initially asserted *outside* the
+`with workspace_temp_dir():` block whose exit deletes the directory
+being asserted against - passed for the wrong reason (or failed
+confusingly) until moved inside it.
+
+Verified end-to-end with a real driving script (not just the unit
+suite): Settings shows the real installed-language line, clicking
+"Dograj" resolves the correct language code and disables the button,
+the completion callback refreshes the displayed list, a failed install
+shows an error dialog instead of failing silently, and the start-screen
+banner offers the one-click Polish install button when that specific
+gap is simulated. (A screenshot attempt captured this coding session's
+own window instead of the app's - the same sandbox quirk noted for the
+module-split work above, unrelated to the code; deleted immediately,
+not reattempted, relied on the text-based verification instead.)
+
+Full suite: 394 tests (11 new), lint improved by one over baseline (78
+vs the established 79 - `ruff --fix` incidentally cleaned up one
+pre-existing unrelated import-order issue in `ocr.py` while fixing a new
+one this change introduced).
+
+```text
+1ba33db Make Polish the explicit OCR baseline + language-pack management
+```
+
 ## Next Logical Step
 
 The pilot-feedback batch's Stage B (mockup visual-fidelity pass) is done -
