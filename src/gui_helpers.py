@@ -995,6 +995,15 @@ COLOR_ICON_IDLE = "#EEF1F6"
 COLOR_NEEDS_REVIEW = "#5B6FE0"
 COLOR_NEEDS_REVIEW_SOFT = "#EAECFC"
 COLOR_WARNING_TEXT = "#92400E"
+# The sidebar switched from a plain white card to this dark-navy scheme
+# (mockup-requested: the light sidebar "blended into the app" and users
+# could miss/ignore it) - COLOR_PRIMARY finally gets used here instead of
+# sitting defined-but-unreferenced since Stage 1.
+COLOR_SIDEBAR_BG = COLOR_PRIMARY
+COLOR_SIDEBAR_HOVER = "#22336E"
+COLOR_SIDEBAR_TEXT = "#AEB8DA"
+COLOR_SIDEBAR_TEXT_MUTED = "#7C87AC"
+COLOR_SIDEBAR_TRUST_BG = "#1E2E63"
 FONT_FAMILY = "Segoe UI"
 FILE_TYPE_COLORS = {
     "PDF": "#E24A4A",
