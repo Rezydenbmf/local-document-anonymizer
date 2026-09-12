@@ -2780,7 +2780,97 @@ bf6da27 Give the preview window its space back: title-bar tools, floating action
 bba22c7 Document the security audit, its three fixes and the preview-window layout pass
 ```
 
+**Then a hand-off deadline changed priorities entirely: an outside tester
+(a lawyer working across medical institutions, with the standing offer of
+a firm-wide license if the app holds up) needed a build by Monday, with
+roughly 6% of the week's usage budget left to produce it in.** Two things
+had to happen before anything could be handed over at all: mark the
+current state honestly, and package it so installing needs nothing but
+running one file.
+
+**Marked ALPHA, and the untested local-LLM review locked off rather than
+silently shipped.** `use_llm_review` already defaulted to False
+everywhere and nothing in this session changed that - the gap was that
+nothing *said* so. `APP_VERSION` becomes `"0.1.0-alpha"` (surfaces
+automatically in the sidebar footer and the About dialog), the sidebar
+brand row gets a small "ALPHA" badge, and the About dialog gains a
+warning-styled disclaimer: development build, review every output
+manually, LLM review not yet active. Both places the LLM toggle appears
+- the start screen's quick settings panel and the Settings dialog - keep
+the control visible (so it reads as "coming soon", not "missing") but
+disabled, with a "wkrótce" tag; `_build_toggle_section` (shared with
+three unrelated toggles) gained optional `disabled`/`disabled_note`
+parameters rather than a one-off widget, so any other feature staged out
+of a future alpha build gets the same treatment for free. Settings'
+`_save_and_close` also forces `use_llm_review = False` explicitly, a
+second guarantee on top of the disabled switch itself. Verified live via
+a background script walking the real widget tree (screenshots aren't
+available in this sandbox - the display is locked): both switches report
+`state=disabled`, both labels and both disclaimer strings are present.
+
+```text
+50da4bc Mark this build ALPHA and disable the untested local-LLM review
+```
+
+**Then a self-contained Windows installer, so "handing over a build" means
+one file that installs itself with nothing else required.** PyInstaller
+(onedir) bundles the Python interpreter and every dependency; Tesseract
+can't be bundled the same way - it's a native binary this app shells out
+to, not something it imports - so `build_installer.ps1` stages a trimmed
+copy (`tesseract.exe`, its DLLs, `pol`/`eng`/`osd` traineddata) into
+`dist/DocShield/tesseract/` alongside the packaged exe, and a new
+`ocr._resolve_tesseract_cmd()` candidate checks that folder first,
+gated on `sys.frozen` so running from source is unaffected. The one
+non-obvious packaging trap: `pl_core_news_sm` is its own separate
+pip-installed package, not something spaCy's own PyInstaller hook
+reaches - missing it would have left `spacy.load()` finding nothing at
+runtime despite the app starting cleanly. `DocShield.spec` collects it
+explicitly (`collect_all`); `customtkinter` and `tkinterdnd2` (including
+its native drag-and-drop DLL) turned out to already be covered by
+`pyinstaller-hooks-contrib` with no extra work. Ollama itself is
+deliberately not bundled - untested, and multi-GB for a feature that's
+locked off anyway.
+
+`installer/DocShield.iss` (Inno Setup) compiles the bundle into one
+`DocShield-Setup-<version>.exe` (107.7 MB) - a Polish-language notice
+before installing (alpha status, manual review still required, fully
+local/offline - the app's own strongest selling point for this
+particular tester), no admin rights required, desktop/Start Menu
+shortcuts, a real uninstaller. The version is read once from
+`gui_helpers.APP_VERSION` rather than duplicated in the `.iss` file, so
+they can't drift apart.
+
+Verified end to end, not just that each piece built: the raw PyInstaller
+output launched with a real "DocShield" window and no crash (confirmed
+via a live Windows process check, since the sandbox display is locked -
+screenshots weren't an option here either); the *compiled installer*
+was silently installed to a scratch folder and that independently
+launched cleanly too; and the Tesseract fallback was proven against the
+real installed layout, not just mocked paths - pointed at the actual
+installed `DocShield.exe` location, `_resolve_tesseract_cmd()` resolved
+to the bundled `tesseract.exe` and the file was confirmed to exist on
+disk. One real failure surfaced and got fixed along the way: PyInstaller's
+own `--clean` hit a transient `PermissionError` deleting a just-built exe
+(most likely antivirus or the search indexer holding a brief handle) -
+`build_installer.ps1` now clears `dist`/`build` itself first, with a
+short retry, so a future rebuild doesn't hit the same race. Full suite:
+453 tests (4 new, covering the bundled-Tesseract resolution). Lint
+unchanged against the established 77-error baseline.
+
+```text
+7aa2bae Package a self-contained Windows installer for the alpha demo
+```
+
 ## Next Logical Step
+
+**Immediate:** hand `installer_output/DocShield-Setup-0.1.0-alpha.exe` to
+the outside tester. Two things are on the user, not the code: the
+installer is unsigned, so Windows SmartScreen will show its "protected
+your PC" warning on first run ("More info" -> "Run anyway") - worth a
+heads-up before he sees it unannounced, especially for someone
+evaluating the app professionally; and the recipient's own feedback
+after this first hands-on pass should drive whatever comes next, more
+than anything already queued below.
 
 The scanned-PDF visual redaction issue - the single most important open
 item for four sessions - is **root-caused, fixed and regression-tested**
