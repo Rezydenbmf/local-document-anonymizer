@@ -83,11 +83,22 @@ APP_SUBTITLE = "Chroń dane wrażliwe. Szybko, bezpiecznie i lokalnie."
 # a script-style font so it reads as a handwritten note, not a generic
 # label (see the app's own design notes in pomysly/).
 APP_PERSONAL_NOTE = "Twoje dokumenty. Tylko u Ciebie."
-APP_VERSION = "0.1.0"
+APP_VERSION = "0.1.0-alpha"
+# Shown as a small badge next to the brand title and repeated in the
+# About dialog - this build is pre-release: not yet broadly tested, and
+# one feature (local-LLM review) is present in the code but disabled
+# because it hasn't been tested at all. Every output still needs a
+# manual review pass before it's treated as final.
+APP_BUILD_STAGE_LABEL = "ALPHA"
 APP_ABOUT_TEXT = (
     "DocShield to lokalny anonimizator dokumentów: wykrywa i ukrywa dane "
     "wrażliwe w plikach PDF, DOCX i TXT bez wysyłania niczego poza Twój "
     "komputer - żadnego internetu, żadnej chmury, żadnego zewnętrznego API."
+)
+APP_ALPHA_DISCLAIMER_TEXT = (
+    "To wersja rozwojowa (alpha) - wciąż w trakcie testów. Zawsze "
+    "sprawdź wynik ręcznie przed użyciem. Funkcja dodatkowej weryfikacji "
+    "AI (lokalny LLM/Ollama) jest jeszcze nieaktywna."
 )
 SCRIPT_FONT_FAMILY = "Segoe Script"
 APP_ICON_PATH = Path(__file__).resolve().parent.parent / "assets" / "icon.png"

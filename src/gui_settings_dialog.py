@@ -193,6 +193,8 @@ class SettingsDialog:
             "Opcjonalne, wymaga lokalnego Ollama",
             self.llm_var,
             status_ok=self.environment_status.get(ENV_ITEM_LLM),
+            disabled=True,
+            disabled_note="Jeszcze niedostępne w tej wersji rozwojowej - w przygotowaniu",
         )
         self._build_ocr_language_section(tab)
 
@@ -386,7 +388,15 @@ class SettingsDialog:
         variable: tk.BooleanVar,
         *,
         status_ok: bool | None = None,
+        disabled: bool = False,
+        disabled_note: str | None = None,
     ) -> None:
+        """``disabled`` locks the switch off (the variable already holds
+        ``False`` for anything built this way) for a feature that exists
+        in the code but has not been tested enough to offer yet - e.g.
+        the alpha build's local-LLM review. ``disabled_note`` replaces
+        the subtitle with a short explanation instead of the normal
+        description, so it reads as "not yet" rather than "broken"."""
         frame = self._section_frame(parent)
         row = ctk.CTkFrame(frame, fg_color="transparent")
         row.pack(fill="x", padx=14, pady=12)
@@ -399,18 +409,30 @@ class SettingsDialog:
             title_row,
             text=title,
             font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
-            text_color=COLOR_TEXT,
+            text_color=COLOR_TEXT_MUTED if disabled else COLOR_TEXT,
             anchor="w",
         ).pack(side="left", fill="x")
+        if disabled:
+            ctk.CTkLabel(
+                title_row,
+                text="wkrótce",
+                font=ctk.CTkFont(family=FONT_FAMILY, size=10, weight="bold"),
+                text_color=COLOR_ACCENT,
+                anchor="w",
+            ).pack(side="left", padx=(8, 0))
         ctk.CTkLabel(
             text_col,
-            text=subtitle,
+            text=disabled_note if disabled and disabled_note else subtitle,
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
             text_color=COLOR_TEXT_MUTED,
             anchor="w",
         ).pack(fill="x")
         ctk.CTkSwitch(
-            row, text="", variable=variable, progress_color=COLOR_ACCENT
+            row,
+            text="",
+            variable=variable,
+            progress_color=COLOR_ACCENT,
+            state="disabled" if disabled else "normal",
         ).pack(side="right")
 
     def _build_status_row(
@@ -645,7 +667,10 @@ class SettingsDialog:
 
     def _save_and_close(self) -> None:
         self.app.use_ner = self.ner_var.get()
-        self.app.use_llm_review = self.llm_var.get()
+        # LLM review is disabled in this alpha build (untested) - forced
+        # off regardless of the switch state as a second guarantee on top
+        # of the disabled control itself.
+        self.app.use_llm_review = False
         self.app.pdf_output_label = self.pdf_mode_var.get()
         self.app.auto_open_on_approve = self.auto_open_var.get()
         self.app.show_usage_hints = self.show_hints_var.get()

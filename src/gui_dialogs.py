@@ -13,6 +13,7 @@ from PIL import Image
 try:
     from .gui_helpers import (
         APP_ABOUT_TEXT,
+        APP_ALPHA_DISCLAIMER_TEXT,
         APP_ICON_PATH,
         APP_TITLE,
         APP_VERSION,
@@ -46,6 +47,7 @@ try:
 except ImportError:
     from gui_helpers import (
         APP_ABOUT_TEXT,
+        APP_ALPHA_DISCLAIMER_TEXT,
         APP_ICON_PATH,
         APP_TITLE,
         APP_VERSION,
@@ -95,7 +97,7 @@ class AboutDialog:
         window = ctk.CTkToplevel(app.root)
         self.window = window
         window.title("O programie")
-        center_window_over_parent(window, app.root, 420, 360)
+        center_window_over_parent(window, app.root, 420, 430)
         window.resizable(False, False)
         window.configure(fg_color=COLOR_BG)
         window.transient(app.root)
@@ -137,6 +139,26 @@ class AboutDialog:
             wraplength=370,
             justify="left",
         ).pack(fill="x", padx=20, pady=(10, 16))
+
+        alpha_card = ctk.CTkFrame(window, corner_radius=10, fg_color=COLOR_WARNING_SOFT)
+        alpha_card.pack(fill="x", padx=20, pady=(0, 12))
+        alpha_row = ctk.CTkFrame(alpha_card, fg_color="transparent")
+        alpha_row.pack(fill="x", padx=14, pady=12)
+        ctk.CTkLabel(
+            alpha_row,
+            text="\U000026a0",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13),
+            text_color=COLOR_WARNING_TEXT,
+        ).pack(side="left", padx=(0, 8))
+        ctk.CTkLabel(
+            alpha_row,
+            text=APP_ALPHA_DISCLAIMER_TEXT,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLOR_WARNING_TEXT,
+            wraplength=310,
+            justify="left",
+            anchor="w",
+        ).pack(side="left", fill="x", expand=True)
 
         trust_card = ctk.CTkFrame(window, corner_radius=10, fg_color=COLOR_CARD)
         trust_card.pack(fill="x", padx=20, pady=(0, 16))
