@@ -22,6 +22,7 @@ try:
     from .file_writers import internal_artifacts_dir
     from .gui_dialogs import MagicPenHintDialog
     from .gui_helpers import (
+        APP_ICON_PATH,
         COLOR_ACCENT,
         COLOR_ACCENT_HOVER,
         COLOR_BG,
@@ -72,6 +73,7 @@ except ImportError:
     from file_writers import internal_artifacts_dir
     from gui_dialogs import MagicPenHintDialog
     from gui_helpers import (
+        APP_ICON_PATH,
         COLOR_ACCENT,
         COLOR_ACCENT_HOVER,
         COLOR_BG,
@@ -393,6 +395,9 @@ class ComparisonWindow:
         self.cancel_button: ctk.CTkButton | None = None
         self.undo_button: ctk.CTkButton | None = None
         self.redo_button: ctk.CTkButton | None = None
+        self._floating_actions: ctk.CTkFrame | None = None
+        self._home_icon_image: ctk.CTkImage | None = None
+        self.right_container: ctk.CTkFrame | None = None
         self._edit_undo_stack: list[tuple[list[ManualRect], set]] = []
         self._edit_redo_stack: list[tuple[list[ManualRect], set]] = []
         self.pen_status_label: ctk.CTkLabel | None = None
@@ -493,12 +498,23 @@ class ComparisonWindow:
         window.bind("<Control-Shift-Z>", lambda _e: self._redo_last_edit())
         window.protocol("WM_DELETE_WINDOW", self._close)
 
+        # Title bar: app icon (back to the main window), file name, and -
+        # for an editable PDF - the magic pen tools. The tools used to sit
+        # in a row at the bottom of the window; moving them up here gives
+        # that vertical space back to the document preview, which is the
+        # whole point of this window, and puts them next to the page/zoom
+        # controls they belong with.
+        title_row = ctk.CTkFrame(window, fg_color="transparent")
+        title_row.pack(fill="x", padx=20, pady=(14, 4))
+        self._build_home_button(title_row)
         ctk.CTkLabel(
-            window,
+            title_row,
             text=item.output_name,
             font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"),
             text_color=COLOR_TEXT,
-        ).pack(anchor="w", padx=20, pady=(16, 4))
+        ).pack(side="left", padx=(10, 0))
+        if self.magic_pen_available and not self.locked:
+            self._build_pen_tool_row(title_row)
 
         # content_row holds the draggable original/result split on the
         # left and, for PDFs, the fixed-width magic pen sidebar
@@ -542,6 +558,11 @@ class ComparisonWindow:
 
         left_container = ctk.CTkFrame(paned, fg_color="transparent")
         right_container = ctk.CTkFrame(paned, fg_color="transparent")
+        # Kept for the floating edit-actions overlay: it needs a stable,
+        # non-scrolling parent covering the whole result pane.
+        # right_frame.master is CTkScrollableFrame's internal scrolling
+        # canvas, which is the wrong thing to place an overlay into.
+        self.right_container = right_container
         paned.add(left_container, minsize=280, width=530, stretch="always")
         paned.add(right_container, minsize=280, width=530, stretch="always")
 
@@ -575,140 +596,21 @@ class ComparisonWindow:
             self._rebuild_result_pane()
 
         if self.magic_pen_available and not self.locked:
-            # Tk's pack() hands out space in the order widgets are
-            # packed, not visual order - whatever is packed first gets
-            # first claim on the row's width, and whatever is packed
-            # last is the first to be squeezed out when the window gets
-            # narrow. "Zapisz zmiany" is packed before "Anuluj zmiany"
-            # for exactly that reason: it must never be the one that
-            # disappears when the window is shrunk (confirmed as a real
-            # bug earlier the same day, in the toolbar this replaces).
-            bottom_actions = ctk.CTkFrame(window, fg_color="transparent")
-            bottom_actions.pack(fill="x", padx=20, pady=(0, 8))
-
-            # A standing caption above the tool row - per direct user
-            # feedback that the draw/erase buttons alone were not a
-            # discoverable "signpost" that this document can still be
-            # edited. The one-time MagicPenHintDialog (see
-            # _maybe_show_magic_pen_hint) explains it once in more
-            # detail; this stays visible for as long as the window does.
-            ctk.CTkLabel(
-                bottom_actions,
-                text="✨ Możesz jeszcze poprawić zaznaczenia poniżej:",
-                font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-                text_color=COLOR_TEXT_MUTED,
-                anchor="w",
-            ).pack(fill="x", pady=(0, 4))
-
-            # Tool "lamps" - per direct user feedback, moved out of the
-            # (collapsible) legend sidebar into this always-visible row,
-            # so they stay usable even while that sidebar is hidden.
-            # Packed in their own sub-row above save/cancel, same
-            # click-to-pin behavior as before (see _toggle_pinned_tool).
-            tool_row = ctk.CTkFrame(bottom_actions, fg_color="transparent")
-            tool_row.pack(fill="x", pady=(0, 6))
-            self._tool_chips["draw"] = self._build_tool_chip(
-                tool_row, "✏", "Dodaj zaznaczenie", "draw"
-            )
-            self._tool_chips["erase"] = self._build_tool_chip(
-                tool_row, "🧹", "Usuń zaznaczenie", "erase"
-            )
-            self.pen_status_label = ctk.CTkLabel(
-                tool_row,
-                text="",
-                font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-                text_color=COLOR_TEXT_MUTED,
-            )
-            self.pen_status_label.pack(side="left", padx=(8, 0))
-            self._refresh_tool_chip_visuals()
-
-            # Undo/redo for pending (unsaved) draw/erase actions - per
-            # direct user feedback ("warto dodac undo i redo do tych
-            # ruchow edycji"). Packed side="right" so they sit apart from
-            # the draw/erase tool chips rather than being mistaken for a
-            # third tool.
-            self.redo_button = ctk.CTkButton(
-                tool_row,
-                text="↷",
-                width=30,
-                height=30,
-                corner_radius=8,
-                border_width=1,
-                border_color=COLOR_BORDER,
-                fg_color=COLOR_BG,
-                hover_color=COLOR_ICON_IDLE,
-                text_color=COLOR_TEXT_MUTED,
-                font=ctk.CTkFont(family=FONT_FAMILY, size=14),
-                state="disabled",
-                command=self._redo_last_edit,
-            )
-            self.redo_button.pack(side="right")
-            IconTooltip(self.redo_button, "Ponów cofniętą edycję (Ctrl+Y)")
-            self.undo_button = ctk.CTkButton(
-                tool_row,
-                text="↶",
-                width=30,
-                height=30,
-                corner_radius=8,
-                border_width=1,
-                border_color=COLOR_BORDER,
-                fg_color=COLOR_BG,
-                hover_color=COLOR_ICON_IDLE,
-                text_color=COLOR_TEXT_MUTED,
-                font=ctk.CTkFont(family=FONT_FAMILY, size=14),
-                state="disabled",
-                command=self._undo_last_edit,
-            )
-            self.undo_button.pack(side="right", padx=(0, 6))
-            IconTooltip(self.undo_button, "Cofnij ostatnią edycję (Ctrl+Z)")
-
-            self.save_button = ctk.CTkButton(
-                bottom_actions,
-                text=format_save_button_text(0),
-                width=190,
-                height=32,
-                corner_radius=8,
-                fg_color=COLOR_ICON_IDLE,
-                hover_color=COLOR_ACCENT_HOVER,
-                text_color=COLOR_TEXT_MUTED,
-                font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
-                state="disabled",
-                command=self._confirm_and_save_pending_changes,
-            )
-            self.save_button.pack(side="right")
-            self.cancel_button = ctk.CTkButton(
-                bottom_actions,
-                text="Anuluj zmiany",
-                width=130,
-                height=32,
-                corner_radius=8,
-                fg_color="transparent",
-                hover_color=COLOR_ICON_IDLE,
-                text_color=COLOR_TEXT_MUTED,
-                font=ctk.CTkFont(family=FONT_FAMILY, size=12),
-                state="disabled",
-                command=self._cancel_pending_changes,
-            )
-            self.cancel_button.pack(side="right", padx=(0, 8))
+            # The save/cancel pair floats over the result pane instead of
+            # occupying a permanent row at the bottom of the window (see
+            # _build_floating_edit_actions): the preview is what this
+            # window is for, so nothing takes its vertical space unless
+            # there is actually something to act on. The pen status line
+            # lives in that overlay too.
+            self._build_floating_edit_actions()
         elif not self.magic_pen_available:
             # No sidebar in this case (magic pen is PDF-only), so the
             # color legend still needs a home - the existing horizontal
             # row at the bottom, same as before. A locked-but-available
             # pane already has the legend in its sidebar (see
             # _build_magic_pen_sidebar), so it needs neither this row nor
-            # the save/cancel row above.
+            # the floating actions above.
             app._build_legend_row(window)
-
-        ctk.CTkButton(
-            window,
-            text="Zamknij",
-            width=140,
-            height=36,
-            corner_radius=8,
-            fg_color=COLOR_ACCENT,
-            hover_color=COLOR_ACCENT_HOVER,
-            command=self._close,
-        ).pack(pady=(0, 16))
 
         window.after(700, self._maybe_show_zoom_link_hint)
         window.after(900, self._maybe_show_magic_pen_hint)
@@ -722,6 +624,162 @@ class ComparisonWindow:
         window the user just acted on should end up on top."""
         self.window.destroy()
         _bring_window_to_front(self.app.root)
+
+    def _build_floating_edit_actions(self) -> None:
+        """A small "you have unsaved edits" overlay in the bottom-right
+        corner of the result pane: accept on top, cancel underneath, the
+        pending count and save status beside them.
+
+        Floated with place() over the pane rather than packed into a row
+        of its own, for three reasons the user asked for directly: the
+        preview gets all the vertical space when there is nothing to
+        save, the buttons stay reachable no matter how the panes are
+        resized or whether the legend sidebar is collapsed, and - unlike
+        every packed control in this window - an overlay cannot be
+        squeezed out of the layout at all, which is the failure mode this
+        project has had to fix by hand more than once.
+
+        Created hidden and only placed once there is something to act on
+        (see _update_floating_actions_visibility).
+        """
+        if self.right_container is None:
+            return
+        container = ctk.CTkFrame(
+            self.right_container,
+            corner_radius=12,
+            fg_color=COLOR_CARD,
+            border_width=1,
+            border_color=COLOR_BORDER,
+        )
+        self._floating_actions = container
+
+        inner = ctk.CTkFrame(container, fg_color="transparent")
+        inner.pack(padx=12, pady=10)
+
+        self.pen_status_label = ctk.CTkLabel(
+            inner,
+            text="",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLOR_TEXT_MUTED,
+        )
+        self.pen_status_label.pack(pady=(0, 6))
+
+        self.save_button = ctk.CTkButton(
+            inner,
+            text=format_save_button_text(0),
+            width=190,
+            height=34,
+            corner_radius=8,
+            fg_color=COLOR_ACCENT,
+            hover_color=COLOR_ACCENT_HOVER,
+            text_color="#FFFFFF",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
+            command=self._confirm_and_save_pending_changes,
+        )
+        self.save_button.pack(fill="x")
+        self.cancel_button = ctk.CTkButton(
+            inner,
+            text="Anuluj zmiany",
+            width=190,
+            height=28,
+            corner_radius=8,
+            fg_color="transparent",
+            hover_color=COLOR_ICON_IDLE,
+            text_color=COLOR_TEXT_MUTED,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            command=self._cancel_pending_changes,
+        )
+        self.cancel_button.pack(fill="x", pady=(6, 0))
+
+    def _update_floating_actions_visibility(self) -> None:
+        """Show the overlay only while there is something to accept or
+        cancel, and keep it above the freshly-rendered page canvases (a
+        pane rebuild re-stacks its children, so it needs lifting again)."""
+        container = self._floating_actions
+        if container is None:
+            return
+        if self._has_pending_changes():
+            container.place(relx=1.0, rely=1.0, anchor="se", x=-18, y=-18)
+            container.lift()
+        else:
+            container.place_forget()
+
+    def _build_home_button(self, parent: ctk.CTkFrame) -> None:
+        """App icon in the top-left corner that closes this window and
+        returns to the main one - the same "click the logo to get home"
+        affordance the main window's sidebar already has, so the preview
+        window does not feel like a dead end."""
+        try:
+            icon_image = Image.open(APP_ICON_PATH)
+        except (OSError, ValueError):
+            self._home_icon_image = None
+        else:
+            self._home_icon_image = ctk.CTkImage(light_image=icon_image, size=(22, 22))
+
+        home_button = ctk.CTkButton(
+            parent,
+            text="" if self._home_icon_image is not None else "⌂",
+            image=self._home_icon_image,
+            width=32,
+            height=32,
+            corner_radius=8,
+            fg_color="transparent",
+            hover_color=COLOR_ICON_IDLE,
+            text_color=COLOR_TEXT,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=15),
+            command=self._close,
+        )
+        home_button.pack(side="left")
+        IconTooltip(home_button, "Wróć do okna głównego")
+
+    def _build_pen_tool_row(self, parent: ctk.CTkFrame) -> None:
+        """The magic pen's own controls, in the title bar rather than a
+        row at the bottom of the window - the space they used to take is
+        now document preview, and they sit next to the page/zoom controls
+        they are conceptually part of. Packed side="right" so the file
+        name keeps the left side.
+        """
+        self.redo_button = ctk.CTkButton(
+            parent,
+            text="↷",
+            width=30,
+            height=30,
+            corner_radius=8,
+            border_width=1,
+            border_color=COLOR_BORDER,
+            fg_color=COLOR_BG,
+            hover_color=COLOR_ICON_IDLE,
+            text_color=COLOR_TEXT_MUTED,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=14),
+            state="disabled",
+            command=self._redo_last_edit,
+        )
+        self.redo_button.pack(side="right")
+        IconTooltip(self.redo_button, "Ponów cofniętą edycję (Ctrl+Y)")
+        self.undo_button = ctk.CTkButton(
+            parent,
+            text="↶",
+            width=30,
+            height=30,
+            corner_radius=8,
+            border_width=1,
+            border_color=COLOR_BORDER,
+            fg_color=COLOR_BG,
+            hover_color=COLOR_ICON_IDLE,
+            text_color=COLOR_TEXT_MUTED,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=14),
+            state="disabled",
+            command=self._undo_last_edit,
+        )
+        self.undo_button.pack(side="right", padx=(0, 10))
+
+        self._tool_chips["erase"] = self._build_tool_chip(
+            parent, "🧹", "Usuń zaznaczenie", "erase"
+        )
+        self._tool_chips["draw"] = self._build_tool_chip(
+            parent, "✏", "Dodaj zaznaczenie", "draw"
+        )
+        self._refresh_tool_chip_visuals()
 
     # -- zoom: independent or linked, like a dual-zone climate control ------
 
@@ -1668,7 +1726,10 @@ class ComparisonWindow:
             font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
             command=lambda t=tool: self._toggle_pinned_tool(t),
         )
-        chip.pack(side="left", padx=(0, 8))
+        # side="right": these live in the title bar now, packed after the
+        # undo/redo pair, so first-packed ends up rightmost and the
+        # on-screen order reads draw, erase, undo, redo left to right.
+        chip.pack(side="right", padx=(8, 0))
         IconTooltip(
             chip,
             "Kliknij, aby przypisać LPM tylko do tego narzędzia (tryb ręczny). "
@@ -2041,18 +2102,15 @@ class ComparisonWindow:
         has_pending = self._has_pending_changes()
         count = len(self.pending_remove_keys) + len(self.pending_add_rects)
         if self.save_button is not None:
-            self.save_button.configure(
-                text=format_save_button_text(count),
-                state="normal" if has_pending else "disabled",
-                fg_color=COLOR_ACCENT if has_pending else COLOR_ICON_IDLE,
-                text_color="#FFFFFF" if has_pending else COLOR_TEXT_MUTED,
-            )
-        if self.cancel_button is not None:
-            self.cancel_button.configure(state="normal" if has_pending else "disabled")
+            # Always enabled/accent-colored: the whole overlay only exists
+            # while there is something to accept, so a disabled-looking
+            # button inside it would be a contradiction.
+            self.save_button.configure(text=format_save_button_text(count))
         if self.pen_status_label is not None:
             self.pen_status_label.configure(
                 text=f"Niezapisane zmiany: {count}" if has_pending else ""
             )
+        self._update_floating_actions_visibility()
 
     def _cancel_pending_changes(self) -> None:
         self._push_undo_snapshot()
