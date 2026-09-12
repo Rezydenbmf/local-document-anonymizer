@@ -87,6 +87,28 @@ Run the tests:
 python -m unittest discover -s tests
 ```
 
+## Packaged installer (Windows)
+
+For handing the app to someone without a Python environment, `build_installer.ps1`
+produces a single self-contained `DocShield-Setup-<version>.exe`: it bundles the
+Python runtime, all required libraries, and a trimmed Tesseract OCR engine
+(Polish + English language data), so the recipient installs and runs the app
+with nothing else to download or configure. The local LLM review step (Ollama)
+is intentionally **not** bundled — it's untested as of this build and is
+disabled in the GUI (see `APP_BUILD_STAGE_LABEL` / the "ALPHA" badge).
+
+Requires locally, only to build the installer (not to run the app):
+[Inno Setup](https://jrsoftware.org/isinfo.php) 6 or 7, a local Tesseract-OCR
+install (used only as the source copied into the package), and `pyinstaller`
+(`pip install -r requirements-dev.txt`).
+
+```powershell
+powershell -ExecutionPolicy Bypass -File build_installer.ps1
+```
+
+Output lands in `installer_output/`. See `DocShield.spec` (PyInstaller) and
+`installer/DocShield.iss` (Inno Setup) for the build definition itself.
+
 ## Project structure
 
 ```text

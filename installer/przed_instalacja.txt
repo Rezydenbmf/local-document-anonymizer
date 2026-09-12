@@ -1,0 +1,24 @@
+DocShield - wersja rozwojowa (ALPHA)
+
+To jest wczesna, testowa wersja aplikacji DocShield. Prosimy o zapoznanie
+się z poniższymi informacjami przed instalacją:
+
+- To wersja ALPHA - wciąż w trakcie testów. Część funkcji może działać
+  niedoskonale, a niektóre (np. dodatkowa weryfikacja AI oparta o lokalny
+  model LLM/Ollama) są jeszcze wyłączone i pojawią się w kolejnych
+  wersjach.
+
+- Każdy wynik anonimizacji wymaga ręcznej weryfikacji przed dalszym
+  użyciem. Aplikacja jest narzędziem wspomagającym, nie zastępuje
+  ludzkiej kontroli - w szczególności przy dokumentach zawierających
+  dane szczególnej kategorii (np. dane medyczne).
+
+- Aplikacja działa w całości lokalnie. Żaden dokument ani jego fragment
+  nie jest wysyłany do internetu, do chmury ani do żadnego zewnętrznego
+  serwisu - całe przetwarzanie odbywa się na tym komputerze.
+
+- Ten instalator zawiera wszystko, co potrzebne do uruchomienia programu
+  (środowisko uruchomieniowe oraz silnik rozpoznawania tekstu OCR) -
+  nie jest wymagana osobna instalacja Pythona ani innych narzędzi.
+
+Kontynuując instalację, akceptujesz powyższe informacje.

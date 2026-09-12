@@ -332,6 +332,45 @@ class ResolveTesseractCmdTests(unittest.TestCase):
             self.assertIsNone(ocr._resolve_tesseract_cmd())
 
 
+class BundledTesseractPathTests(unittest.TestCase):
+    """The Tesseract copy build_installer.ps1 stages next to DocShield.exe
+    for the packaged build - see _bundled_tesseract_path. Only relevant
+    when frozen (PyInstaller); running from source must never look for
+    it, since no such folder exists there."""
+
+    def test_none_when_not_frozen(self) -> None:
+        with patch.object(ocr.sys, "frozen", False, create=True):
+            self.assertIsNone(ocr._bundled_tesseract_path())
+
+    def test_found_next_to_the_frozen_executable(self) -> None:
+        bundle_dir = Path("C:\\DocShield")
+        expected = bundle_dir / "tesseract" / "tesseract.exe"
+        with (
+            patch.object(ocr.sys, "frozen", True, create=True),
+            patch.object(ocr.sys, "executable", str(bundle_dir / "DocShield.exe")),
+            patch.object(Path, "is_file", lambda self: self == expected),
+        ):
+            self.assertEqual(ocr._bundled_tesseract_path(), expected)
+
+    def test_none_when_frozen_but_bundle_missing_it(self) -> None:
+        with (
+            patch.object(ocr.sys, "frozen", True, create=True),
+            patch.object(ocr.sys, "executable", "C:\\DocShield\\DocShield.exe"),
+            patch.object(Path, "is_file", return_value=False),
+        ):
+            self.assertIsNone(ocr._bundled_tesseract_path())
+
+    def test_resolve_tesseract_cmd_prefers_the_bundled_copy(self) -> None:
+        """The bundled copy wins even over PATH - it's the exact build
+        the installer shipped, not a possibly-different system install."""
+        bundled = Path("C:\\DocShield\\tesseract\\tesseract.exe")
+        with (
+            patch("ocr._bundled_tesseract_path", return_value=bundled),
+            patch("ocr.shutil.which", return_value="C:\\on\\path\\tesseract.exe"),
+        ):
+            self.assertEqual(ocr._resolve_tesseract_cmd(), str(bundled))
+
+
 class ConfigureTesseractCmdTests(unittest.TestCase):
     def test_leaves_working_command_untouched(self) -> None:
         class FakePytesseract:

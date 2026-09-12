@@ -47,3 +47,12 @@ examples/after/*
 
 # GUI redesign mockups - local design reference only, not project artifacts.
 docs/mockups/
+
+# Packaged installer build output and staged third-party runtimes -
+# rebuilt locally by build_installer.ps1, never committed (the Tesseract
+# copy alone runs ~100MB).
+build/
+dist/
+installer_output/
+packaging/tesseract/
+*.spec.bak
