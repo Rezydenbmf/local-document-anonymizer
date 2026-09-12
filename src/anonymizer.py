@@ -791,6 +791,44 @@ def _pdf_detection_spans_for_word_pages(
     return spans
 
 
+def word_pages_for_redaction_geometry(source_path: str | Path) -> list:
+    """Return the word rectangles a redaction pass can draw boxes onto,
+    from whichever source actually has them: a PDF's own text layer, or -
+    when it has none, i.e. a scan - word-level OCR of the rendered pages.
+    An image source goes straight to OCR.
+
+    This exists because getting that choice wrong silently *removes*
+    protection rather than failing loudly. A real, reported bug:
+    compute_pdf_redaction_spans used extract_pdf_word_pages alone, so for
+    a scanned PDF it found zero words, therefore zero automatic
+    detections - and the magic pen's "save" path, which regenerates the
+    output from the original through exactly that function, rebuilt the
+    file with *only* the user's hand-drawn rectangle on it. Every
+    automatically redacted PESEL, name and address came back visible in
+    the output the moment someone made one manual edit. The batch
+    pipeline had the text-layer-then-OCR fallback; this path never got
+    it, and the two drifted apart unnoticed.
+    """
+    path = Path(source_path)
+    if path.suffix.lower() in IMAGE_EXTENSIONS:
+        try:
+            extraction = extract_image_word_boxes(path)
+        except OcrUnavailableError:
+            return []
+        return word_pages_from_ocr_boxes(extraction.pages)
+
+    word_pages = extract_pdf_word_pages(path)
+    if any(page.words for page in word_pages):
+        return word_pages
+    # No text layer - a scan. Same word-box OCR the batch pipeline falls
+    # back to, so both produce identical geometry for the same file.
+    try:
+        extraction = extract_pdf_word_boxes(path)
+    except OcrUnavailableError:
+        return word_pages
+    return word_pages_from_ocr_boxes(extraction.pages)
+
+
 def compute_pdf_redaction_spans(
     source_path: str | Path,
     *,
@@ -799,7 +837,7 @@ def compute_pdf_redaction_spans(
     use_ner: bool = False,
     ner_model_name: str = DEFAULT_NER_MODEL,
 ) -> tuple[list, list[PdfRedactionSpan]]:
-    """Recompute word pages and detection spans for a source PDF.
+    """Recompute word pages and detection spans for a source document.
 
     Reruns the same dictionary/regex/NER detection used by the normal batch
     workflow, without producing any output file. Used to regenerate a
@@ -810,7 +848,7 @@ def compute_pdf_redaction_spans(
         sensitive_terms, sensitive_terms_path
     )
     ner_context = prepare_ner_context(enabled=use_ner, model_name=ner_model_name)
-    word_pages = extract_pdf_word_pages(source_path)
+    word_pages = word_pages_for_redaction_geometry(source_path)
     spans = _pdf_detection_spans_for_word_pages(
         word_pages, sensitive_terms=terms, ner_context=ner_context
     )
