@@ -22,21 +22,23 @@ from pathlib import Path
 
 try:
     from .anonymizer import compute_pdf_redaction_spans
-    from .file_writers import internal_artifacts_dir
+    from .file_writers import IMAGE_EXTENSIONS, internal_artifacts_dir
     from .pdf_redaction import (
         MANUAL_REDACTION_LABEL,
         compute_redaction_rects,
         manual_edit_span_key,
+        save_word_coordinate_redacted_image_copy,
         save_word_coordinate_redacted_pdf_copy,
     )
     from .sensitive_terms import SensitiveTerm
 except ImportError:
     from anonymizer import compute_pdf_redaction_spans
-    from file_writers import internal_artifacts_dir
+    from file_writers import IMAGE_EXTENSIONS, internal_artifacts_dir
     from pdf_redaction import (
         MANUAL_REDACTION_LABEL,
         compute_redaction_rects,
         manual_edit_span_key,
+        save_word_coordinate_redacted_image_copy,
         save_word_coordinate_redacted_pdf_copy,
     )
     from sensitive_terms import SensitiveTerm
@@ -174,6 +176,18 @@ def regenerate_pdf_with_manual_overrides(
     word_pages, spans = compute_pdf_redaction_spans(source_path, **kwargs)
 
     extra_rects = [(rect.page, rect.as_tuple()) for rect in edits.added]
+    if Path(source_path).suffix.lower() in IMAGE_EXTENSIONS:
+        # A standalone scan/photo: its visual output is a PDF wrapping the
+        # redacted image, so regeneration has to go through the image
+        # writer rather than opening the source as if it were a PDF.
+        return save_word_coordinate_redacted_image_copy(
+            source_path,
+            word_pages=word_pages,
+            spans=spans,
+            output_path=output_path,
+            removed_span_keys=edits.removed,
+            extra_redaction_rects=extra_rects,
+        )
     return save_word_coordinate_redacted_pdf_copy(
         source_path,
         word_pages=word_pages,

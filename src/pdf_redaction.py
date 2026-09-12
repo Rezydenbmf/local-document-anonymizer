@@ -828,6 +828,8 @@ def save_word_coordinate_redacted_image_copy(
     spans: Iterable[PdfRedactionSpan],
     output_dir: str | Path | None = None,
     output_path: str | Path | None = None,
+    removed_span_keys: object = frozenset(),
+    extra_redaction_rects: Iterable[tuple[int, object]] = (),
 ) -> dict[str, object]:
     """Create a true-redacted, colored visual PDF for a standalone
     scanned image - the image-source counterpart to
@@ -871,6 +873,8 @@ def save_word_coordinate_redacted_image_copy(
             word_pages=word_pages,
             spans=spans,
             output_path=resolved_output_path,
+            removed_span_keys=removed_span_keys,
+            extra_redaction_rects=extra_redaction_rects,
         )
 
 

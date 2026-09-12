@@ -13,7 +13,18 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from anonymizer import anonymize_image_file, anonymize_pdf_file_with_audit
+from anonymizer import (
+    anonymize_image_file,
+    anonymize_pdf_file_with_audit,
+    word_pages_for_redaction_geometry,
+)
+from manual_redaction import (
+    EMPTY_MANUAL_EDITS,
+    ManualEdits,
+    ManualRect,
+    compute_visible_redaction_rects,
+    regenerate_pdf_with_manual_overrides,
+)
 from ocr import detect_ocr_support, extract_pdf_word_boxes, list_installed_languages
 from pdf_redaction import PdfWordPage, word_pages_from_ocr_boxes
 
@@ -240,6 +251,92 @@ class StandaloneImageVisualRedactionIntegrationTests(unittest.TestCase):
             reextraction = extract_pdf_word_boxes(visual_pdf)
             reread_text = word_pages_from_ocr_boxes(reextraction.pages)[0].text
             self.assertNotIn("XYZ987654", reread_text)
+
+
+@unittest.skipUnless(
+    _ocr_available_with_polish(),
+    "requires a real local Tesseract with the Polish language pack",
+)
+class ScannedPdfManualEditKeepsAutomaticRedactionTests(unittest.TestCase):
+    """The magic pen must never *remove* protection from a scan.
+
+    A real user report: after hand-drawing one extra redaction on a
+    scanned document, every automatically redacted value came back
+    visible in the regenerated output - because the regeneration path
+    read only the PDF's text layer, which a scan does not have, so it
+    recomputed zero automatic detections and burned in the single manual
+    rectangle alone. These tests re-OCR the regenerated file and assert
+    the automatic values are genuinely still gone, rather than trusting
+    that some rectangle was drawn somewhere.
+    """
+
+    def _build_scanned_pdf(self, temp_path: Path) -> Path:
+        source_image = temp_path / "src.png"
+        size = (1700, 900)
+        _render_lines_to_image(
+            source_image,
+            [
+                "UMOWA O PRACE",
+                "Pracownik: Piotr Zielinski",
+                "PESEL: 90020212345",
+            ],
+            size,
+        )
+        scanned_pdf = temp_path / "umowa.pdf"
+        _build_image_only_pdf(scanned_pdf, source_image, size)
+        return scanned_pdf
+
+    def test_word_pages_for_redaction_geometry_falls_back_to_ocr_for_a_scan(
+        self,
+    ) -> None:
+        with workspace_temp_dir() as temp_dir:
+            scanned_pdf = self._build_scanned_pdf(Path(temp_dir))
+
+            word_pages = word_pages_for_redaction_geometry(scanned_pdf)
+
+            self.assertTrue(
+                any(page.words for page in word_pages),
+                "a scan must still yield word rectangles via OCR - without "
+                "them every automatic redaction silently disappears",
+            )
+
+    def test_magic_pen_can_see_automatic_rectangles_on_a_scan(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            scanned_pdf = self._build_scanned_pdf(Path(temp_dir))
+
+            visible = compute_visible_redaction_rects(
+                scanned_pdf, edits=EMPTY_MANUAL_EDITS, use_ner=False
+            )
+
+            # Without these the erase tool has nothing to hit-test against,
+            # which is exactly the "cannot remove an automatic box" report.
+            self.assertTrue(visible)
+
+    def test_manual_edit_does_not_expose_automatically_redacted_values(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            temp_path = Path(temp_dir)
+            scanned_pdf = self._build_scanned_pdf(temp_path)
+
+            regenerated = temp_path / "umowa_REGENERATED.pdf"
+            regenerate_pdf_with_manual_overrides(
+                scanned_pdf,
+                output_path=regenerated,
+                edits=ManualEdits(
+                    removed=frozenset(),
+                    added=(ManualRect(page=1, x0=80, y0=60, x1=400, y1=110),),
+                ),
+                use_ner=False,
+            )
+
+            self.assertTrue(regenerated.exists())
+            reextraction = extract_pdf_word_boxes(regenerated)
+            reread_text = word_pages_from_ocr_boxes(reextraction.pages)[0].text
+            self.assertNotIn(
+                "90020212345",
+                reread_text,
+                "a manual edit must not bring an automatically redacted "
+                "PESEL back into the output",
+            )
 
 
 if __name__ == "__main__":
