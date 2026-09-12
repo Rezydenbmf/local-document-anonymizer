@@ -32,7 +32,6 @@ AUDIT_REVIEW_LABELS = (
     "LONG_NUMBER_SEQUENCE",
 )
 MAX_CONTEXT_EXAMPLES_PER_SECTION = 4
-CONTEXT_RADIUS = 60
 
 
 def _safe_filename(value: object) -> str:
@@ -66,15 +65,29 @@ def _append_counter_lines(lines: list[str], title: str, counters: Mapping[str, i
         lines.append("* none: 0")
 
 
-def _context_for_match(text: str, start: int, end: int) -> str:
-    left = max(0, start - CONTEXT_RADIUS)
-    right = min(len(text), end + CONTEXT_RADIUS)
-    context = " ".join(text[left:right].split())
-    if left > 0:
-        context = "..." + context
-    if right < len(text):
-        context = context + "..."
-    return context
+def _line_number_for_offset(text: str, offset: int) -> int:
+    """1-based line number containing ``offset`` - a position, never any
+    of the surrounding characters."""
+    return text.count("\n", 0, offset) + 1
+
+
+def _position_for_match(text: str, start: int, _end: int) -> str:
+    """Describe *where* a replacement label sits, without quoting anything
+    around it.
+
+    This used to return a ±60-character excerpt of the anonymized text as
+    review context. A security audit of what the app leaves on disk found
+    the real problem with that: detected values appear masked in such an
+    excerpt, but everything detection *missed* - which is precisely the
+    text a reviewer must worry about - was written out verbatim into
+    _wewnetrzne/*_REVIEW_CHECKLIST.txt, one copy per run, in a tool whose
+    entire purpose is to keep that text off disk. A line number sends a
+    reviewer to the same place in the original document without the
+    checklist itself holding any document content, and the comparison
+    window (colored boxes over the original) is a better verification
+    surface than an excerpt ever was.
+    """
+    return f"linia {_line_number_for_offset(text, start)}"
 
 
 def _placeholder_counts(text: str) -> dict[str, int]:
@@ -86,9 +99,21 @@ def _placeholder_counts(text: str) -> dict[str, int]:
 
 
 def _context_examples(text: str) -> list[tuple[str, str]]:
+    """Return (label, position) pairs - deliberately positions, not
+    excerpts; see _position_for_match.
+
+    Returns nothing for a single-line section: the section header already
+    names that line ("Line 3: [PESEL] x1"), so a per-match "linia 1"
+    underneath it would be pure noise. Multi-line sections (a PDF's
+    "Source page N") are where a line number actually locates something.
+    """
+    if "\n" not in text.strip():
+        return []
     examples: list[tuple[str, str]] = []
     for match in PLACEHOLDER_PATTERN.finditer(text):
-        examples.append((match.group(0), _context_for_match(text, match.start(), match.end())))
+        examples.append(
+            (match.group(0), _position_for_match(text, match.start(), match.end()))
+        )
         if len(examples) >= MAX_CONTEXT_EXAMPLES_PER_SECTION:
             break
     return examples

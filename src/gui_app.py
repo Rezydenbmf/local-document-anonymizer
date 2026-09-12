@@ -93,6 +93,7 @@ try:
         format_anonymize_button_text,
         format_batch_error_items,
         format_drop_result,
+        format_filename_pii_warning,
         format_processing_animation_frame,
         format_readiness_pl,
         format_recent_folder_timestamp,
@@ -117,6 +118,11 @@ try:
         truncate_filename_middle,
     )
     from .gui_settings_dialog import SettingsDialog
+    from .output_cleanup import (
+        apply_output_cleanup_plan,
+        build_output_cleanup_plan,
+        format_cleanup_plan_summary,
+    )
     from .review import (
         REVIEW_STATUS_APPROVED,
         REVIEW_STATUS_NEEDS_REVIEW,
@@ -208,6 +214,7 @@ except ImportError:
         format_anonymize_button_text,
         format_batch_error_items,
         format_drop_result,
+        format_filename_pii_warning,
         format_processing_animation_frame,
         format_readiness_pl,
         format_recent_folder_timestamp,
@@ -232,6 +239,11 @@ except ImportError:
         truncate_filename_middle,
     )
     from gui_settings_dialog import SettingsDialog
+    from output_cleanup import (
+        apply_output_cleanup_plan,
+        build_output_cleanup_plan,
+        format_cleanup_plan_summary,
+    )
     from review import (
         REVIEW_STATUS_APPROVED,
         REVIEW_STATUS_NEEDS_REVIEW,
@@ -1633,8 +1645,17 @@ class AnonymizerApp:
                 added += 1
 
         self._refresh_file_cards()
+        # A file name is not touched by anonymization, yet it travels with
+        # every output, the review manifest and the export - so a name
+        # that itself carries a PESEL or an e-mail defeats an otherwise
+        # clean run. Surfaced here, at the moment files are added, rather
+        # than after processing when it is too late to rename anything.
+        filename_warning = format_filename_pii_warning(
+            [path.name for path in self.selected_paths]
+        )
         self._update_readiness(
-            status_override=format_drop_result(added, len(unsupported))
+            status_override=filename_warning
+            or format_drop_result(added, len(unsupported))
         )
 
     def remove_file_at(self, index: int) -> None:
@@ -1800,6 +1821,27 @@ class AnonymizerApp:
                 font=ctk.CTkFont(family=FONT_FAMILY, size=11, weight="bold"),
                 command=lambda p=folder_path: self.open_history_folder(p),
             ).pack(side="right")
+            # Re-running into the same folder is the normal way people
+            # work, and nothing ever removed the previous run's files -
+            # so folders accumulate one numbered generation per run. An
+            # audit of what the app leaves on disk flagged that directly:
+            # more generations is more to look after, and an old
+            # generation can be less redacted than the current one while
+            # looking just as finished.
+            ctk.CTkButton(
+                row,
+                text="Wyczyść stare",
+                width=110,
+                height=30,
+                corner_radius=8,
+                fg_color="transparent",
+                border_width=1,
+                border_color=COLOR_BORDER,
+                hover_color=COLOR_ICON_IDLE,
+                text_color=COLOR_TEXT,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                command=lambda p=folder_path: self.clean_output_folder(p),
+            ).pack(side="right", padx=(0, 8))
         else:
             ctk.CTkLabel(
                 row,
@@ -1807,6 +1849,31 @@ class AnonymizerApp:
                 font=ctk.CTkFont(family=FONT_FAMILY, size=10),
                 text_color=COLOR_HIGH_RISK,
             ).pack(side="right")
+
+    def clean_output_folder(self, folder_path: str) -> None:
+        """Remove superseded output generations from one folder, after
+        showing exactly what would go. Never deletes without that
+        confirmation, and only ever considers files this app itself wrote
+        (see output_cleanup) - pointing the output at the folder the
+        source documents live in is normal, and those must be safe."""
+        plan = build_output_cleanup_plan(folder_path)
+        summary = format_cleanup_plan_summary(plan)
+        if plan.is_empty:
+            messagebox.showinfo("Wyczyść stare wyniki", summary, parent=self.root)
+            return
+        confirmed = messagebox.askyesno(
+            "Wyczyść stare wyniki",
+            f"{summary}\n\nUsunąć je teraz? Tej operacji nie można cofnąć.",
+            parent=self.root,
+        )
+        if not confirmed:
+            return
+        removed, failed = apply_output_cleanup_plan(plan)
+        message = f"Usunięto {removed} plików."
+        if failed:
+            message += f" Nie udało się usunąć: {failed}."
+        messagebox.showinfo("Wyczyść stare wyniki", message, parent=self.root)
+        self.show_history_screen()
 
     # ------------------------------------------------------------------
     # Settings modal

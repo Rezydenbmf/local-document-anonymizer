@@ -13,6 +13,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from audit import AUDIT_CATEGORY_ORDER, audit_text
+from checklist import build_review_checklist_text
 from anonymizer import SUPPORTED_LABELS, anonymize_docx_file, anonymize_file
 from anonymizer import anonymize_pdf_file, anonymize_txt_file
 from file_readers import read_docx_file
@@ -293,6 +294,63 @@ class ReportTests(unittest.TestCase):
             self.assertIn("Review checklist output: document_REVIEW_CHECKLIST.txt", report_text)
             self.assertIn("Review PDF note: rebuilt from anonymized text", report_text)
             self.assertIn("Review PDF table-heavy note:", report_text)
+
+    def test_review_checklist_reports_positions_not_document_excerpts(self) -> None:
+        # A security audit of what the app leaves on disk found the review
+        # checklist quoting the anonymized text around every finding.
+        # Detected values are masked in such an excerpt, but anything
+        # detection *missed* - exactly the text a reviewer has to worry
+        # about - was written out verbatim, one copy per run, inside a
+        # tool whose whole point is keeping that text off disk.
+        undetected_value = "Jan Kowalski"
+        anonymized_text = (
+            "UMOWA\n"
+            f"Pracownik: {undetected_value}\n"
+            "PESEL: [PESEL]\n"
+            "E-mail: [EMAIL]\n"
+        )
+
+        checklist_text = build_review_checklist_text(
+            source_name="umowa.pdf",
+            input_extension=".pdf",
+            output_names=["umowa_ANON.txt"],
+            report_name="umowa_RAPORT.txt",
+            counters={"PESEL": 1, "EMAIL": 1},
+            audit_result={"status": "ok", "risk_level": "ok", "findings": {}},
+            ocr_result={"used": False, "status": "not_used"},
+            ner_result={"used": False, "status": "disabled"},
+            llm_review_result={"used": False, "status": "disabled"},
+            anonymized_text=anonymized_text,
+            # How the PDF path calls it: one section per source page, so a
+            # line number inside the section genuinely locates a finding.
+            sections=[anonymized_text],
+            section_label="Source page",
+        )
+
+        self.assertNotIn(undetected_value, checklist_text)
+        self.assertNotIn("Kowalski", checklist_text)
+        # Still useful for review: where to look in the original.
+        self.assertIn("[PESEL]: linia 3", checklist_text)
+        self.assertIn("[EMAIL]: linia 4", checklist_text)
+
+    def test_review_checklist_omits_redundant_position_for_line_sections(self) -> None:
+        # A per-line section header already names the line, so repeating
+        # "linia 1" under every finding would be noise.
+        checklist_text = build_review_checklist_text(
+            source_name="notatka.txt",
+            input_extension=".txt",
+            output_names=["notatka_ANON.txt"],
+            report_name="notatka_RAPORT.txt",
+            counters={"PESEL": 1},
+            audit_result={"status": "ok", "risk_level": "ok", "findings": {}},
+            ocr_result={"used": False, "status": "not_used"},
+            ner_result={"used": False, "status": "disabled"},
+            llm_review_result={"used": False, "status": "disabled"},
+            anonymized_text="Pracownik: ktos\nPESEL: [PESEL]\n",
+        )
+
+        self.assertIn("[PESEL] x1", checklist_text)
+        self.assertNotIn("linia 1", checklist_text)
 
     def test_shared_collision_suffix_skips_numbers_taken_by_any_companion(self) -> None:
         with workspace_temp_dir() as temp_dir:

@@ -3,6 +3,7 @@ Tkinter widgets used across the DocShield GUI."""
 
 import json
 import os
+import re
 import subprocess
 import sys
 import tkinter as tk
@@ -817,6 +818,60 @@ def filter_supported_paths(paths: list[Path]) -> tuple[list[Path], list[Path]]:
         else:
             unsupported.append(path)
     return supported, unsupported
+
+
+# Patterns that make a *file name* itself look like it carries personal
+# data. Deliberately narrower than the document-content detectors: a file
+# name is short, so a loose rule here (any capitalised word, say) would
+# warn on almost everything and train the user to ignore the warning.
+# Only shapes that are hard to produce by accident qualify.
+_FILENAME_PII_PATTERNS: tuple[tuple[str, "re.Pattern[str]"], ...] = (
+    ("PESEL", re.compile(r"(?<!\d)\d{11}(?!\d)")),
+    ("NIP", re.compile(r"(?<!\d)\d{10}(?!\d)")),
+    ("REGON", re.compile(r"(?<!\d)(?:\d{9}|\d{14})(?!\d)")),
+    ("dowód osobisty", re.compile(r"(?<![A-Za-z0-9])[A-Z]{3}\d{6}(?![A-Za-z0-9])")),
+    (
+        "e-mail",
+        re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"),
+    ),
+    (
+        "numer telefonu",
+        re.compile(r"(?<!\d)(?:\+?48[\s._-]?)?\d{3}[\s._-]?\d{3}[\s._-]?\d{3}(?!\d)"),
+    ),
+)
+
+
+def detect_filename_pii_labels(file_name: str) -> list[str]:
+    """Return labels for personal data visible in a *file name* itself.
+
+    Anonymizing a document's contents does nothing about its name: every
+    output file, the review manifest and the exported workspace all
+    inherit it, so "umowa_Kowalski_90020212345.pdf" leaks through a
+    perfectly clean pipeline. Flagged from an audit of what ends up on
+    disk; reported to the user rather than silently renamed, since the
+    file name is theirs to control and a rename would break the link back
+    to their own source document.
+    """
+    stem = Path(file_name).stem
+    labels: list[str] = []
+    for label, pattern in _FILENAME_PII_PATTERNS:
+        if pattern.search(stem) and label not in labels:
+            labels.append(label)
+    return labels
+
+
+def format_filename_pii_warning(file_names: Sequence[str]) -> str:
+    """One-line warning naming files whose *name* carries personal data."""
+    flagged = [name for name in file_names if detect_filename_pii_labels(name)]
+    if not flagged:
+        return ""
+    shown = ", ".join(flagged[:3])
+    if len(flagged) > 3:
+        shown = f"{shown} i {len(flagged) - 3} inn."
+    return (
+        f"Uwaga: dane osobowe widoczne w samej nazwie pliku ({shown}). "
+        "Anonimizacja nie zmienia nazw - rozważ zmianę przed udostępnieniem."
+    )
 
 
 def _pl_file_word(count: int) -> str:

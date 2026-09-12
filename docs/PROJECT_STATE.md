@@ -2677,13 +2677,126 @@ root, not to any tracked change).
 e41a7fb Fix output-name collision drift hiding the visual redaction PDF
 ```
 
+**A data-exposure bug found right after that one: the magic pen wiped
+every automatic redaction on a scanned document.** The user reported it
+as "after manually anonymizing one field, all the automatically
+anonymized fields disappear - the document ends up with only my own
+selection covered". That is a worse failure than it sounds: the output
+still *looks* finished, so a scan saved after one manual correction was
+shipping with its PESEL, names and addresses fully readable.
+
+The cause was narrow and easy to miss. Regenerating a PDF after a manual
+edit recomputes the automatic redaction geometry from scratch via
+`compute_pdf_redaction_spans`, which called `extract_pdf_word_pages` -
+text-layer only. On a scan there is no text layer, so it found no words,
+so it mapped none of the detected entities to rectangles, and the only
+rectangles left were the ones the user had just drawn. The first pass
+never went through this path (it uses the OCR word boxes), which is why
+the bug only ever appeared on the *second* save. New
+`word_pages_for_redaction_geometry()` now mirrors the first pass's own
+fallback chain - text layer if it has words, OCR word boxes otherwise,
+and the image branch for standalone images - and
+`regenerate_pdf_with_manual_overrides` routes image sources to
+`save_word_coordinate_redacted_image_copy` rather than the PDF writer.
+Three regression tests, each confirmed to fail against the old code
+before the fix was written.
+
+```text
+d2fabd8 Fix magic pen silently dropping every automatic redaction on scans
+```
+
+**Then a requested security audit of what the app leaves on disk, and the
+three fixes the user approved from it.** The question was a good one:
+after dozens of runs, do working files, reports or leftovers anywhere
+hold recoverable un-anonymized data? The audit (run with NER on, against
+a real output folder) found no temp leftovers and no raw data in any
+output file - with one genuine exception, plus two structural risks.
+
+*Finding A (fixed):* `_REVIEW_CHECKLIST.txt` quoted verbatim +/-60
+character excerpts of the source document around each match, as
+"context". That file sits in the output folder like any other, so the
+one artifact meant to help verify an anonymization was the one artifact
+carrying unredacted document text. Excerpts are replaced with line
+positions (`linia 42`), and single-line sections - already named by
+their own header - get no positions at all.
+
+The user asked whether keeping the excerpts behind an opt-in toggle was
+needed for development. It is not: nothing in this session's debugging
+used them (the comparison window is a far better verification surface,
+and it shows the real document rather than a copy of it), and an opt-in
+that writes sensitive text to disk is a footgun in an anonymization
+tool - the setting outlives the reason it was turned on.
+
+*Finding D (fixed):* file *names* are never anonymized and are shown,
+logged and used to build every output name, so dropping in
+`umowa_Kowalski_82010112345.pdf` publishes a PESEL and a surname into
+the output folder no matter how well the contents are redacted. Adding
+files now surfaces a warning naming what was spotted in the name; it
+does not block anything, since renaming is the user's call.
+
+*Finding C (fixed):* nothing ever removed superseded output
+generations, so a re-used folder accumulates one numbered set per run.
+Beyond clutter, an old generation can be *less* redacted than the
+current one while looking just as finished - exactly what the two bugs
+above produced. The new `output_cleanup.py` keeps selection as pure,
+GUI-free functions, because the risk is deleting the wrong file, not
+failing to delete the right one: only this app's own naming scheme is
+ever considered (people routinely point the output at the folder their
+sources live in), the newest generation of every document always stays,
+and the "Wyczyść stare" button on each history card shows the concrete
+plan before anything is removed. A test caught a real design flaw here -
+grouping by document stem alone would have deleted `umowa_RAPORT_2.txt`
+because `umowa_ANON_3.txt` existed, leaving the newest run with no
+report at all; grouping is per (stem, family).
+
+*Finding B, deliberately not acted on:* the same-folder-as-sources
+scenario is inherent to letting the user choose the output folder, and
+the warning from D covers the part that is actually the app's doing.
+
+**And a preview-window layout pass, on the user's reasoning that reading
+a document is bound by how much of it you can see at once.** The bottom
+action row is gone entirely: add/remove-mark chips, undo/redo and the
+page/zoom controls all moved into the title row, the app icon sits
+top-left as a "back home" control the way it does in the main window,
+and "Zamknij" was dropped as redundant with the window's own X. The
+accept/cancel pair became a floating pill via `place()` rather than
+`pack()` - chosen precisely because `place()` bypasses pack's
+space-allocation entirely, so those two buttons can never be squeezed
+out of an over-full row (the failure mode that had already cost one fix
+in this file), and they stay visible when the legend is collapsed and
+the preview expands to full width. It appears only when there are
+pending edits. Getting it to show at all needed one correction: the
+overlay was first parented to `right_frame.master`, which is
+`CTkScrollableFrame`'s internal canvas, not the visible container.
+
+Full suite: 449 tests (20 new across the four commits). Lint unchanged
+against the established 77-error baseline.
+
+```text
+521b608 Stop the review checklist from quoting document text (audit finding A)
+3206f06 Warn when personal data is visible in a source file name (audit finding D)
+bf6da27 Give the preview window its space back: title-bar tools, floating actions
+3a0cea2 Let a folder drop its superseded output generations (audit finding C)
+bba22c7 Document the security audit, its three fixes and the preview-window layout pass
+```
+
 ## Next Logical Step
 
 The scanned-PDF visual redaction issue - the single most important open
 item for four sessions - is **root-caused, fixed and regression-tested**
-(see the narrative directly above). It was output-file collision numbering
-drifting apart, not OCR. Awaiting the user's confirmation on their own
-drifted folder, where the fix should take effect on the very next run.
+(see the narratives above), and the user has confirmed it on their own
+drifted folder ("super juz widac tak jak powinno byc"). It was
+output-file collision numbering drifting apart, not OCR.
+
+Use the app on real scans next, specifically exercising the magic pen on
+them: the second data-exposure bug found in the same session (manual
+edits wiping every automatic redaction on a scan) is fixed and tested,
+but has not yet been confirmed by the user in real pilot use. Two
+housekeeping items are on the user, not the code: any
+`_ANON_VISUAL_*` file produced by the *pre-fix* magic pen on a scan
+contains exposed personal data and should be deleted, and `tests/080936/`
+holds untracked leftover outputs of a real invoice (including undetected
+digit runs) - their call whether to keep it.
 
 The lasting methodology lesson, worth applying before the next
 hard-to-reproduce report: three rounds were spent theorising about OCR

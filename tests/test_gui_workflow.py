@@ -39,6 +39,7 @@ from gui import (
     clamp_zoom_level,
     ctk_widget_scaling_factor,
     default_output_directory,
+    detect_filename_pii_labels,
     dismiss_hint,
     environment_status_lookup,
     file_type_badge,
@@ -55,6 +56,7 @@ from gui import (
     format_batch_status,
     format_dictionary_result,
     format_drop_result,
+    format_filename_pii_warning,
     format_llm_model_selector_state,
     format_page_list,
     format_pending_edit_confirmation_title,
@@ -490,6 +492,45 @@ class GuiWorkflowTests(unittest.TestCase):
             format_processing_animation_frame(3, width=width),
             format_processing_animation_frame(3 + cycle_length, width=width),
         )
+
+    def test_detect_filename_pii_labels_flags_identifiers_in_the_name(self) -> None:
+        self.assertEqual(
+            detect_filename_pii_labels("umowa_90020212345.pdf"), ["PESEL"]
+        )
+        self.assertIn("e-mail", detect_filename_pii_labels("cv_jan@example.test.pdf"))
+        self.assertIn(
+            "numer telefonu", detect_filename_pii_labels("kontakt_601-234-567.pdf")
+        )
+        self.assertIn(
+            "dowód osobisty", detect_filename_pii_labels("skan_ABC123456.pdf")
+        )
+
+    def test_detect_filename_pii_labels_stays_quiet_on_ordinary_names(self) -> None:
+        # A warning that fires on everything gets ignored, so ordinary
+        # names - including dated and numbered ones - must stay silent.
+        for name in (
+            "umowa_o_prace.pdf",
+            "faktura-2026-09-12.pdf",
+            "skan.pdf",
+            "raport_v2.docx",
+            "Umowa Kowalski.pdf",
+            "notatka_2026.txt",
+        ):
+            self.assertEqual(detect_filename_pii_labels(name), [], name)
+
+    def test_detect_filename_pii_labels_ignores_the_extension(self) -> None:
+        self.assertEqual(detect_filename_pii_labels("90020212345.pdf"), ["PESEL"])
+
+    def test_format_filename_pii_warning_names_the_offending_files(self) -> None:
+        warning = format_filename_pii_warning(
+            ["umowa_90020212345.pdf", "zwykly_plik.pdf"]
+        )
+        self.assertIn("umowa_90020212345.pdf", warning)
+        self.assertNotIn("zwykly_plik.pdf", warning)
+        self.assertIn("nazwie pliku", warning)
+
+    def test_format_filename_pii_warning_is_empty_when_nothing_is_flagged(self) -> None:
+        self.assertEqual(format_filename_pii_warning(["umowa.pdf", "skan.pdf"]), "")
 
     def test_format_save_button_text_with_no_pending_edits(self) -> None:
         self.assertEqual(format_save_button_text(0), "Zaakceptuj edycję")
