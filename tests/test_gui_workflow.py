@@ -22,6 +22,9 @@ from anonymizer import (
 from environment_check import EnvironmentCheckItem
 from gui import (
     APPROVAL_LOCK_HINT_ID,
+    FLOATING_ACTIONS_EDIT,
+    FLOATING_ACTIONS_HIDDEN,
+    FLOATING_ACTIONS_SAVED,
     LLM_MODELS_FOUND_HINT,
     LLM_NO_MODELS_HINT,
     PDF_OUTPUT_LABEL_ORIGINAL_SAFE,
@@ -45,6 +48,7 @@ from gui import (
     file_type_badge,
     filter_supported_paths,
     find_rect_at_point,
+    floating_actions_mode,
     format_anonymize_button_text,
     format_anonymize_readiness,
     format_approval_lock_warning_text,
@@ -57,6 +61,7 @@ from gui import (
     format_dictionary_result,
     format_drop_result,
     format_filename_pii_warning,
+    format_floating_actions_status,
     format_llm_model_selector_state,
     format_page_list,
     format_pending_edit_confirmation_title,
@@ -539,6 +544,54 @@ class GuiWorkflowTests(unittest.TestCase):
         self.assertEqual(format_save_button_text(1), "Zaakceptuj edycję (1)")
         self.assertEqual(format_save_button_text(3), "Zaakceptuj edycje (3)")
         self.assertEqual(format_save_button_text(5), "Zaakceptuj edycji (5)")
+
+    def test_floating_actions_mode_offers_accept_while_edits_are_pending(self) -> None:
+        self.assertEqual(
+            floating_actions_mode(has_pending_changes=True, edits_saved=False),
+            FLOATING_ACTIONS_EDIT,
+        )
+
+    def test_floating_actions_mode_confirms_a_completed_save(self) -> None:
+        """The overlay used to vanish the instant a save succeeded, taking
+        its own "✓ Zmiany zapisane" confirmation with it and leaving the
+        window's X as the only way to finish - reported by a user as
+        unintuitive. It now stays up to confirm and offer the exit."""
+        self.assertEqual(
+            floating_actions_mode(has_pending_changes=False, edits_saved=True),
+            FLOATING_ACTIONS_SAVED,
+        )
+
+    def test_floating_actions_mode_hides_when_there_is_nothing_to_act_on(self) -> None:
+        self.assertEqual(
+            floating_actions_mode(has_pending_changes=False, edits_saved=False),
+            FLOATING_ACTIONS_HIDDEN,
+        )
+
+    def test_floating_actions_new_edits_outrank_an_earlier_save(self) -> None:
+        """Starting a fresh edit after saving must offer accept/cancel
+        again - and because pending edits outrank the saved flag rather
+        than clearing it, cancelling that new edit falls back to the
+        saved confirmation (the earlier save still stands) instead of
+        dropping the user back to no exit affordance at all."""
+        self.assertEqual(
+            floating_actions_mode(has_pending_changes=True, edits_saved=True),
+            FLOATING_ACTIONS_EDIT,
+        )
+        self.assertEqual(
+            floating_actions_mode(has_pending_changes=False, edits_saved=True),
+            FLOATING_ACTIONS_SAVED,
+        )
+
+    def test_format_floating_actions_status_matches_the_mode(self) -> None:
+        self.assertEqual(
+            format_floating_actions_status(FLOATING_ACTIONS_EDIT, 3),
+            "Niezapisane zmiany: 3",
+        )
+        self.assertEqual(
+            format_floating_actions_status(FLOATING_ACTIONS_SAVED, 0),
+            "✓ Zmiany zapisane",
+        )
+        self.assertEqual(format_floating_actions_status(FLOATING_ACTIONS_HIDDEN, 0), "")
 
     def test_format_page_list_joins_page_numbers(self) -> None:
         self.assertEqual(format_page_list([1, 2, 4]), "1, 2, 4")

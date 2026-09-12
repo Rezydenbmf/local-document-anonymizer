@@ -2973,6 +2973,40 @@ verified by running the frozen artifact.** Source-level tests, and any
 test that patches `sys.frozen` in the dev interpreter, are blind to
 what PyInstaller did or did not collect.
 
+**Then the first piece of feedback from the working build, and a real
+bug hiding behind it.** With OCR finally alive, the user reported that
+after accepting edits in the preview window there is no way to finish -
+only the window's X, which felt unintuitive.
+
+The missing affordance was the visible half of an actual defect:
+`_save_pending_changes` wrote `"✓ Zmiany zapisane"` into
+`pen_status_label` one line *after* `_update_pending_state` had already
+hidden the whole overlay (no pending edits left -> `place_forget`). That
+confirmation was therefore unreachable for anyone - the overlay
+disappeared at the exact moment it had something worth saying, taking
+the user's only nearby control with it.
+
+The overlay now has two states. Pending edits: accept/cancel, as before.
+Saved: it stays up in the same corner the user just clicked, showing the
+confirmation plus one `Zakończ edycję` button that closes the window.
+Still no permanent vertical cost when idle, so the earlier decision to
+remove the always-on "Zamknij" button stands. Pending edits *outrank*
+the saved flag rather than clearing it, which matters for save -> new
+edit -> cancel: falling back to the saved state keeps the exit available
+instead of reproducing the original complaint.
+
+The state choice lives in `gui_helpers` as a pure function
+(`floating_actions_mode` / `format_floating_actions_status`) rather than
+inline conditionals - the comparison window has no test coverage of its
+own (it needs a real Toplevel and a real PDF), so logic decided inline
+there is untestable by construction. Five new tests, plus a live pass
+driving the real widgets through all five transitions. Full suite: 461
+tests, lint at the 77 baseline.
+
+```text
+b124ecd Keep the edit overlay up after saving, with a way to finish
+```
+
 ## Next Logical Step
 
 **Immediate:** hand the rebuilt `installer_output/DocShield-Setup-0.1.0-alpha.exe`
