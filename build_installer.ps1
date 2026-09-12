@@ -139,6 +139,21 @@ Remove-DirWithRetry $tesseractStageDir
 $tesseractZipSizeMb = [math]::Round(((Get-Item $zipPath).Length / 1MB), 1)
 Write-Host "Tesseract spakowany ($tesseractZipSizeMb MB): $zipPath"
 
+# --- 3b. Sprawdz, co NAPRAWDE trafilo do paczki -------------------------
+#
+# Nie pomijaj tego kroku. Pierwsza wydana paczka miala martwe OCR, bo
+# PyInstaller nie widzi importow przez import_module() i po cichu nie
+# dolaczyl pytesseract - aplikacja startowala normalnie i raportowala
+# "Silnik Tesseract nie jest zainstalowany". Testy na kodzie zrodlowym
+# tego nie wykryja, bo venv ma wszystkie biblioteki zainstalowane;
+# jedyne wiarygodne sprawdzenie to zajrzenie do zbudowanego pliku.
+
+Write-Step "Weryfikacja zawartosci zbudowanej paczki"
+& $python (Join-Path $root "installer\verify_bundle.py") (Join-Path $distDir "DocShield.exe")
+if ($LASTEXITCODE -ne 0) {
+    throw "Paczka jest niekompletna - patrz lista powyzej. Instalator NIE zostal zbudowany."
+}
+
 # --- 4. Inno Setup ------------------------------------------------------
 
 Write-Step "Inno Setup: budowanie instalatora"
