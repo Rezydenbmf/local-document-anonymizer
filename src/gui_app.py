@@ -40,6 +40,7 @@ try:
         SummaryDialog,
     )
     from .gui_helpers import (
+        APP_BUILD_STAGE_LABEL,
         APP_ICON_ICO_PATH,
         APP_ICON_PATH,
         APP_PERSONAL_NOTE,
@@ -161,6 +162,7 @@ except ImportError:
         SummaryDialog,
     )
     from gui_helpers import (
+        APP_BUILD_STAGE_LABEL,
         APP_ICON_ICO_PATH,
         APP_ICON_PATH,
         APP_PERSONAL_NOTE,
@@ -443,14 +445,29 @@ class AnonymizerApp:
         brand_text_col = ctk.CTkFrame(brand_row, fg_color="transparent", cursor="hand2")
         brand_text_col.pack(side="left")
         brand_clickables.append(brand_text_col)
+        brand_title_row = ctk.CTkFrame(brand_text_col, fg_color="transparent", cursor="hand2")
+        brand_title_row.pack(anchor="w")
         brand_title_label = ctk.CTkLabel(
-            brand_text_col,
+            brand_title_row,
             text=APP_TITLE,
             font=ctk.CTkFont(family=FONT_FAMILY, size=16, weight="bold"),
             text_color="#FFFFFF",
             cursor="hand2",
         )
-        brand_title_label.pack(anchor="w")
+        brand_title_label.pack(side="left")
+        alpha_badge = ctk.CTkLabel(
+            brand_title_row,
+            text=APP_BUILD_STAGE_LABEL,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=9, weight="bold"),
+            text_color="#FFFFFF",
+            fg_color=COLOR_WARNING,
+            corner_radius=4,
+            width=0,
+            cursor="hand2",
+        )
+        alpha_badge.pack(side="left", padx=(6, 0), ipadx=4, ipady=1)
+        brand_clickables.append(alpha_badge)
+        IconTooltip(alpha_badge, "Wersja rozwojowa - w trakcie testów")
         brand_subtitle_label = ctk.CTkLabel(
             brand_text_col,
             text="Anonimizator dokumentów",
@@ -1114,24 +1131,34 @@ class AnonymizerApp:
             justify="left",
         ).pack(fill="x", padx=(24, 0), pady=(0, 10))
 
-        llm_var = tk.BooleanVar(value=self.use_llm_review)
+        # Disabled in this alpha build: local-LLM review (Ollama) exists
+        # in the code but has not been tested enough to offer yet. The
+        # checkbox stays visible (so it's clear the feature is coming,
+        # not missing) but locked off - self.use_llm_review is never set
+        # from here while it's disabled.
+        llm_var = tk.BooleanVar(value=False)
 
-        def _on_llm_toggle() -> None:
-            self.use_llm_review = llm_var.get()
-
+        llm_label_row = ctk.CTkFrame(inner, fg_color="transparent")
+        llm_label_row.pack(fill="x", pady=(0, 2))
         ctk.CTkCheckBox(
-            inner,
+            llm_label_row,
             text="Dodatkowa kontrola wyniku (AI)",
             variable=llm_var,
-            command=_on_llm_toggle,
+            state="disabled",
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-            text_color=COLOR_TEXT,
+            text_color=COLOR_TEXT_MUTED,
             fg_color=COLOR_ACCENT,
             hover_color=COLOR_ACCENT_HOVER,
-        ).pack(anchor="w", pady=(0, 2))
+        ).pack(side="left")
+        ctk.CTkLabel(
+            llm_label_row,
+            text="wkrótce",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10, weight="bold"),
+            text_color=COLOR_ACCENT,
+        ).pack(side="left", padx=(6, 0))
         ctk.CTkLabel(
             inner,
-            text="Sprawdzenie, czy nic nie zostało pominięte (Ollama)",
+            text="Jeszcze niedostępne w tej wersji rozwojowej - w przygotowaniu",
             font=ctk.CTkFont(family=FONT_FAMILY, size=10),
             text_color=COLOR_TEXT_MUTED,
             anchor="w",

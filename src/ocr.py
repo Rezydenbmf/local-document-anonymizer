@@ -215,12 +215,28 @@ _TESSERACT_WINDOWS_CANDIDATES = (
 )
 
 
+def _bundled_tesseract_path() -> Path | None:
+    """The Tesseract copy the installer places next to DocShield.exe,
+    if this is a frozen (PyInstaller) build - see build_installer.ps1,
+    which stages a trimmed Tesseract runtime into a "tesseract"
+    subfolder alongside the packaged executable. None when running
+    from source, where no such folder exists."""
+    if not getattr(sys, "frozen", False):
+        return None
+    bundle_dir = Path(sys.executable).resolve().parent
+    candidate = bundle_dir / "tesseract" / "tesseract.exe"
+    return candidate if candidate.is_file() else None
+
+
 def _resolve_tesseract_cmd() -> str | None:
     """Find a Tesseract executable even when it isn't on PATH.
 
     Returns None only when nothing is found anywhere - callers should
     treat that the same as "not installed".
     """
+    bundled = _bundled_tesseract_path()
+    if bundled is not None:
+        return str(bundled)
     found_on_path = shutil.which("tesseract")
     if found_on_path:
         return found_on_path
