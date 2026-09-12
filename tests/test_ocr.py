@@ -333,32 +333,115 @@ class ResolveTesseractCmdTests(unittest.TestCase):
 
 
 class BundledTesseractPathTests(unittest.TestCase):
-    """The Tesseract copy build_installer.ps1 stages next to DocShield.exe
-    for the packaged build - see _bundled_tesseract_path. Only relevant
-    when frozen (PyInstaller); running from source must never look for
-    it, since no such folder exists there."""
+    """The Tesseract runtime build_installer.ps1 packs into one
+    tesseract_runtime.zip next to DocShield.exe for the packaged build,
+    unpacked here on first use - see _bundled_tesseract_path and
+    _extract_bundled_tesseract_zip. One zip rather than loose files
+    deliberately: a real install that dropped ~60 individually-named
+    unsigned binaries straight to disk had the whole folder silently
+    vanish (see the docstring on _extract_bundled_tesseract_zip for the
+    full story) - a plain filesystem copy of the identical bytes never
+    did. Only relevant when frozen (PyInstaller); running from source
+    must never look for it, since no such file exists there.
+
+    Real temp-directory zip files throughout rather than mocking
+    zipfile/Path - this logic's entire point is correct real extraction
+    behavior (including path-traversal safety), so exercising it against
+    an actual zip is the only test that would have caught a real bug
+    here.
+    """
+
+    def _frozen_in(self, bundle_dir: Path):
+        return (
+            patch.object(ocr.sys, "frozen", True, create=True),
+            patch.object(ocr.sys, "executable", str(bundle_dir / "DocShield.exe")),
+        )
 
     def test_none_when_not_frozen(self) -> None:
         with patch.object(ocr.sys, "frozen", False, create=True):
             self.assertIsNone(ocr._bundled_tesseract_path())
 
-    def test_found_next_to_the_frozen_executable(self) -> None:
-        bundle_dir = Path("C:\\DocShield")
-        expected = bundle_dir / "tesseract" / "tesseract.exe"
-        with (
-            patch.object(ocr.sys, "frozen", True, create=True),
-            patch.object(ocr.sys, "executable", str(bundle_dir / "DocShield.exe")),
-            patch.object(Path, "is_file", lambda self: self == expected),
-        ):
-            self.assertEqual(ocr._bundled_tesseract_path(), expected)
+    def test_none_when_frozen_but_nothing_present(self) -> None:
+        with tempfile.TemporaryDirectory() as bundle_dir:
+            patchers = self._frozen_in(Path(bundle_dir))
+            with patchers[0], patchers[1]:
+                self.assertIsNone(ocr._bundled_tesseract_path())
 
-    def test_none_when_frozen_but_bundle_missing_it(self) -> None:
-        with (
-            patch.object(ocr.sys, "frozen", True, create=True),
-            patch.object(ocr.sys, "executable", "C:\\DocShield\\DocShield.exe"),
-            patch.object(Path, "is_file", return_value=False),
-        ):
-            self.assertIsNone(ocr._bundled_tesseract_path())
+    def test_already_extracted_copy_is_used_without_touching_it(self) -> None:
+        with tempfile.TemporaryDirectory() as bundle_dir:
+            tesseract_dir = Path(bundle_dir) / "tesseract"
+            tesseract_dir.mkdir()
+            existing = tesseract_dir / "tesseract.exe"
+            existing.write_bytes(b"already-here")
+            patchers = self._frozen_in(Path(bundle_dir))
+            with patchers[0], patchers[1]:
+                result = ocr._bundled_tesseract_path()
+            self.assertEqual(result, existing)
+            self.assertEqual(existing.read_bytes(), b"already-here")
+
+    def test_extracts_the_zip_on_first_use(self) -> None:
+        import zipfile
+
+        with tempfile.TemporaryDirectory() as bundle_dir:
+            bundle_path = Path(bundle_dir)
+            zip_path = bundle_path / ocr._BUNDLED_TESSERACT_ZIP_NAME
+            with zipfile.ZipFile(zip_path, "w") as archive:
+                archive.writestr("tesseract.exe", b"fake-tesseract-binary")
+                archive.writestr("libsomething.dll", b"fake-dll")
+                archive.writestr("tessdata/pol.traineddata", b"fake-model-data")
+
+            patchers = self._frozen_in(bundle_path)
+            with patchers[0], patchers[1]:
+                result = ocr._bundled_tesseract_path()
+
+            expected = bundle_path / "tesseract" / "tesseract.exe"
+            self.assertEqual(result, expected)
+            self.assertEqual(expected.read_bytes(), b"fake-tesseract-binary")
+            self.assertEqual(
+                (bundle_path / "tesseract" / "libsomething.dll").read_bytes(),
+                b"fake-dll",
+            )
+            self.assertEqual(
+                (
+                    bundle_path / "tesseract" / "tessdata" / "pol.traineddata"
+                ).read_bytes(),
+                b"fake-model-data",
+            )
+
+    def test_corrupt_zip_is_reported_as_absent_not_raised(self) -> None:
+        with tempfile.TemporaryDirectory() as bundle_dir:
+            bundle_path = Path(bundle_dir)
+            (bundle_path / ocr._BUNDLED_TESSERACT_ZIP_NAME).write_bytes(
+                b"not actually a zip file"
+            )
+            patchers = self._frozen_in(bundle_path)
+            with patchers[0], patchers[1]:
+                self.assertIsNone(ocr._bundled_tesseract_path())
+
+    def test_path_traversal_members_are_never_written_outside_the_folder(
+        self,
+    ) -> None:
+        """Defense in depth: this app controls the zip's contents at
+        build time, but extraction must still never trust a member path
+        literally - a corrupted or tampered zip must not be able to
+        write outside its own destination folder."""
+        import zipfile
+
+        with tempfile.TemporaryDirectory() as bundle_dir:
+            bundle_path = Path(bundle_dir)
+            zip_path = bundle_path / ocr._BUNDLED_TESSERACT_ZIP_NAME
+            with zipfile.ZipFile(zip_path, "w") as archive:
+                archive.writestr("../escaped.txt", b"should never land here")
+                # No real tesseract.exe member - extraction must report
+                # absent rather than pretend the escaped write counts.
+
+            patchers = self._frozen_in(bundle_path)
+            with patchers[0], patchers[1]:
+                result = ocr._bundled_tesseract_path()
+
+            self.assertIsNone(result)
+            self.assertFalse((bundle_path / "escaped.txt").exists())
+            self.assertFalse((bundle_path / "tesseract" / "escaped.txt").exists())
 
     def test_resolve_tesseract_cmd_prefers_the_bundled_copy(self) -> None:
         """The bundled copy wins even over PATH - it's the exact build
