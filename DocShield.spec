@@ -26,6 +26,27 @@ spacy_model_datas, spacy_model_binaries, spacy_model_hidden = collect_all(
     "pl_core_news_sm"
 )
 
+# Every optional dependency this app loads through importlib rather than a
+# plain `import` statement. PyInstaller resolves imports by reading the
+# source statically, so `import_module("pytesseract")` (ocr._import_optional)
+# and `import_module("spacy")` (ner.py) are invisible to it - the module
+# simply never lands in the bundle, the optional-import helper quietly
+# returns None, and the app reports the dependency as "not installed" on a
+# machine where nothing is actually wrong.
+#
+# That is exactly how the first packaged build shipped with OCR dead:
+# pytesseract was missing, so detect_ocr_support() bailed out at its first
+# check and the code that finds (and unpacks) the bundled Tesseract never
+# ran at all. spacy survives on its own via pyinstaller-hooks-contrib, but
+# it is listed here too - relying on a third-party hook to keep covering a
+# dynamic import is the same silent failure waiting to happen again.
+#
+# installer/verify_bundle.py enforces this list against the built exe.
+DYNAMIC_OPTIONAL_IMPORTS = [
+    "pytesseract",
+    "spacy",
+]
+
 a = Analysis(
     ["src/main.py"],
     pathex=["src"],
@@ -35,7 +56,7 @@ a = Analysis(
         ("assets/icon.png", "assets"),
     ]
     + spacy_model_datas,
-    hiddenimports=spacy_model_hidden,
+    hiddenimports=spacy_model_hidden + DYNAMIC_OPTIONAL_IMPORTS,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

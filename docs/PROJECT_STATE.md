@@ -2917,20 +2917,73 @@ here (including path-traversal safety) is the entire point. Full suite:
 b7a16db Ship the bundled Tesseract runtime as one zip, install per-user by default
 ```
 
+**Then the actual cause of OCR being dead in the packaged app, after two
+commits that fixed nothing real.** The user reported it a third time -
+fresh install, default location, still "Silnik Tesseract nie jest
+zainstalowany" - and was right to keep pushing.
+
+`pytesseract` was simply not in the bundle: 0 hits across 3022 modules in
+the built exe's PYZ archive. `ocr.py` loads its optional dependencies
+through `importlib.import_module(name)` (`_import_optional`), and
+PyInstaller resolves imports by reading source statically, so a dynamic
+import with a runtime string is invisible to it. Every consequence
+downstream was silent by construction:
+
+```text
+_pytesseract_module() -> None          (same as on a machine with no library)
+  -> detect_ocr_support() bails at its first check (dependency_missing)
+    -> _configure_tesseract_cmd() never called
+      -> _bundled_tesseract_path() never called
+        -> the bundled Tesseract zip is never extracted
+```
+
+That last step is what made it look like a packaging or antivirus
+problem for two rounds: the zip sat on disk next to `DocShield.exe`
+unopened, so the `tesseract` folder was missing and the app said the
+engine was not installed. The installer, the bundled engine and the
+extraction logic were all working the whole time - the app could not see
+any of them. `DocShield.spec` now lists dynamically imported optional
+dependencies explicitly (`DYNAMIC_OPTIONAL_IMPORTS`: pytesseract, spacy -
+spacy survives via hooks-contrib today, but leaving a dynamic import to
+a third-party hook is the same failure waiting to recur).
+
+**The verification gap is the real lesson here, and it cost three
+rounds.** This had been "verified" by running the *source* through the
+dev virtualenv with `sys.frozen` patched on. That proves the logic works
+and says nothing whatsoever about what is in the bundle, because the
+virtualenv has every dependency installed - it could never have caught
+this, and its passing was actively misleading. `installer/verify_bundle.py`
+now inspects the built exe's own PYZ archive for the modules and files
+the app needs, and `build_installer.ps1` runs it between packaging and
+Inno Setup, failing the build if anything is absent. It was confirmed
+against the *previous* build first: reports `pytesseract BRAK`, exits 1.
+
+Verified against the real installed exe this time: clean silent install,
+launch the actual `DocShield.exe`, and it self-extracts the runtime on
+startup (59 files, `pol.traineddata` present); the extracted binary runs
+(`--list-langs` showing eng/osd/pol) and real OCR over a generated test
+image returns its text. Full suite: 456 tests, lint at the 77 baseline.
+
+```text
+795e90b Bundle pytesseract, which PyInstaller never saw - OCR was dead in every build
+```
+
+**Rule for anything packaged from here on: a frozen build is only
+verified by running the frozen artifact.** Source-level tests, and any
+test that patches `sys.frozen` in the dev interpreter, are blind to
+what PyInstaller did or did not collect.
+
 ## Next Logical Step
 
 **Immediate:** hand the rebuilt `installer_output/DocShield-Setup-0.1.0-alpha.exe`
-to the outside tester (the version that shipped before this fix should
-be treated as superseded). Two things are on the user, not the code:
-the installer is unsigned, so Windows SmartScreen will show its
-"protected your PC" warning on first run ("More info" -> "Run anyway")
-- worth a heads-up before he sees it unannounced, especially for
-someone evaluating the app professionally; and if OCR still reports
-unavailable after a genuinely fresh install (no prior DocShield install
-on that machine), that would be the first real signal this needs
-another look rather than test-environment contamination. The
-recipient's own feedback after this first hands-on pass should drive
-whatever comes next, more than anything already queued below.
+to the outside tester - every build before `795e90b` had non-functional
+OCR and should be treated as superseded. One thing is on the user, not
+the code: the installer is unsigned, so Windows SmartScreen will show
+its "protected your PC" warning on first run ("More info" -> "Run
+anyway") - worth a heads-up before he meets it unannounced, especially
+for someone evaluating the app professionally. The recipient's own
+feedback after this first hands-on pass should drive whatever comes
+next, more than anything already queued below.
 
 The scanned-PDF visual redaction issue - the single most important open
 item for four sessions - is **root-caused, fixed and regression-tested**
