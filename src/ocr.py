@@ -215,17 +215,67 @@ _TESSERACT_WINDOWS_CANDIDATES = (
 )
 
 
+_BUNDLED_TESSERACT_ZIP_NAME = "tesseract_runtime.zip"
+
+
+def _extract_bundled_tesseract_zip(bundle_dir: Path) -> Path | None:
+    """Unpack the installer's tesseract_runtime.zip into a "tesseract"
+    subfolder next to the running exe, the first time it's needed.
+
+    Why a zip and not a plain folder the installer drops loose files
+    into: a real install once appeared to lose that subfolder entirely
+    after setup. The actual cause turned out to be test-environment
+    contamination (a stale Inno Setup "remembered install location" in
+    the registry from an earlier test run, plus a permissions issue
+    checking a Program Files install as non-admin) rather than anything
+    about the files themselves - a from-scratch install with the loose
+    layout, verified after clearing that state, worked fine. Kept as a
+    zip anyway on general principle: an installer writing one
+    unremarkable data file, with extraction happening later from
+    DocShield.exe's own already-running process, is a strictly smaller
+    surface for *any* third-party security software to react badly to
+    than ~60 individually-named unsigned binaries landing at once - a
+    real possibility this app has no control over, even without a
+    confirmed case of it happening here.
+
+    Idempotent and safe against a half-finished previous attempt: checks
+    the real target file's presence before re-extracting, and every
+    member path is verified to stay under the destination folder before
+    being written (defense in depth - this app controls the zip's
+    contents at build time, but a corrupted or tampered file should
+    still never write outside its own folder).
+    """
+    target = bundle_dir / "tesseract" / "tesseract.exe"
+    if target.is_file():
+        return target
+    zip_path = bundle_dir / _BUNDLED_TESSERACT_ZIP_NAME
+    if not zip_path.is_file():
+        return None
+    dest_root = (bundle_dir / "tesseract").resolve()
+    try:
+        import zipfile
+
+        with zipfile.ZipFile(zip_path) as archive:
+            for member in archive.infolist():
+                member_path = (dest_root / member.filename).resolve()
+                if dest_root != member_path and dest_root not in member_path.parents:
+                    continue
+                archive.extract(member, dest_root)
+    except (OSError, zipfile.BadZipFile):
+        return None
+    return target if target.is_file() else None
+
+
 def _bundled_tesseract_path() -> Path | None:
     """The Tesseract copy the installer places next to DocShield.exe,
     if this is a frozen (PyInstaller) build - see build_installer.ps1,
-    which stages a trimmed Tesseract runtime into a "tesseract"
-    subfolder alongside the packaged executable. None when running
-    from source, where no such folder exists."""
+    which stages a trimmed Tesseract runtime as tesseract_runtime.zip
+    alongside the packaged executable, unpacked here on first use. None
+    when running from source, where no such file exists."""
     if not getattr(sys, "frozen", False):
         return None
     bundle_dir = Path(sys.executable).resolve().parent
-    candidate = bundle_dir / "tesseract" / "tesseract.exe"
-    return candidate if candidate.is_file() else None
+    return _extract_bundled_tesseract_zip(bundle_dir)
 
 
 def _resolve_tesseract_cmd() -> str | None:

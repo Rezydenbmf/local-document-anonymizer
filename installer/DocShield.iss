@@ -24,7 +24,17 @@ AppId={{6F1E9B8B-7C2E-4C3A-9C7E-3E9E6C2C3A11}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
-DefaultDirName={autopf}\{#MyAppName}
+; Always installs per-user (never Program Files, never needs admin/UAC) -
+; the simpler reason alone justifies it: a tester with no admin rights on
+; their own machine can still install and run this with zero friction and
+; no UAC prompt. An earlier round of testing on this machine also saw an
+; admin-targeted Program Files install lose the bundled Tesseract runtime
+; while a per-user install never did - but that later turned out to be
+; explained by leftover test-environment state (a stale remembered
+; install path, a permissions issue checking the result as non-admin),
+; not a confirmed Program-Files-specific problem. Left per-user regardless,
+; since it needs no elevation either way.
+DefaultDirName={localappdata}\Programs\{#MyAppName}
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 OutputDir=..\installer_output
@@ -37,7 +47,6 @@ InfoBeforeFile=przed_instalacja.txt
 WizardStyle=modern
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=lowest
-PrivilegesRequiredOverridesAllowed=dialog
 
 [Languages]
 Name: "polish"; MessagesFile: "compiler:Languages\Polish.isl"

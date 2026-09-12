@@ -2861,16 +2861,76 @@ unchanged against the established 77-error baseline.
 7aa2bae Package a self-contained Windows installer for the alpha demo
 ```
 
+**Then a real-world report from the user's own first test of that
+installer: OCR unavailable, "Silnik Tesseract nie jest zainstalowany",
+straight after installing.** Their own diagnostic run (a small,
+safe, paste-back-the-output script - see below) confirmed the bundled
+`tesseract` folder next to `DocShield.exe` was genuinely empty.
+
+Chasing it down is worth recording honestly, including the parts that
+turned out not to be the cause. A first hypothesis (Windows Defender
+silently stripping the ~60 individually-named unsigned binaries during
+install) looked plausible after a few local repros, but a from-scratch
+install with Inno Setup's own full `/LOG` enabled - after clearing every
+trace of this session's own earlier test runs on this machine (a stale
+"remembered install location" in the registry from an ad-hoc `/DIR`
+test, a partially-failed uninstall, a Program Files folder this
+session's own non-admin PowerShell couldn't fully clean up) - showed a
+completely clean install, every file landing correctly, nothing in
+Defender's event log either way. The most likely real explanation:
+the user's original report traces to the same kind of test-environment
+contamination, hit independently on their own machine, not a
+reproducible packaging defect.
+
+Two changes shipped anyway, on their own merits rather than as a fix
+for a confirmed root cause. `DocShield.iss`'s `DefaultDirName` moves
+from Program Files (admin-owned) to `{localappdata}\Programs`
+(per-user) - needs no UAC prompt at all now, which matters on its own
+for a tester with no admin rights on a work machine. And the bundled
+Tesseract runtime now ships as one `tesseract_runtime.zip` rather than
+~60 loose files in the installer's file list, unpacked by the app
+itself on first OCR use (`ocr._extract_bundled_tesseract_zip`) rather
+than by the installer. Not a proven fix for anything observed here -
+but an installer writing one unremarkable data file is a strictly
+smaller surface for third-party security software to react badly to
+than dozens of individually-named unsigned binaries appearing at once,
+a real possibility this app has no control over on an unsigned build,
+even without a confirmed case of it happening. Extraction is idempotent
+and checks every archive member stays under the destination folder
+before writing it, as defense in depth against a corrupted zip.
+
+Verified on a genuinely clean slate: four consecutive silent installs
+(one with full Inno logging) all produced an intact zip; pointing
+`ocr._resolve_tesseract_cmd()` at the real installed path triggered
+extraction and resolved to a working `tesseract.exe` (`--version`
+exited 0); the installed app itself launched with a real window.
+`installer/sprawdz_tesseract.ps1` (new) is the standalone diagnostic
+handed to the user mid-investigation - checks only file presence and
+Tesseract's own `--version` output, never document content - kept in
+the repo for the next time this needs re-diagnosing. Six new/rewritten
+tests use real temporary zip files rather than mocks, since correctness
+here (including path-traversal safety) is the entire point. Full suite:
+456 tests (6 net new). Lint unchanged against the established
+77-error baseline.
+
+```text
+b7a16db Ship the bundled Tesseract runtime as one zip, install per-user by default
+```
+
 ## Next Logical Step
 
-**Immediate:** hand `installer_output/DocShield-Setup-0.1.0-alpha.exe` to
-the outside tester. Two things are on the user, not the code: the
-installer is unsigned, so Windows SmartScreen will show its "protected
-your PC" warning on first run ("More info" -> "Run anyway") - worth a
-heads-up before he sees it unannounced, especially for someone
-evaluating the app professionally; and the recipient's own feedback
-after this first hands-on pass should drive whatever comes next, more
-than anything already queued below.
+**Immediate:** hand the rebuilt `installer_output/DocShield-Setup-0.1.0-alpha.exe`
+to the outside tester (the version that shipped before this fix should
+be treated as superseded). Two things are on the user, not the code:
+the installer is unsigned, so Windows SmartScreen will show its
+"protected your PC" warning on first run ("More info" -> "Run anyway")
+- worth a heads-up before he sees it unannounced, especially for
+someone evaluating the app professionally; and if OCR still reports
+unavailable after a genuinely fresh install (no prior DocShield install
+on that machine), that would be the first real signal this needs
+another look rather than test-environment contamination. The
+recipient's own feedback after this first hands-on pass should drive
+whatever comes next, more than anything already queued below.
 
 The scanned-PDF visual redaction issue - the single most important open
 item for four sessions - is **root-caused, fixed and regression-tested**

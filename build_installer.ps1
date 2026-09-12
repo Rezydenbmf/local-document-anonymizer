@@ -1,9 +1,11 @@
 # Builds the DocShield alpha demo installer end to end:
 #   1. PyInstaller packages the app + its Python runtime (DocShield.spec)
-#   2. A trimmed local Tesseract-OCR runtime is copied alongside it
-#      (Tesseract is a native binary, not a Python library - PyInstaller
-#      cannot pack it, so this script stages a real local install into
-#      dist\DocShield\tesseract\ instead)
+#   2. A trimmed local Tesseract-OCR runtime is packed into ONE zip file
+#      alongside it (Tesseract is a native binary, not a Python library -
+#      PyInstaller cannot pack it; it's a single zip and not loose files
+#      so the installer never bulk-drops ~60 unsigned binaries at once -
+#      see the comment above the zip-staging step for why that matters).
+#      The app itself unpacks it on first use (ocr.py).
 #   3. Inno Setup compiles installer\DocShield.iss into one
 #      installer_output\DocShield-Setup-<version>.exe
 #
@@ -96,28 +98,46 @@ if (-not (Test-Path (Join-Path $distDir "DocShield.exe"))) {
     throw "Brak dist\DocShield\DocShield.exe po buildzie - PyInstaller nie zakonczyl sie poprawnie."
 }
 
-# --- 3. Stage a trimmed Tesseract runtime next to the exe -------------
+# --- 3. Stage a trimmed Tesseract runtime as ONE zip next to the exe ---
+#
+# Deliberately one .zip file in [Files], not ~60 loose .exe/.dll files -
+# see the docstring on ocr.py's _extract_bundled_tesseract_zip() for the
+# full story: a real install once appeared to lose the tesseract folder
+# after setup, which turned out to be test-environment contamination
+# (a stale remembered install path, a Program Files permissions check
+# issue) rather than a confirmed problem with loose binaries as such.
+# Kept as a zip anyway - fewer individually-named unsigned binaries for
+# third-party security software to react to is a reasonable default
+# even without a proven case of it happening. ocr.py's
+# _extract_bundled_tesseract_zip() unpacks it on first use, from
+# DocShield.exe's own already-running process.
 
-Write-Step "Dolaczanie Tesseract OCR (pol + eng)"
-$tesseractDest = Join-Path $distDir "tesseract"
-New-Item -ItemType Directory -Force -Path $tesseractDest | Out-Null
-New-Item -ItemType Directory -Force -Path (Join-Path $tesseractDest "tessdata") | Out-Null
+Write-Step "Pakowanie Tesseract OCR do jednego pliku (pol + eng)"
+$tesseractStageDir = Join-Path $env:TEMP "docshield_tesseract_stage"
+Remove-DirWithRetry $tesseractStageDir
+New-Item -ItemType Directory -Force -Path $tesseractStageDir | Out-Null
+New-Item -ItemType Directory -Force -Path (Join-Path $tesseractStageDir "tessdata") | Out-Null
 
-Copy-Item (Join-Path $tesseractSrc "tesseract.exe") $tesseractDest -Force
-Get-ChildItem (Join-Path $tesseractSrc "*.dll") | Copy-Item -Destination $tesseractDest -Force
+Copy-Item (Join-Path $tesseractSrc "tesseract.exe") $tesseractStageDir -Force
+Get-ChildItem (Join-Path $tesseractSrc "*.dll") | Copy-Item -Destination $tesseractStageDir -Force
 
 $languages = @("eng.traineddata", "pol.traineddata", "osd.traineddata")
 foreach ($lang in $languages) {
     $src = Join-Path $tesseractSrc "tessdata\$lang"
     if (Test-Path $src) {
-        Copy-Item $src (Join-Path $tesseractDest "tessdata") -Force
+        Copy-Item $src (Join-Path $tesseractStageDir "tessdata") -Force
     } else {
         Write-Warning "Brak pliku jezykowego $lang w zrodlowej instalacji Tesseract - pomijam."
     }
 }
 
-$tesseractSizeMb = [math]::Round(((Get-ChildItem $tesseractDest -Recurse | Measure-Object -Property Length -Sum).Sum / 1MB), 1)
-Write-Host "Tesseract dolaczony ($tesseractSizeMb MB)."
+$zipPath = Join-Path $distDir "tesseract_runtime.zip"
+if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
+Compress-Archive -Path (Join-Path $tesseractStageDir "*") -DestinationPath $zipPath -CompressionLevel Optimal
+Remove-DirWithRetry $tesseractStageDir
+
+$tesseractZipSizeMb = [math]::Round(((Get-Item $zipPath).Length / 1MB), 1)
+Write-Host "Tesseract spakowany ($tesseractZipSizeMb MB): $zipPath"
 
 # --- 4. Inno Setup ------------------------------------------------------
 
