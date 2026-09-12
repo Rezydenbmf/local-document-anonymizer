@@ -2777,7 +2777,7 @@ against the established 77-error baseline.
 3206f06 Warn when personal data is visible in a source file name (audit finding D)
 bf6da27 Give the preview window its space back: title-bar tools, floating actions
 3a0cea2 Let a folder drop its superseded output generations (audit finding C)
-PLACEHOLDER_DOC Document the security audit, its three fixes and the preview-window layout pass
+bba22c7 Document the security audit, its three fixes and the preview-window layout pass
 ```
 
 ## Next Logical Step
