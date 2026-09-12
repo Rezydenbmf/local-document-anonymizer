@@ -2618,25 +2618,83 @@ tests (2 new). Lint unchanged against the established 77-error baseline.
 6a14ee1 Fourth comparison-window feedback batch: hint z-order fix, undo/redo, visual-redaction failure diagnostics
 ```
 
+**Root-caused and fixed: the scanned-document "no colored redaction, only
+[BRACKET] text" bug, reported four times across four sessions.** It was
+never an OCR problem at all - it was output file *naming*.
+
+Finding it took handing the user a self-contained diagnostic script
+(auto-switches to the project venv, prints only counts/statuses/exception
+class names - never document text - so it was safe to run on a real
+contract and paste back). Its output demolished every prior hypothesis in
+one shot: `extract_pdf_word_boxes: OK`, 195 confident words on page 1,
+plain OCR fine, text layer absent as expected for a scan. Word-level OCR
+was working perfectly. Combined with the user's screenshot showing the
+original at "Strona 1 / 2" and the result at "Strona 1 / 1" under a
+"Source page 1" header - the signature of `save_rebuilt_review_pdf_from_text`
+- that pointed at the one remaining possibility: the visual PDF *was* being
+produced, and the comparison window simply wasn't finding it.
+
+The mechanism: every output file picked its own collision-safe number
+independently via `build_collision_safe_path`, while
+`review.preferred_review_output_path` (how the comparison window chooses
+what to display) looks up the visual PDF *by the TXT's number*. Those two
+assumptions only agree as long as every run produces exactly the same set
+of files. One run that didn't - an early run from before scanned-PDF
+visual output existed, a run in a different PDF output mode, a failed
+visual step, a manually deleted file - offsets them permanently: from then
+on the TXT is `_4` while its own visual PDF is `_3`, the lookup for `_4`
+misses, and the window silently shows the rebuilt bracket-placeholder PDF
+instead. Which is exactly "it worked once and then never again", in a
+folder the user had been re-running the same scan into for days. It also
+explains why it never reproduced here: every synthetic test ran in a fresh
+temp folder, where the numbers can't drift.
+
+Reproduced first, then fixed, then re-verified against the same script:
+before, run 2 resolved to `scan_test_ANON_REVIEW_2.pdf` ("CZY TO WERSJA
+WIZUALNA? False"); after, `scan_test_ANON_VISUAL_2.pdf` (True). The fix
+makes the shared-number convention true by construction rather than by
+luck: new `build_shared_collision_suffix()` picks the smallest suffix free
+for *all* of a run's companion paths at once, `apply_collision_suffix()`
+applies it, and every writer involved
+(`save_anonymized_pdf_txt_copy`, `save_anonymized_image_txt_copy`,
+`save_rebuilt_review_pdf_from_text`, `save_redacted_pdf_copy`; the
+word-coordinate ones already accepted an explicit path) gained an
+`output_path=` parameter so `anonymizer.py` can hand each one its
+pre-computed name. Applied to both the PDF and the standalone-image
+pipelines. Crucially this also repairs already-drifted folders on the very
+next run, without the user having to clean anything up.
+
+Three regression tests: the pure suffix helpers (including the
+"only the visual PDF exists" case that caused the drift), and an
+end-to-end one that anonymizes twice with a visual PDF deleted in between
+and asserts `preferred_review_output_path` still resolves to the visual
+PDF. Full suite: 429 tests (3 new). Lint unchanged against the established
+77-error baseline (a whole-repo count of 82 during this work was traced to
+the untracked `diagnostyka_skanu.py` the user had dropped into the project
+root, not to any tracked change).
+
+```text
+e41a7fb Fix output-name collision drift hiding the visual redaction PDF
+```
+
 ## Next Logical Step
 
-The scanned-PDF visual redaction issue (reported three times now, same
-document each time, always "placeholder-bracket text instead of colored
-boxes, no error shown") is the single most important open item. It is
-still not reproduced firsthand - two rounds of synthetic-degraded-image
-attempts did not trigger it, and the exact character-corruption pattern in
-the user's own screenshots (diacritics selectively lost, base letters
-intact) reads more like genuine OCR misrecognition under real-world
-scan/photo conditions (uneven lighting, a stamp, handwriting, paper
-texture) than anything a Gaussian-blur-and-JPEG synthetic test reproduces.
-Two independent diagnostic fields now exist for whichever failure mode it
-actually is (`visual_redaction_fallback_reason` - the OCR-gave-up status
-code from round 3, and the same field now also populated with a bare
-exception class name when the word-coordinate redaction step itself raises,
-from round 4's broadened exception handling) - **the fastest real path
-forward is the user's own file, or at minimum the raw developer report
-text from a run that reproduces it** (Szczegóły > "Otwórz surowy raport
-(deweloperskie)"); a fourth round of blind guessing is not planned.
+The scanned-PDF visual redaction issue - the single most important open
+item for four sessions - is **root-caused, fixed and regression-tested**
+(see the narrative directly above). It was output-file collision numbering
+drifting apart, not OCR. Awaiting the user's confirmation on their own
+drifted folder, where the fix should take effect on the very next run.
+
+The lasting methodology lesson, worth applying before the next
+hard-to-reproduce report: three rounds were spent theorising about OCR
+confidence thresholds and PyMuPDF exceptions because the failing artifact
+could not be inspected. What actually solved it in one step was shipping
+the user a **safe, self-contained diagnostic script** - auto-selects the
+project venv, prints only counts, statuses and exception class names, never
+document text - so a file containing real personal data could be examined
+without any of it leaving their machine. Reach for that far earlier next
+time; also note that asking for the real document would have been the wrong
+instinct here, given it held a third party's PESEL and address.
 
 Two smaller items from the third batch are also not fully closed, both
 needing something only the user can provide:
