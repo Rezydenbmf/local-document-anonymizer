@@ -32,6 +32,8 @@ try:
         COLOR_ICON_IDLE,
         COLOR_TEXT,
         COLOR_TEXT_MUTED,
+        FLOATING_ACTIONS_HIDDEN,
+        FLOATING_ACTIONS_SAVED,
         FONT_FAMILY,
         LEGEND_ITEMS,
         MAGIC_PEN_HINT_ID,
@@ -41,6 +43,8 @@ try:
         apply_subtle_scrollbar,
         center_window_over_parent,
         dismiss_hint,
+        floating_actions_mode,
+        format_floating_actions_status,
         format_pending_edit_confirmation_title,
         format_pending_edit_summary_lines,
         format_save_button_text,
@@ -83,6 +87,8 @@ except ImportError:
         COLOR_ICON_IDLE,
         COLOR_TEXT,
         COLOR_TEXT_MUTED,
+        FLOATING_ACTIONS_HIDDEN,
+        FLOATING_ACTIONS_SAVED,
         FONT_FAMILY,
         LEGEND_ITEMS,
         MAGIC_PEN_HINT_ID,
@@ -92,6 +98,8 @@ except ImportError:
         apply_subtle_scrollbar,
         center_window_over_parent,
         dismiss_hint,
+        floating_actions_mode,
+        format_floating_actions_status,
         format_pending_edit_confirmation_title,
         format_pending_edit_summary_lines,
         format_save_button_text,
@@ -393,6 +401,10 @@ class ComparisonWindow:
         self.pending_add_rects: list[ManualRect] = []
         self.save_button: ctk.CTkButton | None = None
         self.cancel_button: ctk.CTkButton | None = None
+        self.finish_button: ctk.CTkButton | None = None
+        # True between a successful save and the user either leaving or
+        # starting a fresh edit - see _show_saved_confirmation.
+        self._edits_saved: bool = False
         self.undo_button: ctk.CTkButton | None = None
         self.redo_button: ctk.CTkButton | None = None
         self._floating_actions: ctk.CTkFrame | None = None
@@ -690,19 +702,80 @@ class ComparisonWindow:
             command=self._cancel_pending_changes,
         )
         self.cancel_button.pack(fill="x", pady=(6, 0))
+        # Replaces the two buttons above once edits are saved, so the
+        # overlay that the user was just looking at turns into the way
+        # out instead of vanishing (see _show_saved_confirmation).
+        self.finish_button = ctk.CTkButton(
+            inner,
+            text="Zakończ edycję",
+            width=190,
+            height=34,
+            corner_radius=8,
+            fg_color=COLOR_ACCENT,
+            hover_color=COLOR_ACCENT_HOVER,
+            text_color="#FFFFFF",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
+            command=self._close,
+        )
+
+    def _floating_actions_mode(self) -> str:
+        return floating_actions_mode(
+            has_pending_changes=self._has_pending_changes(),
+            edits_saved=self._edits_saved,
+        )
+
+    def _apply_floating_actions_mode(self, mode: str) -> None:
+        """Lay the overlay out for the given mode: accept/cancel while
+        edits are pending, or a single "finish" button once they are
+        saved. Re-packed rather than just toggled, so the order stays
+        deterministic either way."""
+        if (
+            self.save_button is None
+            or self.cancel_button is None
+            or self.finish_button is None
+        ):
+            return
+        self.save_button.pack_forget()
+        self.cancel_button.pack_forget()
+        self.finish_button.pack_forget()
+        if mode == FLOATING_ACTIONS_SAVED:
+            self.finish_button.pack(fill="x")
+        else:
+            self.save_button.pack(fill="x")
+            self.cancel_button.pack(fill="x", pady=(6, 0))
+
+    def _show_saved_confirmation(self) -> None:
+        """Turn the overlay into a "saved - you can leave now" state.
+
+        Before this existed, a successful save wrote "✓ Zmiany zapisane"
+        into a label that _update_pending_state had *already* hidden one
+        line earlier (no pending edits left -> place_forget), so the
+        confirmation was never actually visible, and the user was left
+        with no obvious way to finish - only the window's X, which they
+        reported as unintuitive. Keeping the overlay up, in the exact
+        spot they just clicked, both confirms the save and offers the
+        exit; it still costs no permanent vertical space, which is why
+        the old always-on "Zamknij" button was removed in the first
+        place.
+        """
+        self._edits_saved = True
+        self._update_pending_state()
 
     def _update_floating_actions_visibility(self) -> None:
-        """Show the overlay only while there is something to accept or
-        cancel, and keep it above the freshly-rendered page canvases (a
-        pane rebuild re-stacks its children, so it needs lifting again)."""
+        """Show the overlay while there is something to accept or cancel,
+        or while confirming a completed save, and keep it above the
+        freshly-rendered page canvases (a pane rebuild re-stacks its
+        children, so it needs lifting again)."""
         container = self._floating_actions
         if container is None:
             return
-        if self._has_pending_changes():
+        mode = self._floating_actions_mode()
+        self._apply_floating_actions_mode(mode)
+        if mode == FLOATING_ACTIONS_HIDDEN:
+            container.place_forget()
+        else:
             container.place(relx=1.0, rely=1.0, anchor="se", x=-18, y=-18)
             container.lift()
-        else:
-            container.place_forget()
 
     def _build_home_button(self, parent: ctk.CTkFrame) -> None:
         """App icon in the top-left corner that closes this window and
@@ -2099,8 +2172,8 @@ class ComparisonWindow:
         return bool(self.pending_remove_keys) or bool(self.pending_add_rects)
 
     def _update_pending_state(self) -> None:
-        has_pending = self._has_pending_changes()
         count = len(self.pending_remove_keys) + len(self.pending_add_rects)
+        mode = self._floating_actions_mode()
         if self.save_button is not None:
             # Always enabled/accent-colored: the whole overlay only exists
             # while there is something to accept, so a disabled-looking
@@ -2108,7 +2181,7 @@ class ComparisonWindow:
             self.save_button.configure(text=format_save_button_text(count))
         if self.pen_status_label is not None:
             self.pen_status_label.configure(
-                text=f"Niezapisane zmiany: {count}" if has_pending else ""
+                text=format_floating_actions_status(mode, count)
             )
         self._update_floating_actions_visibility()
 
@@ -2267,8 +2340,7 @@ class ComparisonWindow:
         self._patch_report_with_manual_count(len(new_edits.added))
         self.app.set_review_status(self.item, REVIEW_STATUS_NEEDS_REVIEW)
         self._update_pending_state()
-        if self.pen_status_label is not None:
-            self.pen_status_label.configure(text="✓ Zmiany zapisane")
+        self._show_saved_confirmation()
 
     def _patch_report_with_manual_count(self, manual_count: int) -> None:
         if self.app.review_dir is None or self.item.report_name is None:

@@ -1045,6 +1045,46 @@ def format_save_button_text(pending_count: int) -> str:
     return f"Zaakceptuj {_pl_edit_word(pending_count)} ({pending_count})"
 
 
+FLOATING_ACTIONS_HIDDEN = "hidden"
+FLOATING_ACTIONS_EDIT = "edit"
+FLOATING_ACTIONS_SAVED = "saved"
+
+
+def floating_actions_mode(*, has_pending_changes: bool, edits_saved: bool) -> str:
+    """Which state the comparison window's floating action overlay is in.
+
+    Three states, in priority order:
+
+    * ``edit`` - there are pending edits: offer accept and cancel.
+    * ``saved`` - edits were just saved and nothing new is pending:
+      confirm the save and offer a way out. This state exists because
+      the overlay used to simply disappear on a successful save, taking
+      its own "✓ Zmiany zapisane" confirmation with it before it could
+      be seen and leaving the window's X as the only way to finish -
+      which a user reported as unintuitive.
+    * ``hidden`` - nothing to act on, so the preview gets the full pane.
+
+    Pending edits outrank the saved confirmation rather than clearing
+    it, so cancelling a *new* edit after an earlier save falls back to
+    ``saved`` (that earlier save still stands) instead of dropping the
+    user back to no exit affordance at all.
+    """
+    if has_pending_changes:
+        return FLOATING_ACTIONS_EDIT
+    if edits_saved:
+        return FLOATING_ACTIONS_SAVED
+    return FLOATING_ACTIONS_HIDDEN
+
+
+def format_floating_actions_status(mode: str, pending_count: int) -> str:
+    """The one status line above the overlay's buttons, per mode."""
+    if mode == FLOATING_ACTIONS_EDIT:
+        return f"Niezapisane zmiany: {pending_count}"
+    if mode == FLOATING_ACTIONS_SAVED:
+        return "✓ Zmiany zapisane"
+    return ""
+
+
 def format_pending_edit_confirmation_title(pending_count: int) -> str:
     """Title for the magic pen's save-confirmation dialog, e.g.
     "Zatwierdzić 3 edycje?" - correctly pluralized for Polish."""
