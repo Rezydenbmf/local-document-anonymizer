@@ -93,6 +93,7 @@ try:
         format_anonymize_button_text,
         format_batch_error_items,
         format_drop_result,
+        format_filename_pii_warning,
         format_processing_animation_frame,
         format_readiness_pl,
         format_recent_folder_timestamp,
@@ -208,6 +209,7 @@ except ImportError:
         format_anonymize_button_text,
         format_batch_error_items,
         format_drop_result,
+        format_filename_pii_warning,
         format_processing_animation_frame,
         format_readiness_pl,
         format_recent_folder_timestamp,
@@ -1633,8 +1635,17 @@ class AnonymizerApp:
                 added += 1
 
         self._refresh_file_cards()
+        # A file name is not touched by anonymization, yet it travels with
+        # every output, the review manifest and the export - so a name
+        # that itself carries a PESEL or an e-mail defeats an otherwise
+        # clean run. Surfaced here, at the moment files are added, rather
+        # than after processing when it is too late to rename anything.
+        filename_warning = format_filename_pii_warning(
+            [path.name for path in self.selected_paths]
+        )
         self._update_readiness(
-            status_override=format_drop_result(added, len(unsupported))
+            status_override=filename_warning
+            or format_drop_result(added, len(unsupported))
         )
 
     def remove_file_at(self, index: int) -> None:
