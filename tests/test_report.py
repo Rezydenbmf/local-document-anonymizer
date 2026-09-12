@@ -16,8 +16,13 @@ from audit import AUDIT_CATEGORY_ORDER, audit_text
 from anonymizer import SUPPORTED_LABELS, anonymize_docx_file, anonymize_file
 from anonymizer import anonymize_pdf_file, anonymize_txt_file
 from file_readers import read_docx_file
-from file_writers import build_report_path
+from file_writers import (
+    apply_collision_suffix,
+    build_report_path,
+    build_shared_collision_suffix,
+)
 from report import build_batch_summary_text, build_report_text
+from review import preferred_review_output_path
 
 
 def workspace_temp_dir():
@@ -288,6 +293,62 @@ class ReportTests(unittest.TestCase):
             self.assertIn("Review checklist output: document_REVIEW_CHECKLIST.txt", report_text)
             self.assertIn("Review PDF note: rebuilt from anonymized text", report_text)
             self.assertIn("Review PDF table-heavy note:", report_text)
+
+    def test_shared_collision_suffix_skips_numbers_taken_by_any_companion(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            folder = Path(temp_dir)
+            txt = folder / "scan_ANON.txt"
+            visual = folder / "scan_ANON_VISUAL.pdf"
+
+            self.assertEqual(build_shared_collision_suffix([txt, visual]), "")
+
+            # Only the visual PDF exists (a run from before visual output
+            # existed, or one where that step failed) - the *shared*
+            # suffix must still move past it, so the TXT does not end up
+            # numbered independently of its own visual PDF.
+            visual.write_bytes(b"%PDF-1.4\n")
+            self.assertEqual(build_shared_collision_suffix([txt, visual]), "_2")
+
+            (folder / "scan_ANON_2.txt").write_text("x", encoding="utf-8")
+            self.assertEqual(build_shared_collision_suffix([txt, visual]), "_3")
+
+    def test_apply_collision_suffix_inserts_before_the_extension(self) -> None:
+        path = Path("C:/out/scan_ANON_VISUAL.pdf")
+        self.assertEqual(apply_collision_suffix(path, ""), path)
+        self.assertEqual(
+            apply_collision_suffix(path, "_2").name, "scan_ANON_VISUAL_2.pdf"
+        )
+
+    def test_repeated_runs_keep_txt_and_visual_pdf_numbers_in_step(self) -> None:
+        # The regression behind a user report repeated across four
+        # sessions: a scan that showed colored visual redaction once and
+        # then only ever showed the rebuilt bracket-placeholder text
+        # again. Root cause was numbering, not OCR - each output picked
+        # its own collision number, so one run that produced no visual
+        # PDF offset them permanently, and preferred_review_output_path
+        # (which looks up the visual PDF by the TXT's number) missed from
+        # then on and silently fell back to the review PDF.
+        with workspace_temp_dir() as temp_dir:
+            folder = Path(temp_dir)
+            source_path = folder / "scan.pdf"
+            write_text_pdf(source_path, "Contact safe@example.test on 2026-06-01.")
+
+            first_txt, _ = anonymize_pdf_file(source_path, output_dir=folder)
+            self.assertEqual(
+                preferred_review_output_path(folder, first_txt.name).name,
+                "scan_ANON_VISUAL.pdf",
+            )
+
+            # Simulate the folder state that caused the bug: a visual PDF
+            # missing for one earlier run (deleted, or never produced).
+            (folder / "scan_ANON_VISUAL.pdf").unlink()
+
+            second_txt, _ = anonymize_pdf_file(source_path, output_dir=folder)
+            resolved = preferred_review_output_path(folder, second_txt.name)
+
+            self.assertEqual(second_txt.name, "scan_ANON_2.txt")
+            self.assertEqual(resolved.name, "scan_ANON_VISUAL_2.pdf")
+            self.assertTrue(resolved.is_file())
 
     def test_pdf_visual_redaction_failure_falls_back_without_crashing(self) -> None:
         # A real user report, repeated across several sessions: a scan

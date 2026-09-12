@@ -569,17 +569,25 @@ def save_rebuilt_review_pdf_from_text(
     *,
     page_texts: Sequence[str] | None = None,
     output_dir: str | Path | None = None,
+    output_path: str | Path | None = None,
     text_extraction: str = PDF_TEXT_EXTRACTION_TEXT_LAYER,
 ) -> dict[str, object]:
-    """Create a readable PDF review artifact from anonymized text only."""
+    """Create a readable PDF review artifact from anonymized text only.
+
+    ``output_path`` writes that exact path instead of picking an
+    independent collision-safe name - used so every companion file of one
+    run shares one number (see build_shared_collision_suffix)."""
     if not isinstance(anonymized_text, str):
         raise TypeError("anonymized_text must be a string")
 
     fitz = _load_fitz_module()
     source = Path(source_path)
-    output_path = build_collision_safe_path(
-        build_pdf_review_path(source, output_dir=output_dir)
-    )
+    if output_path is not None:
+        output_path = Path(output_path)
+    else:
+        output_path = build_collision_safe_path(
+            build_pdf_review_path(source, output_dir=output_dir)
+        )
     pages = _coerce_review_pages(anonymized_text, page_texts)
 
     document = fitz.open()
@@ -959,13 +967,21 @@ def save_redacted_pdf_copy(
     sensitive_terms: Iterable[SensitiveTerm] | None = None,
     extra_redaction_terms: Iterable[tuple[str, str]] | None = None,
     output_dir: str | Path | None = None,
+    output_path: str | Path | None = None,
 ) -> dict[str, object]:
-    """Create a true-redacted PDF copy and return safe metadata."""
+    """Create a true-redacted PDF copy and return safe metadata.
+
+    ``output_path`` writes that exact path instead of picking an
+    independent collision-safe name - used so every companion file of one
+    run shares one number (see build_shared_collision_suffix)."""
     fitz = _load_fitz_module()
     source = Path(source_path)
-    output_path = build_collision_safe_path(
-        build_original_redacted_pdf_path(source, output_dir=output_dir)
-    )
+    if output_path is not None:
+        output_path = Path(output_path)
+    else:
+        output_path = build_collision_safe_path(
+            build_original_redacted_pdf_path(source, output_dir=output_dir)
+        )
     counters: dict[str, int] = {}
 
     with fitz.open(source) as document:
