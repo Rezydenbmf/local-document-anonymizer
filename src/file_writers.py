@@ -1,6 +1,6 @@
 """File writers for TXT, DOCX, PDF-to-TXT, image-to-TXT, and reports."""
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 import os
 from pathlib import Path
 
@@ -114,6 +114,49 @@ def build_collision_safe_path(candidate_path: str | Path) -> Path:
         next_path = path.with_name(f"{path.stem}_{index}{path.suffix}")
         if not next_path.exists():
             return next_path
+        index += 1
+
+
+def apply_collision_suffix(candidate_path: str | Path, suffix: str) -> Path:
+    """Return ``candidate_path`` with a shared collision suffix applied,
+    e.g. ("scan_ANON_VISUAL.pdf", "_2") -> "scan_ANON_VISUAL_2.pdf".
+    An empty suffix returns the path unchanged."""
+    path = Path(candidate_path)
+    if not suffix:
+        return path
+    return path.with_name(f"{path.stem}{suffix}{path.suffix}")
+
+
+def build_shared_collision_suffix(candidate_paths: Sequence[str | Path]) -> str:
+    """Return the smallest numeric suffix ("", "_2", "_3", ...) for which
+    *every* candidate path is still free.
+
+    One anonymization run writes several companion files for the same
+    source (the _ANON.txt, the _ANON_VISUAL.pdf, the _ANON_REVIEW.pdf,
+    ...) and the rest of this app - most visibly
+    review.preferred_review_output_path, which is how the comparison
+    window decides what to show - assumes they all carry the *same*
+    number. Numbering each of them independently with
+    build_collision_safe_path silently breaks that assumption the moment
+    one run produces a different set of files than another: from then
+    on the TXT can be "_4" while its own visual PDF is "_3", and the
+    lookup for "_4" finds nothing and quietly falls back to the rebuilt
+    text PDF instead. That was a real, reproduced bug - a scan that
+    "worked once and then never again" in a folder that had accumulated
+    runs from before visual output existed.
+
+    Allocating one suffix that clears every name at once makes the
+    shared-number convention true by construction, including in folders
+    where the old independent numbering already drifted apart.
+    """
+    paths = [Path(candidate) for candidate in candidate_paths]
+    if not paths:
+        return ""
+    index = 1
+    while True:
+        suffix = "" if index == 1 else f"_{index}"
+        if not any(apply_collision_suffix(path, suffix).exists() for path in paths):
+            return suffix
         index += 1
 
 
@@ -287,14 +330,23 @@ def save_anonymized_pdf_txt_copy(
     source_path: str | Path,
     anonymized_text: str,
     output_dir: str | Path | None = None,
+    *,
+    output_path: str | Path | None = None,
 ) -> Path:
-    """Write anonymized PDF text as UTF-8 TXT without modifying the PDF."""
+    """Write anonymized PDF text as UTF-8 TXT without modifying the PDF.
+
+    ``output_path`` writes that exact path instead of picking an
+    independent collision-safe name - used so every companion file of one
+    run shares one number (see build_shared_collision_suffix)."""
     if not isinstance(anonymized_text, str):
         raise TypeError("anonymized_text must be a string")
 
-    output_path = build_collision_safe_path(
-        build_anonymized_pdf_txt_path(source_path, output_dir=output_dir)
-    )
+    if output_path is not None:
+        output_path = Path(output_path)
+    else:
+        output_path = build_collision_safe_path(
+            build_anonymized_pdf_txt_path(source_path, output_dir=output_dir)
+        )
     output_path.write_text(anonymized_text, encoding="utf-8")
     return output_path
 
@@ -303,14 +355,23 @@ def save_anonymized_image_txt_copy(
     source_path: str | Path,
     anonymized_text: str,
     output_dir: str | Path | None = None,
+    *,
+    output_path: str | Path | None = None,
 ) -> Path:
-    """Write anonymized OCR text as UTF-8 TXT without modifying the image."""
+    """Write anonymized OCR text as UTF-8 TXT without modifying the image.
+
+    ``output_path`` writes that exact path instead of picking an
+    independent collision-safe name - used so every companion file of one
+    run shares one number (see build_shared_collision_suffix)."""
     if not isinstance(anonymized_text, str):
         raise TypeError("anonymized_text must be a string")
 
-    output_path = build_collision_safe_path(
-        build_anonymized_image_txt_path(source_path, output_dir=output_dir)
-    )
+    if output_path is not None:
+        output_path = Path(output_path)
+    else:
+        output_path = build_collision_safe_path(
+            build_anonymized_image_txt_path(source_path, output_dir=output_dir)
+        )
     output_path.write_text(anonymized_text, encoding="utf-8")
     return output_path
 

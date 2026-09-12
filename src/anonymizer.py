@@ -24,9 +24,17 @@ try:
         read_txt_file,
     )
     from .file_writers import (
+        apply_collision_suffix,
+        build_anonymized_image_txt_path,
+        build_anonymized_pdf_txt_path,
         build_batch_summary_path,
         build_collision_safe_path,
+        build_image_visual_pdf_path,
+        build_original_redacted_pdf_path,
+        build_pdf_review_path,
+        build_pdf_visual_path,
         build_report_path,
+        build_shared_collision_suffix,
         save_anonymized_docx_copy,
         save_anonymized_image_txt_copy,
         save_anonymized_pdf_txt_copy,
@@ -103,9 +111,17 @@ except ImportError:
         read_txt_file,
     )
     from file_writers import (
+        apply_collision_suffix,
+        build_anonymized_image_txt_path,
+        build_anonymized_pdf_txt_path,
         build_batch_summary_path,
         build_collision_safe_path,
+        build_image_visual_pdf_path,
+        build_original_redacted_pdf_path,
+        build_pdf_review_path,
+        build_pdf_visual_path,
         build_report_path,
+        build_shared_collision_suffix,
         save_anonymized_docx_copy,
         save_anonymized_image_txt_copy,
         save_anonymized_pdf_txt_copy,
@@ -1464,6 +1480,39 @@ def _anonymize_pdf_file_result(
     anonymized_pages = _split_anonymized_pdf_pages(anonymized, page_count_for_split)
     anonymized_output_text = "\n\n".join(anonymized_pages)
 
+    # One number for every companion file this run writes, instead of each
+    # writer picking its own. review.preferred_review_output_path - how the
+    # comparison window decides what to show - looks for the visual PDF
+    # whose number matches the TXT's; numbering them independently let
+    # those drift apart permanently the moment one run produced a
+    # different set of files than another (e.g. a run from before visual
+    # output existed, or one where the visual step failed). From then on
+    # the lookup missed and every later run silently showed the rebuilt
+    # text PDF instead of the colored one - a real, reproduced bug behind
+    # a repeated "the scan lost its colors again" report.
+    pdf_output_suffix = build_shared_collision_suffix(
+        [
+            build_anonymized_pdf_txt_path(source_path, output_dir=output_dir),
+            build_pdf_visual_path(source_path, output_dir=output_dir),
+            build_pdf_review_path(source_path, output_dir=output_dir),
+            build_original_redacted_pdf_path(source_path, output_dir=output_dir),
+        ]
+    )
+    pdf_txt_output_path = apply_collision_suffix(
+        build_anonymized_pdf_txt_path(source_path, output_dir=output_dir),
+        pdf_output_suffix,
+    )
+    pdf_visual_output_path = apply_collision_suffix(
+        build_pdf_visual_path(source_path, output_dir=output_dir), pdf_output_suffix
+    )
+    pdf_review_output_path = apply_collision_suffix(
+        build_pdf_review_path(source_path, output_dir=output_dir), pdf_output_suffix
+    )
+    pdf_original_redacted_output_path = apply_collision_suffix(
+        build_original_redacted_pdf_path(source_path, output_dir=output_dir),
+        pdf_output_suffix,
+    )
+
     if normalized_pdf_output_mode == PDF_OUTPUT_MODE_VISUAL and active_word_pages:
         text_extraction_label = "text_layer" if text_based_pdf else "ocr_word_coordinates"
         try:
@@ -1471,7 +1520,7 @@ def _anonymize_pdf_file_result(
                 source_path,
                 word_pages=active_word_pages,
                 spans=pdf_detection_spans,
-                output_dir=output_dir,
+                output_path=pdf_visual_output_path,
             )
             pdf_redaction_result["text_extraction"] = text_extraction_label
         except Exception as visual_redaction_error:  # noqa: BLE001
@@ -1499,7 +1548,7 @@ def _anonymize_pdf_file_result(
                 source_path,
                 anonymized_output_text,
                 page_texts=anonymized_pages if text_based_pdf else None,
-                output_dir=output_dir,
+                output_path=pdf_review_output_path,
                 text_extraction=text_extraction_label,
             )
             pdf_redaction_result = _attach_auxiliary_review_pdf_metadata(
@@ -1514,7 +1563,7 @@ def _anonymize_pdf_file_result(
                 source_path,
                 anonymized_output_text,
                 page_texts=anonymized_pages if text_based_pdf else None,
-                output_dir=output_dir,
+                output_path=pdf_review_output_path,
                 text_extraction="text_layer" if text_based_pdf else "ocr_fallback",
             )
         except RuntimeError:
@@ -1528,7 +1577,7 @@ def _anonymize_pdf_file_result(
                 source_path,
                 sensitive_terms=terms,
                 extra_redaction_terms=pdf_ner_redaction_terms,
-                output_dir=output_dir,
+                output_path=pdf_original_redacted_output_path,
             )
         except RuntimeError:
             pdf_redaction_result = build_pdf_redaction_metadata(status="unavailable")
@@ -1540,7 +1589,7 @@ def _anonymize_pdf_file_result(
                     source_path,
                     anonymized_output_text,
                     page_texts=None,
-                    output_dir=output_dir,
+                    output_path=pdf_review_output_path,
                     text_extraction="ocr_fallback",
                 )
                 pdf_redaction_result = _attach_auxiliary_review_pdf_metadata(
@@ -1568,7 +1617,7 @@ def _anonymize_pdf_file_result(
             "visual_redaction_fallback_reason", word_box_fallback_reason
         )
     output_path = save_anonymized_pdf_txt_copy(
-        source_path, anonymized_output_text, output_dir=output_dir
+        source_path, anonymized_output_text, output_path=pdf_txt_output_path
     )
     llm_review_result = _run_optional_llm_review(
         anonymized_output_text,
@@ -1726,8 +1775,22 @@ def _anonymize_image_file_result(
             ner_context=ner_context,
         )
     )
+    # Same shared-number rule the PDF path above follows, for the same
+    # reason: the comparison window finds an image's visual PDF by the
+    # TXT's number, so the two must never drift apart.
+    image_output_suffix = build_shared_collision_suffix(
+        [
+            build_anonymized_image_txt_path(source_path, output_dir=output_dir),
+            build_image_visual_pdf_path(source_path, output_dir=output_dir),
+        ]
+    )
     output_path = save_anonymized_image_txt_copy(
-        source_path, anonymized, output_dir=output_dir
+        source_path,
+        anonymized,
+        output_path=apply_collision_suffix(
+            build_anonymized_image_txt_path(source_path, output_dir=output_dir),
+            image_output_suffix,
+        ),
     )
 
     pdf_redaction_result: dict[str, object] = {}
@@ -1740,7 +1803,10 @@ def _anonymize_image_file_result(
                 source_path,
                 word_pages=ocr_word_pages,
                 spans=image_detection_spans,
-                output_dir=output_dir,
+                output_path=apply_collision_suffix(
+                    build_image_visual_pdf_path(source_path, output_dir=output_dir),
+                    image_output_suffix,
+                ),
             )
             pdf_redaction_result["text_extraction"] = "ocr_word_coordinates"
         except RuntimeError:
