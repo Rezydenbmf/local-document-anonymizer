@@ -3009,6 +3009,24 @@ b124ecd Keep the edit overlay up after saving, with a way to finish
 
 ## Next Logical Step
 
+**⚠️ Standing note, not urgent yet — read before touching `llm_review.py`.**
+DocShield processes documents from untrusted sources (invoices, scans,
+contracts). The moment the locked-off LLM-review/Ollama feature gets
+built out for real, document content will flow into a model prompt -
+the same injection vector a 2026-09 Securitum/Sekurak agent-security
+training demonstrated live: an invoice email with a hidden HTML comment
+instructing an agent to read secrets and exfiltrate them into its
+summary. The prompt construction in `llm_review.py` (and
+`knowledge_assistant.py`, which already talks to Ollama) needs to treat
+document content as **data to analyze, never as instructions to
+follow**, designed in from the start rather than patched on after. No
+code exists yet for this and none is needed today - this is a reminder
+for whenever that work actually starts, not a task to schedule now. See
+`CLAUDE.md`'s "Bezpieczeństwo agentowe" section for the fuller reasoning
+(the "lethal trifecta": untrusted content + sensitive data access +
+an outbound channel - this is exactly the point that feature would
+create the third leg).
+
 **Immediate:** hand the rebuilt `installer_output/DocShield-Setup-0.1.0-alpha.exe`
 to the outside tester - every build before `795e90b` had non-functional
 OCR and should be treated as superseded. One thing is on the user, not

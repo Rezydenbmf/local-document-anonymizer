@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(git push --force*)",
+      "Bash(git push -f *)",
+      "Bash(git filter-branch*)",
+      "Bash(rm -rf /)",
+      "Bash(rm -rf /*)",
+      "Bash(format *)",
+      "Bash(diskpart*)",
+      "PowerShell(git push --force*)",
+      "PowerShell(git push -f *)",
+      "PowerShell(Remove-Item C:\\ -Recurse*)",
+      "PowerShell(Format-Volume*)"
+    ],
+    "ask": [
+      "Bash(git reset --hard*)",
+      "PowerShell(git reset --hard*)",
+      "Bash(*pip install*)",
+      "PowerShell(*pip install*)"
+    ]
+  }
+}
