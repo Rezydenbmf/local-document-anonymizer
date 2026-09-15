@@ -56,3 +56,11 @@ dist/
 installer_output/
 packaging/tesseract/
 *.spec.bak
+
+# Local mirror of the private cross-project _wiedza-ai skill library
+# (installed via install-projekt.ps1). This repo is public - a private
+# methodology mirror belongs on disk only, never committed here. Claude
+# Code reads these files directly off disk regardless of git tracking,
+# so untracking them changes nothing functionally.
+.ai/
+AGENTS.md
