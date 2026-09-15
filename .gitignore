@@ -64,3 +64,14 @@ packaging/tesseract/
 # so untracking them changes nothing functionally.
 .ai/
 AGENTS.md
+
+# User's own root-level scratch files - personal notes, ideas, ad-hoc
+# scripts. This repo is public; a careless `git add -A` under the now
+# largely autonomous workflow must not be able to sweep these in.
+# notatki.txt in particular has held unredacted business context in the
+# past (see docs/PROJECT_STATE.md's 2026-09-15 redaction commit) - this
+# is the preventive fix for that exact class of leak, not a one-off.
+/notatki.txt
+/pomysly/
+/diagnostyka_skanu.py
+/sprawdz_tesseract.ps1
