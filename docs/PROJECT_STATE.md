@@ -2780,13 +2780,11 @@ bf6da27 Give the preview window its space back: title-bar tools, floating action
 bba22c7 Document the security audit, its three fixes and the preview-window layout pass
 ```
 
-**Then a hand-off deadline changed priorities entirely: an outside tester
-(a lawyer working across medical institutions, with the standing offer of
-a firm-wide license if the app holds up) needed a build by Monday, with
-roughly 6% of the week's usage budget left to produce it in.** Two things
-had to happen before anything could be handed over at all: mark the
-current state honestly, and package it so installing needs nothing but
-running one file.
+**Then a hand-off deadline changed priorities entirely: the app needed a
+self-contained build ready for an outside tester to try hands-on.** Two
+things had to happen before anything could be handed over at all: mark
+the current state honestly, and package it so installing needs nothing
+but running one file.
 
 **Marked ALPHA, and the untested local-LLM review locked off rather than
 silently shipped.** `use_llm_review` already defaulted to False
