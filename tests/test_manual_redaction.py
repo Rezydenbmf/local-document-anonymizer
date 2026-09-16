@@ -8,6 +8,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
+from anonymizer import compute_pdf_redaction_spans
 from manual_redaction import (
     EMPTY_MANUAL_EDITS,
     ManualEdits,
@@ -175,6 +176,93 @@ class RegeneratePdfWithManualOverridesTests(unittest.TestCase):
             self.assertIn("Beta", visible_text)
             self.assertEqual(result["counters"].get("RECZNE"), 1)
             self.assertNotIn("EMAIL", result["counters"])
+
+
+class PrecomputedDetectionReuseTests(unittest.TestCase):
+    """A caller that already has word_pages/spans from an earlier detection
+    pass in the same session (the comparison window's cache, added to
+    avoid redoing OCR/NER on every manual-edit save - see the Etap 2
+    timing entry in docs/PROJECT_STATE.md) can hand them straight to
+    regenerate_pdf_with_manual_overrides / compute_visible_redaction_rects
+    instead of triggering a fresh recompute. This must be a pure perf
+    optimization - same output either way."""
+
+    def test_regenerate_with_precomputed_detection_matches_recompute(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            source_path = Path(temp_dir) / "source.pdf"
+            write_fitz_text_pdf(
+                source_path,
+                ["Contact tester@example.test today.", "Header Alpha Beta Gamma"],
+            )
+            word_pages, spans = compute_pdf_redaction_spans(source_path)
+
+            recomputed_output = Path(temp_dir) / "recomputed_ANON_VISUAL.pdf"
+            precomputed_output = Path(temp_dir) / "precomputed_ANON_VISUAL.pdf"
+
+            recomputed = regenerate_pdf_with_manual_overrides(
+                source_path,
+                output_path=recomputed_output,
+                edits=EMPTY_MANUAL_EDITS,
+            )
+            precomputed = regenerate_pdf_with_manual_overrides(
+                source_path,
+                output_path=precomputed_output,
+                edits=EMPTY_MANUAL_EDITS,
+                word_pages=word_pages,
+                spans=spans,
+            )
+
+            self.assertEqual(recomputed["counters"], precomputed["counters"])
+            self.assertEqual(
+                recomputed["redaction_count"], precomputed["redaction_count"]
+            )
+
+            import pymupdf as fitz
+
+            with fitz.open(recomputed_output) as doc:
+                recomputed_text = "\n".join(page.get_text("text") for page in doc)
+            with fitz.open(precomputed_output) as doc:
+                precomputed_text = "\n".join(page.get_text("text") for page in doc)
+            self.assertEqual(recomputed_text, precomputed_text)
+
+    def test_only_one_of_word_pages_or_spans_is_treated_as_neither(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            source_path = Path(temp_dir) / "source.pdf"
+            write_fitz_text_pdf(source_path, ["Contact tester@example.test today."])
+            word_pages, _spans = compute_pdf_redaction_spans(source_path)
+            output_path = Path(temp_dir) / "source_ANON_VISUAL.pdf"
+
+            # Passing only word_pages (spans left None) must fall back to a
+            # full recompute rather than crashing or silently using a
+            # half-valid pair.
+            result = regenerate_pdf_with_manual_overrides(
+                source_path,
+                output_path=output_path,
+                edits=EMPTY_MANUAL_EDITS,
+                word_pages=word_pages,
+            )
+            self.assertEqual(result["counters"].get("EMAIL"), 1)
+
+    def test_visible_rects_with_precomputed_detection_matches_recompute(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            source_path = Path(temp_dir) / "source.pdf"
+            write_fitz_text_pdf(
+                source_path,
+                ["Contact tester@example.test today.", "Header Alpha Beta Gamma"],
+            )
+            word_pages, spans = compute_pdf_redaction_spans(source_path)
+
+            recomputed = compute_visible_redaction_rects(
+                source_path, edits=EMPTY_MANUAL_EDITS
+            )
+            precomputed = compute_visible_redaction_rects(
+                source_path,
+                edits=EMPTY_MANUAL_EDITS,
+                word_pages=word_pages,
+                spans=spans,
+            )
+
+            self.assertEqual(recomputed, precomputed)
 
 
 class ComputeVisibleRedactionRectsTests(unittest.TestCase):

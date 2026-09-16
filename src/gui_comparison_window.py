@@ -15,6 +15,7 @@ import customtkinter as ctk
 from PIL import Image, ImageTk
 
 try:
+    from .anonymizer import compute_pdf_redaction_spans
     from .file_readers import (
         read_docx_file,
         read_txt_file,
@@ -70,6 +71,7 @@ try:
         ReviewItem,
     )
 except ImportError:
+    from anonymizer import compute_pdf_redaction_spans
     from file_readers import (
         read_docx_file,
         read_txt_file,
@@ -397,6 +399,16 @@ class ComparisonWindow:
         self._drag_rect_id: int | None = None
         self.edits: ManualEdits = EMPTY_MANUAL_EDITS
         self.visible_rects: list[dict[str, object]] = []
+        # Detection (word_pages/spans) is expensive to recompute - a scan's
+        # OCR alone measured ~15s for 6 pages (see docs/PROJECT_STATE.md's
+        # Etap 2 timing entry) - and source_path never changes for the
+        # lifetime of one comparison window, so it only needs recomputing
+        # if the detection settings themselves change mid-session (NER
+        # toggled in Settings while this window stays open). Keyed on
+        # those settings rather than assumed stable, so a change is still
+        # picked up correctly instead of silently reusing stale results.
+        self._detection_cache_key: tuple | None = None
+        self._detection_cache: tuple[list, list] | None = None
         self.pending_remove_keys: set = set()
         self.pending_add_rects: list[ManualRect] = []
         self.save_button: ctk.CTkButton | None = None
@@ -1841,19 +1853,48 @@ class ComparisonWindow:
 
     # -- magic pen: rendering -------------------------------------------------
 
+    def _cached_detection(self) -> tuple[list, list]:
+        """Return this session's (word_pages, spans) for ``self.source_path``,
+        computing and caching them once instead of on every reload/save.
+
+        The cache key covers the detection settings that can actually
+        change while this window stays open (NER on/off, dictionary path)
+        so a mid-session Settings change still triggers a fresh, correct
+        recompute rather than reusing stale results - only the repeated,
+        wasted recompute of the *same* detection is being avoided here.
+        """
+        key = (
+            str(self.source_path),
+            str(self.app.sensitive_terms_path or ""),
+            bool(self.app.use_ner),
+        )
+        if self._detection_cache is None or self._detection_cache_key != key:
+            self._detection_cache = compute_pdf_redaction_spans(
+                self.source_path,
+                sensitive_terms_path=self.app.sensitive_terms_path,
+                use_ner=self.app.use_ner,
+            )
+            self._detection_cache_key = key
+        return self._detection_cache
+
     def _reload_visible_rects(self) -> None:
         if self.source_path is None:
             self.visible_rects = []
             return
         try:
+            word_pages, spans = self._cached_detection()
             self.visible_rects = compute_visible_redaction_rects(
                 self.source_path,
                 edits=self.edits,
                 sensitive_terms_path=self.app.sensitive_terms_path,
                 use_ner=self.app.use_ner,
+                word_pages=word_pages,
+                spans=spans,
             )
         except (OSError, RuntimeError, ValueError):
             self.visible_rects = []
+            self._detection_cache = None
+            self._detection_cache_key = None
 
     def _build_magic_pen_pane(self, parent: ctk.CTkBaseClass) -> None:
         target_width = int(BASE_PREVIEW_WIDTH * self.result_zoom)
@@ -2313,12 +2354,15 @@ class ComparisonWindow:
             f"{self.result_path.stem}.tmp{self.result_path.suffix}"
         )
         try:
+            word_pages, spans = self._cached_detection()
             regenerate_pdf_with_manual_overrides(
                 self.source_path,
                 output_path=staging_path,
                 edits=new_edits,
                 sensitive_terms_path=self.app.sensitive_terms_path,
                 use_ner=self.app.use_ner,
+                word_pages=word_pages,
+                spans=spans,
             )
             os.replace(staging_path, self.result_path)
             save_manual_edits(manual_edits_path(self.result_path), new_edits)

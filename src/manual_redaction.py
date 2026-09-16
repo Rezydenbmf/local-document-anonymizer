@@ -158,6 +158,8 @@ def regenerate_pdf_with_manual_overrides(
     sensitive_terms_path: str | Path | None = None,
     use_ner: bool = False,
     ner_model_name: str = "",
+    word_pages: Sequence | None = None,
+    spans: object = None,
 ) -> dict[str, object]:
     """Rebuild the true-redacted visual PDF in place, applying manual overrides.
 
@@ -165,15 +167,24 @@ def regenerate_pdf_with_manual_overrides(
     redacted output), then excludes ``edits.removed`` rectangles and adds
     ``edits.added`` rectangles before burning in the true redaction, exactly
     like the normal batch workflow does.
+
+    A caller that already has ``word_pages``/``spans`` from an earlier
+    detection pass on this exact source file in the same session (for
+    example the comparison window's cache) can pass both to skip
+    redetection entirely -- including a scanned document's OCR, the
+    single most expensive step in this pipeline. Passing only one of the
+    two is treated as not passing either, since a partial pair can't be
+    used safely.
     """
-    kwargs = {
-        "sensitive_terms": sensitive_terms,
-        "sensitive_terms_path": sensitive_terms_path,
-        "use_ner": use_ner,
-    }
-    if ner_model_name:
-        kwargs["ner_model_name"] = ner_model_name
-    word_pages, spans = compute_pdf_redaction_spans(source_path, **kwargs)
+    if word_pages is None or spans is None:
+        kwargs = {
+            "sensitive_terms": sensitive_terms,
+            "sensitive_terms_path": sensitive_terms_path,
+            "use_ner": use_ner,
+        }
+        if ner_model_name:
+            kwargs["ner_model_name"] = ner_model_name
+        word_pages, spans = compute_pdf_redaction_spans(source_path, **kwargs)
 
     extra_rects = [(rect.page, rect.as_tuple()) for rect in edits.added]
     if Path(source_path).suffix.lower() in IMAGE_EXTENSIONS:
@@ -206,21 +217,29 @@ def compute_visible_redaction_rects(
     sensitive_terms_path: str | Path | None = None,
     use_ner: bool = False,
     ner_model_name: str = "",
+    word_pages: Sequence | None = None,
+    spans: object = None,
 ) -> list[dict[str, object]]:
     """Return every rectangle currently visible on a true-redacted PDF.
 
     Combines auto-detected rectangles (minus ``edits.removed``) with
     ``edits.added``, without opening or writing the true-redacted output
     file. Used to hit-test clicks in the comparison view's magic pen.
+
+    Accepts an already-computed ``word_pages``/``spans`` pair (both or
+    neither) the same way :func:`regenerate_pdf_with_manual_overrides`
+    does, to skip redetection when a caller already has one from this
+    session on this exact source file.
     """
-    kwargs = {
-        "sensitive_terms": sensitive_terms,
-        "sensitive_terms_path": sensitive_terms_path,
-        "use_ner": use_ner,
-    }
-    if ner_model_name:
-        kwargs["ner_model_name"] = ner_model_name
-    word_pages, spans = compute_pdf_redaction_spans(source_path, **kwargs)
+    if word_pages is None or spans is None:
+        kwargs = {
+            "sensitive_terms": sensitive_terms,
+            "sensitive_terms_path": sensitive_terms_path,
+            "use_ner": use_ner,
+        }
+        if ner_model_name:
+            kwargs["ner_model_name"] = ner_model_name
+        word_pages, spans = compute_pdf_redaction_spans(source_path, **kwargs)
     auto_rects, _counters, _unmapped = compute_redaction_rects(
         word_pages, spans, removed_span_keys=edits.removed
     )
