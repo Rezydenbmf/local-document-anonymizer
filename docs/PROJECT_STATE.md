@@ -3091,6 +3091,66 @@ Full suite: 482 tests. Lint at the established 77-error baseline.
 c8cc3c6 Add single-history cleanup, 30-day reminder, and export-destination picker
 ```
 
+**Etap 2 measured, not implemented: is the auto-mode redaction pipeline's
+double work actually slow enough to justify restructuring around "paint
+proposal first, burn in only after confirm"? Measured first, per the
+2026-09-15 staged plan's own instruction not to assume either way - and
+the answer is no, but for a different reason than the question assumed.**
+Built two synthetic, fully fabricated 6-page PDFs (never real user
+documents, per this project's own rule - `_manual_test/` etc. are not
+committed): a normal text-layer PDF, and an image-only PDF with no text
+layer at all (forces the OCR fallback exactly like a phone scan). Both
+carry Lorem-Ipsum filler plus made-up PESEL/email/phone/address values
+shaped to match the app's own `_AUDIT_PATTERNS` regexes, so detection had
+real (fake) hits to find. Timed the exact two functions the app itself
+calls - `compute_pdf_redaction_spans` (detect) and
+`save_word_coordinate_redacted_pdf_copy` (burn-in) - once for the
+automatic first pass, once again standing in for a manual-edit "save"
+(today's actual behavior: `regenerate_pdf_with_manual_overrides` reruns
+both from scratch on the *original* source file every time).
+
+Results (single run each, this sandbox - not averaged, but the gap is an
+order of magnitude, not noise): text-layer PDF, NER off - detect 0.19s /
+burn 0.05s (burn = 30% of a ~0.24s pass, imperceptible either way).
+Text-layer PDF, NER on - detect 3.46s / burn 0.06s (burn = under 3%).
+Scanned PDF, NER off - detect 15.7s / burn 1.3s (burn = 8%). Scanned +
+NER - detect 15.2s / burn 1.2s (burn = 8%). In every case burn-in
+(PyMuPDF's `apply_redactions`) is a small minority of total time, from
+tens of milliseconds up to ~1.4s - never the dominant cost. So a
+restructure that only moves *when* burn-in happens would save, at most,
+that same tens-of-ms-to-1.4s sliver, once per save.
+
+What actually dominates is detection, for two separate reasons neither
+of which "paint proposal first" would touch: (1) OCR - a real scan's
+word-box extraction costs ~15s for 6 pages, and today's
+`regenerate_pdf_with_manual_overrides` reruns it in full on *every*
+manual-edit save, since it always redetects from the original source
+file rather than reusing what the automatic first pass already computed.
+(2) NER model loading - `ner.prepare_ner_context` calls `spacy.load(...)`
+with no caching at all, so every single call that has NER enabled pays a
+1.3-3.5s model-load cost, independent of document size and independent
+of whether this is the first pass or a resave. Both are proportionally
+far larger than the burn-in step the original question was about.
+
+Not implemented yet, and needs the user's own decision before it is,
+since both touch files `CLAUDE.md` already flags for independent
+`code-review` before merge (`anonymizer.py`, `manual_redaction.py`,
+plus `ner.py`): (a) cache the word_pages/spans the automatic first pass
+already computed and reuse them on a same-session manual-edit save
+instead of recomputing from scratch - the source file cannot have
+changed in between, so this is the same deterministic result for free,
+and would eliminate the ~15s OCR redo entirely, not just shrink it; (b)
+cache the loaded spaCy model at module/process scope instead of
+reloading it on every call - saves 1.3-3.5s on *every* NER-enabled
+call, first pass included, not just the resave. Both are smaller and
+lower-risk than the mouse-interaction/category-scoping work queued as
+Etap 3+, and neither requires the "paint proposal, burn once" UX change
+the original framing assumed.
+
+Timing script and synthetic fixtures were scratch-only (session
+scratchpad, never committed) - nothing about a real document was read or
+needed to answer this.
+
 ## Next Logical Step
 
 **⚠️ Standing note, not urgent yet — read before touching `llm_review.py`.**
@@ -3113,18 +3173,23 @@ create the third leg).
 
 **Immediate:** the installer hand-off, the OCR fix, and Etap 1 (history
 cleanup/reminder/export picker) are all done and merged - see the
-narratives above. What's actually next is the rest of the staged plan
-from the 2026-09-15 conversation (notes drawn from the user's own
-`notatki.txt`, never committed): Etap 2 measures whether the auto-mode
-redaction pipeline's double work (burn-in on first pass, redone on any
-manual edit) is worth restructuring around; Etap 3 is a three-mode
-mouse-interaction redesign for the magic pen (LPM=mark/PPM=pan/middle-
-click=temporary unmark modifier, plus two alternate modes selectable in
-Settings); Etap 4-6 build selective category-based anonymization (8
-categories, grounded in which detectors are pattern-reliable vs.
-AI-probabilistic) with per-page scoping; Etap 7 investigates qpdf for
-stripping e-signatures a real case showed this app currently misses.
-None of these are started. **This conversation has also run long enough
+narratives above. Etap 2 is now measured (see the narrative just above
+this section) - restructuring around "burn in only after confirm" is
+**not** the win it looked like; caching detection results across the
+automatic pass and a same-session manual-edit save (and separately,
+caching the spaCy model load) is the real, smaller, lower-risk candidate
+instead, still needing the user's own go-ahead before starting since it
+touches files `CLAUDE.md` flags for review. What's actually next is the
+rest of the staged plan from the 2026-09-15 conversation (notes drawn
+from the user's own `notatki.txt`, never committed): Etap 3 is a
+three-mode mouse-interaction redesign for the magic pen (LPM=mark/
+PPM=pan/middle-click=temporary unmark modifier, plus two alternate modes
+selectable in Settings); Etap 4-6 build selective category-based
+anonymization (8 categories, grounded in which detectors are
+pattern-reliable vs. AI-probabilistic) with per-page scoping; Etap 7
+investigates qpdf for stripping e-signatures a real case showed this app
+currently misses. None of these are started. **This conversation has
+also run long enough
 that it should not be the one to start them** - continue in a fresh
 session; `CLAUDE.md`, this file, and `docs/DO_ZWERYFIKOWANIA.md` carry
 everything forward.
