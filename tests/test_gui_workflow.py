@@ -4,6 +4,7 @@ import importlib
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -76,8 +77,11 @@ from gui import (
     format_selected_file_count,
     format_short_path,
     hint_is_dismissed,
+    cleanup_reminder_config_path,
+    ensure_cleanup_reminder_baseline,
     history_config_path,
     is_degenerate_drag_rect,
+    load_cleanup_reminder_config,
     load_recent_folders,
     load_seen_hints,
     mousewheel_scroll_units,
@@ -94,7 +98,9 @@ from gui import (
     restrict_review_items_to_batch,
     review_status_label_pl,
     risk_style_key,
+    save_cleanup_reminder_config,
     save_recent_folders,
+    should_show_cleanup_reminder,
     save_seen_hints,
     scroll_sync_units,
     truncate_filename_middle,
@@ -815,6 +821,116 @@ class GuiWorkflowTests(unittest.TestCase):
         self.assertEqual(len(updated), 2)
         self.assertEqual(updated[0]["path"], "C:\\B")
         self.assertEqual(updated[0]["last_used"], "2026-09-08T10:00:00+00:00")
+
+    # -- "Wyczyść historię" reminder (2026-09-15 feedback: one cleanup
+    # button instead of one per folder, plus a nudge so it actually gets
+    # used - "wiem z doświadczenia że do tego samego pliku może się
+    # okazać że się wraca w ciągu 1-2 tygodni... miesiąc to bezpieczny
+    # okres") --------------------------------------------------------
+
+    def test_gui_cleanup_reminder_config_path_is_under_home_dot_folder(self) -> None:
+        result = cleanup_reminder_config_path()
+
+        self.assertEqual(result.parent.name, ".anonimizer")
+        self.assertEqual(result.name, "cleanup_reminder.json")
+
+    def test_gui_load_cleanup_reminder_config_missing_file_returns_defaults(
+        self,
+    ) -> None:
+        with workspace_temp_dir() as temp_dir:
+            missing_path = Path(temp_dir) / "does_not_exist.json"
+
+            config = load_cleanup_reminder_config(missing_path)
+
+            self.assertEqual(
+                config,
+                {"enabled": True, "interval_days": 30, "last_cleanup_at": None},
+            )
+
+    def test_gui_load_cleanup_reminder_config_ignores_corrupt_file(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            bad_path = Path(temp_dir) / "cleanup_reminder.json"
+            bad_path.write_text("not valid json {{{", encoding="utf-8")
+
+            config = load_cleanup_reminder_config(bad_path)
+
+            self.assertTrue(config["enabled"])
+
+    def test_gui_save_and_load_cleanup_reminder_config_round_trips(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            config_path = Path(temp_dir) / "nested" / "cleanup_reminder.json"
+            config = {
+                "enabled": False,
+                "interval_days": 14,
+                "last_cleanup_at": "2026-09-01T10:00:00+00:00",
+            }
+
+            save_cleanup_reminder_config(config_path, config)
+            loaded = load_cleanup_reminder_config(config_path)
+
+            self.assertEqual(loaded, config)
+
+    def test_gui_cleanup_reminder_disabled_never_shows(self) -> None:
+        config = {
+            "enabled": False,
+            "interval_days": 30,
+            "last_cleanup_at": "2020-01-01T00:00:00+00:00",
+        }
+
+        self.assertFalse(
+            should_show_cleanup_reminder(config, datetime.now(timezone.utc))
+        )
+
+    def test_gui_cleanup_reminder_no_baseline_yet_does_not_show(self) -> None:
+        """A missing last_cleanup_at means no baseline has been seeded -
+        callers seed one via ensure_cleanup_reminder_baseline before this
+        case should come up in practice, but the predicate itself must
+        never treat "unknown" as "overdue"."""
+        config = {"enabled": True, "interval_days": 30, "last_cleanup_at": None}
+
+        self.assertFalse(
+            should_show_cleanup_reminder(config, datetime.now(timezone.utc))
+        )
+
+    def test_gui_cleanup_reminder_fires_once_interval_elapsed(self) -> None:
+        now = datetime.now(timezone.utc)
+        config = {
+            "enabled": True,
+            "interval_days": 30,
+            "last_cleanup_at": (now - timedelta(days=31)).isoformat(),
+        }
+
+        self.assertTrue(should_show_cleanup_reminder(config, now))
+
+    def test_gui_cleanup_reminder_does_not_fire_before_interval_elapses(self) -> None:
+        now = datetime.now(timezone.utc)
+        config = {
+            "enabled": True,
+            "interval_days": 30,
+            "last_cleanup_at": (now - timedelta(days=5)).isoformat(),
+        }
+
+        self.assertFalse(should_show_cleanup_reminder(config, now))
+
+    def test_gui_ensure_cleanup_reminder_baseline_seeds_only_when_missing(
+        self,
+    ) -> None:
+        with workspace_temp_dir() as temp_dir:
+            config_path = Path(temp_dir) / "cleanup_reminder.json"
+            now = datetime.now(timezone.utc)
+
+            ensure_cleanup_reminder_baseline(config_path, now)
+            seeded = load_cleanup_reminder_config(config_path)
+            self.assertEqual(seeded["last_cleanup_at"], now.isoformat())
+
+            # A second call with a later "now" must not overwrite an
+            # already-seeded baseline - otherwise the countdown would
+            # reset on every single app launch and the reminder could
+            # never fire.
+            later = now + timedelta(days=60)
+            ensure_cleanup_reminder_baseline(config_path, later)
+            unchanged = load_cleanup_reminder_config(config_path)
+            self.assertEqual(unchanged["last_cleanup_at"], now.isoformat())
 
     def test_gui_record_recent_folder_caps_list_length(self) -> None:
         entries = [

@@ -3005,6 +3005,92 @@ tests, lint at the 77 baseline.
 b124ecd Keep the edit overlay up after saving, with a way to finish
 ```
 
+**Then a workflow reset, in response to the user's own capacity changing** -
+competing non-AI obligations meant less time for live, synchronous
+supervision. `CLAUDE.md` (new) now carries the working agreement for this
+project specifically: autonomous default mode scoped to whole task
+batches rather than per-change `PLAN:`/`ZRÓB:` handshakes, pre-authorized
+routine merges to `main` (except anything touching security/data,
+anything irreversible, or anything sent externally - those always stop
+and ask), and `docs/DO_ZWERYFIKOWANIA.md` (new) as the standing list of
+what still needs the user's own confirmation that a change matches what
+he actually wanted, not just that it works - he was explicit that only
+he can judge that, automated tests can't. Alongside it: a live training
+on securing AI coding agents (Securitum/Sekurak) prompted a security
+pass - `.claude/settings.json` (new, committed, unlike the gitignored
+`settings.local.json`) gets its first explicit `deny`/`ask` tiers rather
+than an ever-growing `allow`-only list, and `CLAUDE.md` gained sections
+on treating untrusted content as data-not-instructions and the "lethal
+trifecta" framing. That same conversation also caught something more
+concrete: `.ai/*.md`, the local mirror of the user's private
+cross-project methodology, was tracked in this repo - which is public.
+Confirmed the mirror's source (`_wiedza-ai`) is properly private and
+that no personal notes ever entered this repo's git history (checked,
+not assumed), then untracked and gitignored the mirror - no functional
+change, since it's read straight off disk regardless of git tracking.
+One further redaction: an early narrative entry named the outside
+tester's profession and the informal licensing prospect, at the user's
+own request once he confirmed the repo stays public as a portfolio piece
+- kept the causal thread, dropped the specifics.
+
+```text
+26d15d0 Set up the low-supervision workflow agreement
+b2c109d Add agent-security guardrails based on a Sekurak/Securitum training
+9d618ca Stop tracking the private _wiedza-ai mirror - this repo is public
+9949985 Redact identifying context around the outside-tester hand-off
+e092b47 Gitignore the user's root-level personal scratch files
+```
+
+**Then real feature work, resumed under that new agreement: a single
+"Wyczyść historię" cleanup replacing the old per-folder button, a 30-day
+reminder, and export-to-a-chosen-location** - three items from the
+user's own working notes (`notatki.txt`, never committed - see the
+security pass above for why that specifically matters here). Direct
+feedback drove the design: "po co nam te stare pliki... user chce mieć
+zanonimizowany i oryginał... a wszystkie te txt/checklisty nie
+potrzebuje" became a two-tier split in `output_cleanup.py` - working/
+internal files (reports, checklists, batch summaries) always removable,
+the final-result families kept unless the user explicitly opts in via a
+*separate* follow-up confirmation, never bundled into one yes/no.
+`export_approved` gained a folder-picker (`gui_app.py`) instead of
+always landing in a fixed `approved/` subfolder - direct feedback was
+that this defeated the point of "exporting" anywhere.
+
+The 8-angle `code-review` skill ran on the batch before merging -
+required this time, not optional: the deletion feature is exactly the
+"cokolwiek nieodwracalne" case `CLAUDE.md`'s own rule carves out from
+routine auto-merge, caught by the review itself (the "conventions"
+angle flagged that this diff should not have been eligible for an
+unattended merge). Five real findings got fixed: the 30-day reminder's
+countdown was resetting even when the user declined every deletion
+(defeating the feature's purpose - found independently by four separate
+review angles); `export_approved` swallowed write failures with no
+message, now more likely to matter since the destination is arbitrary
+user input instead of a fixed, already-writable subfolder; the new
+destination picker let the user select the review folder itself,
+silently duplicating every file with a "_2" suffix instead of erroring;
+and the original implementation computed one plan's byte total by
+*subtracting* two independently-scanned plans, which could go visibly
+wrong (even negative) if the folder changed between the two scans -
+right before an irreversible deletion. That last one led to a real
+redesign, not a patch: `build_history_cleanup_plan` now does one
+filesystem walk and returns both plans directly, rather than being
+called twice with different flags and diffed by the caller.
+
+One finding was deliberately *not* fixed, and needed the user's own
+call rather than a silent restore: the old per-folder cleanup could
+prune superseded generations even among final results (keep only the
+newest, less-redacted `_ANON_VISUAL_3.pdf`, drop `_1`/`_2`) - a real
+safety property the new all-or-nothing toggle for final results doesn't
+have. Recorded in `docs/DO_ZWERYFIKOWANIA.md` as an open question
+rather than assumed either way.
+
+Full suite: 482 tests. Lint at the established 77-error baseline.
+
+```text
+c8cc3c6 Add single-history cleanup, 30-day reminder, and export-destination picker
+```
+
 ## Next Logical Step
 
 **⚠️ Standing note, not urgent yet — read before touching `llm_review.py`.**
@@ -3025,15 +3111,23 @@ for whenever that work actually starts, not a task to schedule now. See
 an outbound channel - this is exactly the point that feature would
 create the third leg).
 
-**Immediate:** hand the rebuilt `installer_output/DocShield-Setup-0.1.0-alpha.exe`
-to the outside tester - every build before `795e90b` had non-functional
-OCR and should be treated as superseded. One thing is on the user, not
-the code: the installer is unsigned, so Windows SmartScreen will show
-its "protected your PC" warning on first run ("More info" -> "Run
-anyway") - worth a heads-up before he meets it unannounced, especially
-for someone evaluating the app professionally. The recipient's own
-feedback after this first hands-on pass should drive whatever comes
-next, more than anything already queued below.
+**Immediate:** the installer hand-off, the OCR fix, and Etap 1 (history
+cleanup/reminder/export picker) are all done and merged - see the
+narratives above. What's actually next is the rest of the staged plan
+from the 2026-09-15 conversation (notes drawn from the user's own
+`notatki.txt`, never committed): Etap 2 measures whether the auto-mode
+redaction pipeline's double work (burn-in on first pass, redone on any
+manual edit) is worth restructuring around; Etap 3 is a three-mode
+mouse-interaction redesign for the magic pen (LPM=mark/PPM=pan/middle-
+click=temporary unmark modifier, plus two alternate modes selectable in
+Settings); Etap 4-6 build selective category-based anonymization (8
+categories, grounded in which detectors are pattern-reliable vs.
+AI-probabilistic) with per-page scoping; Etap 7 investigates qpdf for
+stripping e-signatures a real case showed this app currently misses.
+None of these are started. **This conversation has also run long enough
+that it should not be the one to start them** - continue in a fresh
+session; `CLAUDE.md`, this file, and `docs/DO_ZWERYFIKOWANIA.md` carry
+everything forward.
 
 The scanned-PDF visual redaction issue - the single most important open
 item for four sessions - is **root-caused, fixed and regression-tested**

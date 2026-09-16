@@ -16,10 +16,14 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from file_writers import INTERNAL_ARTIFACTS_DIRNAME
 from output_cleanup import (
+    OutputCleanupPlan,
     apply_output_cleanup_plan,
+    build_history_cleanup_plan,
     build_output_cleanup_plan,
     classify_output_file,
     format_cleanup_plan_summary,
+    format_file_size,
+    format_history_cleanup_summary,
 )
 
 
@@ -181,8 +185,6 @@ class ApplyOutputCleanupPlanTests(unittest.TestCase):
             present.write_text("old", encoding="utf-8")
             missing = folder / "znikniety_ANON.txt"
 
-            from output_cleanup import OutputCleanupPlan
-
             plan = OutputCleanupPlan(
                 removable_paths=(missing, present), kept_count=0, total_bytes=0
             )
@@ -190,6 +192,161 @@ class ApplyOutputCleanupPlanTests(unittest.TestCase):
 
             self.assertEqual((removed, failed), (1, 1))
             self.assertFalse(present.exists())
+
+
+class BuildHistoryCleanupPlanTests(unittest.TestCase):
+    """The "Wyczyść historię" sweep: one button across every folder in the
+    user's history, working files always removable, final results only
+    removable on explicit opt-in. Direct feedback drove both halves of
+    that split - "po co nam te stare pliki, user chce mieć zanonimizowany
+    i oryginał... wszystkie te txt/checklisty nie potrzebuje" for the
+    default, and "opcjonalnie można je też usunąć" for the opt-in.
+
+    One filesystem walk returns both plans (working_plan, final_plan) -
+    deliberately not two separate calls the caller diffs against each
+    other. A code review caught that the two-call version opened a race
+    window (the folder could change between calls) and forced total_bytes
+    for the final-only set to be computed by subtracting two independent
+    scans - which could go visibly wrong (even negative) if that race
+    was hit, right before an irreversible deletion. These tests check
+    the single-walk version's output directly.
+    """
+
+    def _write(self, folder: Path, name: str, content: str = "x") -> Path:
+        path = folder / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+        return path
+
+    def test_working_files_and_final_results_split_into_separate_plans(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            folder = Path(temp_dir)
+            self._write(folder, "umowa_ANON.txt")
+            self._write(folder, "umowa_ANON_VISUAL.pdf")
+            self._write(folder / "_wewnetrzne", "umowa_RAPORT.txt")
+            self._write(folder / "_wewnetrzne", "umowa_REVIEW_CHECKLIST.txt")
+            self._write(folder, "_BATCH_SUMMARY.txt")
+
+            working_plan, final_plan = build_history_cleanup_plan([folder])
+
+            self.assertEqual(
+                {path.name for path in working_plan.removable_paths},
+                {"umowa_RAPORT.txt", "umowa_REVIEW_CHECKLIST.txt", "_BATCH_SUMMARY.txt"},
+            )
+            self.assertEqual(
+                {path.name for path in final_plan.removable_paths},
+                {"umowa_ANON.txt", "umowa_ANON_VISUAL.pdf"},
+            )
+            # working_plan's kept_count reflects the final files it leaves
+            # untouched; final_plan has nothing else left to report kept.
+            self.assertEqual(working_plan.kept_count, 2)
+            self.assertEqual(final_plan.kept_count, 0)
+
+    def test_final_plan_total_bytes_is_summed_directly_not_by_subtraction(self) -> None:
+        """The exact bug a code review caught in the two-call version:
+        each plan's total_bytes must come from summing its own paths,
+        never derived by subtracting one plan's total from another's."""
+        with workspace_temp_dir() as temp_dir:
+            folder = Path(temp_dir)
+            self._write(folder, "umowa_ANON.txt", content="12345")  # 5 bytes
+            self._write(folder / "_wewnetrzne", "umowa_RAPORT.txt", content="1234567890")  # 10 bytes
+
+            working_plan, final_plan = build_history_cleanup_plan([folder])
+
+            self.assertEqual(working_plan.total_bytes, 10)
+            self.assertEqual(final_plan.total_bytes, 5)
+
+    def test_manual_edits_sidecar_counts_as_a_final_result_not_junk(self) -> None:
+        """Deliberately not "obviously a working file" even though it
+        looks internal: deleting it would silently break the ability to
+        reopen and continue editing a document's magic-pen selections
+        later - a real workflow the 30-day reminder default exists to
+        respect in the first place."""
+        with workspace_temp_dir() as temp_dir:
+            folder = Path(temp_dir)
+            self._write(folder, "umowa_ANON_VISUAL.pdf")
+            self._write(folder / "_wewnetrzne", "umowa_ANON_VISUAL_MANUAL_EDITS.json")
+
+            working_plan, final_plan = build_history_cleanup_plan([folder])
+
+            self.assertTrue(working_plan.is_empty)
+            self.assertEqual(
+                {path.name for path in final_plan.removable_paths},
+                {"umowa_ANON_VISUAL.pdf", "umowa_ANON_VISUAL_MANUAL_EDITS.json"},
+            )
+
+    def test_sweeps_multiple_folders_in_one_pair_of_plans(self) -> None:
+        with workspace_temp_dir() as outer:
+            folder_a = Path(outer) / "a"
+            folder_b = Path(outer) / "b"
+            self._write(folder_a, "faktura_RAPORT.txt")
+            self._write(folder_b, "umowa_RAPORT.txt")
+
+            working_plan, _final_plan = build_history_cleanup_plan([folder_a, folder_b])
+
+            self.assertEqual(
+                {path.name for path in working_plan.removable_paths},
+                {"faktura_RAPORT.txt", "umowa_RAPORT.txt"},
+            )
+
+    def test_a_missing_folder_in_the_list_is_skipped_not_fatal(self) -> None:
+        with workspace_temp_dir() as outer:
+            real_folder = Path(outer) / "real"
+            missing_folder = Path(outer) / "does_not_exist"
+            self._write(real_folder, "umowa_RAPORT.txt")
+
+            working_plan, _final_plan = build_history_cleanup_plan(
+                [real_folder, missing_folder]
+            )
+
+            self.assertEqual(
+                {path.name for path in working_plan.removable_paths}, {"umowa_RAPORT.txt"}
+            )
+
+    def test_never_lists_source_documents_or_unrelated_files(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            folder = Path(temp_dir)
+            original = self._write(folder, "umowa.pdf")
+            self._write(folder, "umowa_RAPORT.txt")
+
+            working_plan, final_plan = build_history_cleanup_plan([folder])
+
+            self.assertEqual(
+                [path.name for path in working_plan.removable_paths], ["umowa_RAPORT.txt"]
+            )
+            self.assertTrue(final_plan.is_empty)
+            self.assertTrue(original.exists())
+
+
+class FormatHistoryCleanupSummaryTests(unittest.TestCase):
+    def test_empty_plan(self) -> None:
+        plan = OutputCleanupPlan(removable_paths=(), kept_count=3, total_bytes=0)
+        summary = format_history_cleanup_summary(plan, include_final_outputs=False)
+        self.assertIn("Brak plików", summary)
+
+    def test_working_only_summary_mentions_final_results_stay(self) -> None:
+        plan = OutputCleanupPlan(
+            removable_paths=(Path("a_RAPORT.txt"),), kept_count=2, total_bytes=2048
+        )
+        summary = format_history_cleanup_summary(plan, include_final_outputs=False)
+        self.assertIn("plików roboczych", summary)
+        self.assertIn("Finalne wyniki", summary)
+
+    def test_include_final_outputs_summary_says_so(self) -> None:
+        plan = OutputCleanupPlan(
+            removable_paths=(Path("a_ANON.txt"),), kept_count=0, total_bytes=1024
+        )
+        summary = format_history_cleanup_summary(plan, include_final_outputs=True)
+        self.assertIn("finalnymi wynikami", summary)
+
+
+class FormatFileSizeTests(unittest.TestCase):
+    def test_small_sizes_in_kb_never_rounds_to_zero(self) -> None:
+        self.assertEqual(format_file_size(1), "1 KB")
+        self.assertEqual(format_file_size(2048), "2 KB")
+
+    def test_larger_sizes_in_mb(self) -> None:
+        self.assertEqual(format_file_size(5 * 1024 * 1024), "5.0 MB")
 
 
 if __name__ == "__main__":

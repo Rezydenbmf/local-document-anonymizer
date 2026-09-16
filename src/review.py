@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
+import json
+import re
+import shutil
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
-import json
 from pathlib import Path, PurePosixPath, PureWindowsPath
-import re
-import shutil
 
 try:
     from .audit import RISK_LEVEL_HIGH, RISK_LEVEL_OK, RISK_LEVEL_WARNING, RISK_LEVELS
@@ -566,16 +566,28 @@ def export_approved_workspace(
     output_dir: str | Path,
     *,
     exported_at: str | None = None,
+    destination_dir: str | Path | None = None,
 ) -> ApprovedExportResult:
-    """Copy manually approved anonymized outputs into a safe approved workspace."""
+    """Copy manually approved anonymized outputs into a safe approved workspace.
+
+    Defaults to the fixed ``approved/`` subfolder of ``output_dir``, as
+    before. ``destination_dir`` lets the caller send them somewhere the
+    user actually picked instead - direct feedback was that always
+    landing back inside the same already-cluttered output folder, with
+    no way to choose where, defeated the point of "exporting" anywhere.
+    """
     folder = Path(output_dir)
     payload = _load_review_status_payload(folder)
     approved_items = _approved_review_items_from_payload(payload)
     if not approved_items:
         raise ValueError("no approved files found")
 
-    approved_dir = build_approved_workspace_path(folder)
-    approved_dir.mkdir(exist_ok=True)
+    approved_dir = (
+        Path(destination_dir)
+        if destination_dir is not None
+        else build_approved_workspace_path(folder)
+    )
+    approved_dir.mkdir(parents=True, exist_ok=True)
 
     copied_output_names: list[str] = []
     copied_report_names: list[str] = []
