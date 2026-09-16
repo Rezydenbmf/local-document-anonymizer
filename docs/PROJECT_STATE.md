@@ -3289,6 +3289,126 @@ this batch - `CLAUDE.md`'s rule requiring it only names
 explicitly carves out UI-only changes; this batch touches none of the
 first four.
 
+**Etap 4: selective, per-task category anonymization - the last of the
+2026-09-15 staged plan's underspecified items, so again clarified before
+writing code (same lesson as Etap 3: the plan's one-line summary
+isn't the spec).** Asked, and got: the exact 8 categories (PESEL; imię
+i nazwisko, explicitly framed as AI-detected/lower-confidence; telefon;
+e-mail; IBAN; adres - merging ulica+miejscowość+kod pocztowy into one
+thing, per the user's own framing of how they think about it; dane
+firmy - NIP+REGON together; data); selection happens per task (not a
+persisted Settings default, unlike `use_ner`); and the post-hoc
+leftover-risk scanner (`audit.py`) must respect the selection too, so a
+deliberately-unredacted category doesn't get flagged as a false "risk"
+warning. Everything NOT covered by one of the 8 - `DOWOD_OSOBISTY`,
+`PERSON_NAME_TYPO`, `NER_ORG`, `NER_LOCATION`, `NER_MISC` - is
+deliberately never user-controllable and always redacted: the safe
+default, since a label left out of the checklist can only mean "always
+protected," never "silently exposed." The dictionary and `RECZNE`
+(magic-pen manual edits) stay outside this mechanism entirely, unchanged
+- both are the user's own explicit, separate choices already.
+
+**Core mechanism:** `resolve_active_labels()` in `anonymizer.py` turns
+the category selection into the full set of internal detection labels
+allowed to be redacted this run (`None` = no filtering, every existing
+caller's unchanged default). Threaded through every redaction path -
+TXT/DOCX regex+dictionary substitution, NER substitution, PDF
+word-coordinate visual redaction, and the PDF text-search fallback's own
+duplicate pattern set in `pdf_redaction.py` - as a filter on what gets
+*substituted*, not what gets *detected*, so "excluded but still
+detected" can stay visible in reporting rather than silently
+disappearing. GUI: 8 checkboxes in the "Szybkie akcje" panel
+(`gui_app.py`), backed by `self.active_categories`, read once at
+`start_anonymize()` and passed into `anonymize_batch(active_categories=...)`.
+
+**`code-review` (high effort, 8 finder angles - required, this touches
+`anonymizer.py`/`pdf_redaction.py`) found four real, independently-
+corroborated correctness bugs before merge, all fixed:**
+
+1. **The most severe one: post-hoc span filtering could leak "always-on"
+   PII.** `_pdf_detection_spans_for_word_pages` used to detect
+   everything, *then* drop excluded spans from the result list - but
+   `_add_pdf_span` reserves the character range in `occupied_ranges` as
+   a side effect of being *called*, regardless of whether that span
+   survives the later filter. An excluded regex span (say, `ULICA` with
+   "Adres" deselected) could still reserve a range that overlapped an
+   always-on NER span (a person's name inside the address) - the NER
+   pass then found that range "already occupied" and never added its
+   own span, and *afterward* the ULICA span itself got filtered out.
+   Net result: the name was redacted by neither category, silently.
+   Fixed by filtering *before* a span is ever added, in every per-page
+   detection helper, not just once at the end.
+2. **The magic-pen "regenerate" path ignored the category selection
+   entirely.** `compute_pdf_redaction_spans` (which
+   `manual_redaction.py`'s manual-edit-save path calls, along with the
+   comparison window's own detection cache) had no
+   `active_categories` parameter at all - so saving any unrelated
+   manual edit silently re-redacted every category again, overwriting
+   the just-reviewed, possibly-approved output with a *different, more
+   redacted* document, with no warning. Fixed by persisting the
+   category selection in a small JSON sidecar next to the visual PDF
+   (`category_selection_path`/`save_category_selection`/
+   `load_category_selection`, mirroring the existing
+   `manual_edits_path` pattern exactly), written once when the original
+   batch run produces the visual output, loaded once when
+   `ComparisonWindow` opens, and threaded through the same cached
+   detection path Etap 2 already built.
+3. **`audit.py`'s own broader proxy patterns weren't covered.**
+   `_excluded_labels_for_audit` only knew `anonymizer.py`'s label
+   vocabulary, but `audit.py` has its own separate, looser
+   `ADDRESS_LIKE`/`STREET_LIKE` patterns with no exact counterpart there
+   - deselecting "Adres" left those still flagging a deliberately-
+   unredacted address as a false "high risk" finding, defeating the
+   whole point of the exclusion. Fixed with a narrow, safe supplemental
+   mapping (address category → also excludes those two audit-only
+   labels specifically, since they're unambiguously address-shaped by
+   construction). Deliberately *not* extended to `ID_LIKE_NUMBER` (a
+   multi-purpose catch-all also matching `DOWOD_OSOBISTY`/paszport
+   shapes) - mapping "Dane firmy" to it would risk silently suppressing
+   a real leftover ID-card number alongside the NIP/REGON the user
+   actually meant to exempt, so that gap is left as a known, accepted
+   limitation rather than a wrong fix.
+4. **NER's "detected but excluded" reporting was a false reassurance.**
+   `anonymize_text_with_ner` built its report-facing counters from every
+   detected entity, not just the ones actually substituted - so an
+   excluded `NER_PERSON` still showed up as "anonymized" in the report
+   and checklist even though the name was left fully in the clear
+   (inconsistent with the regex path, which never counted an excluded
+   label at all). Fixed by building those counters from only the
+   entities actually redacted; the separate, still-unfiltered NER
+   metadata used by the PDF coverage-warning calculation is untouched
+   and correctly stays aware of the full detection picture there.
+
+Also fixed: two functions (`_attach_pdf_coverage_metadata`'s
+`active_labels` branch, and `pdf_redaction.py`'s text-search-fallback
+path) had only indirect end-to-end test coverage - added direct tests
+for both.
+
+**Six lower-severity findings were left as documented, not fixed** (none
+change behavior a user would notice today): the category-based and
+PDF-scope-based label filtering are two parallel mechanisms reconciled
+by one hand-written intersection rather than unified into one concept;
+inconsistent parameter naming/polarity for the same "which labels" idea
+across `anonymizer.py`/`ner.py`/`audit.py`
+(`active_labels`/`allowed_labels`/`excluded_labels`); one caller
+(`_anonymize_pdf_file_result`) hand-intersects a label set instead of
+threading it into the callee; the new `CATEGORY_SELECTION_LABELS_PL`
+Polish-label dict already reads slightly differently from the older
+`CATEGORY_LABELS_PL` for the same concepts (e.g. "Telefon" vs "Numer
+telefonu"); `self.active_categories` is session-persistent like every
+other quick-setting in this app, not reset between batches, despite the
+panel being labeled "(to zadanie)" ("for this task") - judged consistent
+with existing behavior rather than a bug, but the wording could imply
+more isolation than it delivers.
+
+Full suite: 557 tests (37 new - the original Etap 4 test file plus a
+regression-guard test for each of the four fixed bugs and the two
+added-coverage gaps). Lint at the established 77-error baseline.
+
+```text
+492af08 Etap 4: let the user pick which categories get anonymized per task
+```
+
 ## Next Logical Step
 
 **⚠️ Standing note, not urgent yet — read before touching `llm_review.py`.**
@@ -3311,22 +3431,23 @@ create the third leg).
 
 **Immediate:** the installer hand-off, the OCR fix, Etap 1 (history
 cleanup/reminder/export picker), Etap 2 (detection-result and NER-model
-caching, `code-review`-passed) and now Etap 3 (magic-pen mouse-
-interaction redesign) are all done and merged - see the narratives
-above. Real pilot use of the magic pen - all three modes, ideally
-including a custom-mode assignment and editing the sensitive-terms
-dictionary mid-session for the Etap 2 cache-invalidation fix - is the
-one thing that still needs the user's own hardware/eyes to confirm
-(tracked in `docs/DO_ZWERYFIKOWANIA.md`); everything else about both
-changes was verified programmatically, including real headless Tk widget
-trees for Etap 3 specifically. What's actually next is the rest of the
-staged plan from the 2026-09-15 conversation (notes drawn from the
-user's own `notatki.txt`, never committed): Etap 4-6 build selective
-category-based anonymization (8 categories, grounded in which detectors
-are pattern-reliable vs. AI-probabilistic) with per-page scoping; Etap 7
-investigates qpdf for stripping e-signatures a real case showed this app
-currently misses. Neither is started. **This conversation has also run
-long enough
+caching), Etap 3 (magic-pen mouse-interaction redesign), and now Etap 4
+(per-task category selection, `code-review`-passed with four real bugs
+caught and fixed) are all done and merged - see the narratives above.
+Real pilot use is the one thing that still needs the user's own
+hardware/eyes to confirm (tracked in `docs/DO_ZWERYFIKOWANIA.md`) -
+specifically for Etap 4: deselecting a category on a real document,
+confirming it stays visible in the output; opening that document's
+magic-pen editor afterward, making an unrelated edit, and confirming
+save does *not* silently re-redact the deselected category (the bug
+`code-review` caught and the sidecar-persistence fix addresses). What's
+actually next is the rest of the staged plan from the 2026-09-15
+conversation (notes drawn from the user's own `notatki.txt`, never
+committed): Etap 5-6 build the UI/UX polish and per-page scoping around
+the category-selection mechanism Etap 4 already built the engine for;
+Etap 7 investigates qpdf for stripping e-signatures a real case showed
+this app currently misses. None of these are started. **This
+conversation has also run long enough
 that it should not be the one to start them** - continue in a fresh
 session; `CLAUDE.md`, this file, and `docs/DO_ZWERYFIKOWANIA.md` carry
 everything forward.

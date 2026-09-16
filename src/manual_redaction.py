@@ -158,6 +158,7 @@ def _resolve_word_pages_and_spans(
     sensitive_terms_path: str | Path | None,
     use_ner: bool,
     ner_model_name: str,
+    active_categories: Sequence[str] | None,
 ) -> tuple[Sequence, object]:
     """Return ``(word_pages, spans)`` as-given when both were supplied by
     the caller, otherwise recompute detection from scratch. Shared by
@@ -171,6 +172,7 @@ def _resolve_word_pages_and_spans(
         "sensitive_terms": sensitive_terms,
         "sensitive_terms_path": sensitive_terms_path,
         "use_ner": use_ner,
+        "active_categories": active_categories,
     }
     if ner_model_name:
         kwargs["ner_model_name"] = ner_model_name
@@ -188,6 +190,7 @@ def regenerate_pdf_with_manual_overrides(
     ner_model_name: str = "",
     word_pages: Sequence | None = None,
     spans: object = None,
+    active_categories: Sequence[str] | None = None,
 ) -> dict[str, object]:
     """Rebuild the true-redacted visual PDF in place, applying manual overrides.
 
@@ -202,7 +205,11 @@ def regenerate_pdf_with_manual_overrides(
     redetection entirely -- including a scanned document's OCR, the
     single most expensive step in this pipeline. Passing only one of the
     two is treated as not passing either, since a partial pair can't be
-    used safely.
+    used safely. When redetection does happen, ``active_categories``
+    should be the same Etap 4 category selection the document was
+    originally anonymized with (see category_selection_path) - omitting
+    it here would silently redact every category again, overriding
+    whatever the user originally chose to leave unredacted.
     """
     word_pages, spans = _resolve_word_pages_and_spans(
         source_path,
@@ -212,6 +219,7 @@ def regenerate_pdf_with_manual_overrides(
         sensitive_terms_path=sensitive_terms_path,
         use_ner=use_ner,
         ner_model_name=ner_model_name,
+        active_categories=active_categories,
     )
 
     extra_rects = [(rect.page, rect.as_tuple()) for rect in edits.added]
@@ -247,6 +255,7 @@ def compute_visible_redaction_rects(
     ner_model_name: str = "",
     word_pages: Sequence | None = None,
     spans: object = None,
+    active_categories: Sequence[str] | None = None,
 ) -> list[dict[str, object]]:
     """Return every rectangle currently visible on a true-redacted PDF.
 
@@ -257,7 +266,8 @@ def compute_visible_redaction_rects(
     Accepts an already-computed ``word_pages``/``spans`` pair (both or
     neither) the same way :func:`regenerate_pdf_with_manual_overrides`
     does, to skip redetection when a caller already has one from this
-    session on this exact source file.
+    session on this exact source file. See that function's docstring for
+    why ``active_categories`` matters when redetection does happen.
     """
     word_pages, spans = _resolve_word_pages_and_spans(
         source_path,
@@ -267,6 +277,7 @@ def compute_visible_redaction_rects(
         sensitive_terms_path=sensitive_terms_path,
         use_ner=use_ner,
         ner_model_name=ner_model_name,
+        active_categories=active_categories,
     )
     auto_rects, _counters, _unmapped = compute_redaction_rects(
         word_pages, spans, removed_span_keys=edits.removed

@@ -725,7 +725,22 @@ def anonymize_text_with_ner(
         else [entity for entity in entities if entity.label in allowed_labels]
     )
     anonymized = anonymize_entities(text, redacted_entities)
-    active_counters = {label: count for label, count in counters.items() if count}
+    # Built from redacted_entities, not the full (unfiltered) counters
+    # above - a category the caller excluded via allowed_labels must not
+    # show up here as "handled". This is what flows into the main
+    # report/checklist's detected-categories count (see
+    # _anonymize_text_with_dictionary_counters), and it must match what
+    # actually happened to the text: nothing was substituted for an
+    # excluded label, so claiming it as anonymized would be a false
+    # reassurance that PII was handled when it's still fully in the
+    # clear. The full, unfiltered ``counters`` still goes into this
+    # function's ner_metadata below, unaffected - the PDF coverage-
+    # warning calculation (_attach_pdf_coverage_metadata) reads from
+    # there and is separately made aware of active_labels to correctly
+    # exclude a deliberate omission from triggering a false warning.
+    active_counters: dict[str, int] = {}
+    for entity in redacted_entities:
+        active_counters[entity.label] = active_counters.get(entity.label, 0) + 1
     return (
         anonymized,
         active_counters,
