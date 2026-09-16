@@ -28,7 +28,14 @@ try:
         COLOR_TEXT,
         COLOR_TEXT_MUTED,
         FONT_FAMILY,
+        MAGIC_PEN_ACTION_LABELS_PL,
+        MAGIC_PEN_BUILTIN_BINDINGS,
+        MAGIC_PEN_BUTTON_LABELS_PL,
+        MAGIC_PEN_BUTTONS,
         MAGIC_PEN_HINT_ID,
+        MAGIC_PEN_MODE_CLASSIC,
+        MAGIC_PEN_MODE_CUSTOM,
+        MAGIC_PEN_MODE_DEFAULT,
         PDF_OUTPUT_SETTINGS_BY_LABEL,
         PDF_OUTPUT_SHORT_LABELS,
         IconTooltip,
@@ -37,7 +44,10 @@ try:
         environment_status_lookup,
         format_llm_model_selector_state,
         hint_is_dismissed,
+        is_valid_magic_pen_bindings,
+        magic_pen_bindings_description_pl,
         restore_hint,
+        save_magic_pen_interaction_config,
     )
     from .llm_review import list_installed_models
     from .ocr import (
@@ -63,7 +73,14 @@ except ImportError:
         COLOR_TEXT,
         COLOR_TEXT_MUTED,
         FONT_FAMILY,
+        MAGIC_PEN_ACTION_LABELS_PL,
+        MAGIC_PEN_BUILTIN_BINDINGS,
+        MAGIC_PEN_BUTTON_LABELS_PL,
+        MAGIC_PEN_BUTTONS,
         MAGIC_PEN_HINT_ID,
+        MAGIC_PEN_MODE_CLASSIC,
+        MAGIC_PEN_MODE_CUSTOM,
+        MAGIC_PEN_MODE_DEFAULT,
         PDF_OUTPUT_SETTINGS_BY_LABEL,
         PDF_OUTPUT_SHORT_LABELS,
         IconTooltip,
@@ -72,7 +89,10 @@ except ImportError:
         environment_status_lookup,
         format_llm_model_selector_state,
         hint_is_dismissed,
+        is_valid_magic_pen_bindings,
+        magic_pen_bindings_description_pl,
         restore_hint,
+        save_magic_pen_interaction_config,
     )
     from llm_review import list_installed_models
     from ocr import (
@@ -115,6 +135,21 @@ class SettingsDialog:
         self._ocr_language_code_by_label: dict[str, str] = {}
         self.approval_warning_status_label: ctk.CTkLabel | None = None
         self.magic_pen_hint_status_label: ctk.CTkLabel | None = None
+
+        self.magic_pen_mode_var = tk.StringVar(value=app.magic_pen_interaction_mode)
+        # A working copy, edited live by the custom-mode dropdowns and only
+        # written back to app.magic_pen_custom_bindings on save - always a
+        # valid button->action bijection (see is_valid_magic_pen_bindings),
+        # seeded from the app's saved mapping when that's itself valid,
+        # otherwise from the default mode so the custom editor never opens
+        # on a broken assignment.
+        self._custom_bindings: dict[str, str] = (
+            dict(app.magic_pen_custom_bindings)
+            if is_valid_magic_pen_bindings(app.magic_pen_custom_bindings)
+            else dict(MAGIC_PEN_BUILTIN_BINDINGS[MAGIC_PEN_MODE_DEFAULT])
+        )
+        self._custom_binding_option_vars: dict[str, tk.StringVar] = {}
+        self._custom_bindings_frame: ctk.CTkFrame | None = None
 
         self._build(initial_tab)
 
@@ -276,6 +311,7 @@ class SettingsDialog:
             "Dymki tłumaczące np. narzędzia łapki/lupy w podglądzie porównania",
             self.show_hints_var,
         )
+        self._build_magic_pen_mode_section(tab)
         self.approval_warning_status_label = self._build_hint_restore_row(
             tab,
             title="Ostrzeżenie przy zatwierdzaniu",
@@ -288,6 +324,124 @@ class SettingsDialog:
             hint_id=MAGIC_PEN_HINT_ID,
             shown_text="Widoczna przy pierwszym otwarciu edytowalnego dokumentu",
         )
+
+    def _build_magic_pen_mode_section(self, parent: ctk.CTkFrame) -> None:
+        """Tryb interakcji magic pena: which mouse button marks, erases,
+        or pans - "Domyślny" gives each action its own button, "Klasyczny"
+        keeps this app's original LPM=mark/PPM=erase scheme and only adds
+        middle=pan, "Niestandardowy" lets the user assign the three
+        themselves via the dropdowns _build_custom_bindings_rows reveals
+        below the radio buttons.
+        """
+        section = self._section_frame(parent)
+        inner = ctk.CTkFrame(section, fg_color="transparent")
+        inner.pack(fill="x", padx=14, pady=12)
+        ctk.CTkLabel(
+            inner,
+            text="Tryb interakcji magic pena",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+            text_color=COLOR_TEXT,
+            anchor="w",
+        ).pack(fill="x", pady=(0, 2))
+        ctk.CTkLabel(
+            inner,
+            text="Co robi lewy, prawy i środkowy przycisk myszy w oknie edycji",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLOR_TEXT_MUTED,
+            anchor="w",
+        ).pack(fill="x", pady=(0, 8))
+
+        mode_options = (
+            (MAGIC_PEN_MODE_DEFAULT, "Domyślny", MAGIC_PEN_BUILTIN_BINDINGS[MAGIC_PEN_MODE_DEFAULT]),
+            (MAGIC_PEN_MODE_CLASSIC, "Klasyczny", MAGIC_PEN_BUILTIN_BINDINGS[MAGIC_PEN_MODE_CLASSIC]),
+            (MAGIC_PEN_MODE_CUSTOM, "Niestandardowy", None),
+        )
+        for mode_value, mode_label, bindings in mode_options:
+            row = ctk.CTkFrame(inner, fg_color="transparent")
+            row.pack(fill="x", pady=2)
+            ctk.CTkRadioButton(
+                row,
+                text=mode_label,
+                value=mode_value,
+                variable=self.magic_pen_mode_var,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                text_color=COLOR_TEXT,
+                command=self._on_magic_pen_mode_changed,
+            ).pack(side="left")
+            if bindings is not None:
+                ctk.CTkLabel(
+                    row,
+                    text=magic_pen_bindings_description_pl(bindings),
+                    font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+                    text_color=COLOR_TEXT_MUTED,
+                    anchor="w",
+                ).pack(side="left", padx=(10, 0))
+
+        self._custom_bindings_frame = ctk.CTkFrame(inner, fg_color="transparent")
+        self._build_custom_bindings_rows(self._custom_bindings_frame)
+        self._update_custom_bindings_visibility()
+
+    def _build_custom_bindings_rows(self, parent: ctk.CTkFrame) -> None:
+        self._custom_binding_option_vars = {}
+        action_labels = list(MAGIC_PEN_ACTION_LABELS_PL.values())
+        label_to_action = {label: action for action, label in MAGIC_PEN_ACTION_LABELS_PL.items()}
+        for button in MAGIC_PEN_BUTTONS:
+            row = ctk.CTkFrame(parent, fg_color="transparent")
+            row.pack(fill="x", pady=3)
+            ctk.CTkLabel(
+                row,
+                text=MAGIC_PEN_BUTTON_LABELS_PL[button],
+                font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                text_color=COLOR_TEXT,
+                width=110,
+                anchor="w",
+            ).pack(side="left")
+            current_action = self._custom_bindings[button]
+            option_var = tk.StringVar(value=MAGIC_PEN_ACTION_LABELS_PL[current_action])
+            self._custom_binding_option_vars[button] = option_var
+            ctk.CTkOptionMenu(
+                row,
+                values=action_labels,
+                variable=option_var,
+                fg_color=COLOR_BG,
+                button_color=COLOR_ACCENT,
+                button_hover_color=COLOR_ACCENT_HOVER,
+                text_color=COLOR_TEXT,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                command=lambda label, b=button: self._on_custom_binding_changed(
+                    b, label_to_action[label]
+                ),
+            ).pack(side="left")
+
+    def _on_custom_binding_changed(self, button: str, new_action: str) -> None:
+        """Keep self._custom_bindings a valid bijection: giving ``button``
+        an action some other button already has swaps the two, rather
+        than leaving that other action with no button (or two buttons
+        sharing one action) - so the mapping never needs an explicit
+        "invalid, fix it" error state.
+        """
+        old_action = self._custom_bindings[button]
+        if new_action == old_action:
+            return
+        other_button = next(
+            b for b, a in self._custom_bindings.items() if a == new_action
+        )
+        self._custom_bindings[button] = new_action
+        self._custom_bindings[other_button] = old_action
+        self._custom_binding_option_vars[other_button].set(
+            MAGIC_PEN_ACTION_LABELS_PL[old_action]
+        )
+
+    def _on_magic_pen_mode_changed(self) -> None:
+        self._update_custom_bindings_visibility()
+
+    def _update_custom_bindings_visibility(self) -> None:
+        if self._custom_bindings_frame is None:
+            return
+        if self.magic_pen_mode_var.get() == MAGIC_PEN_MODE_CUSTOM:
+            self._custom_bindings_frame.pack(fill="x", pady=(4, 0))
+        else:
+            self._custom_bindings_frame.pack_forget()
 
     def _build_hint_restore_row(
         self, parent: ctk.CTkFrame, *, title: str, hint_id: str, shown_text: str
@@ -675,6 +829,19 @@ class SettingsDialog:
         self.app.auto_open_on_approve = self.auto_open_var.get()
         self.app.show_usage_hints = self.show_hints_var.get()
         self.app.sensitive_terms_path = self.sensitive_terms_path
+        self.app.magic_pen_interaction_mode = self.magic_pen_mode_var.get()
+        self.app.magic_pen_custom_bindings = dict(self._custom_bindings)
+        try:
+            save_magic_pen_interaction_config(
+                self.app.magic_pen_interaction_config_path,
+                self.app.magic_pen_interaction_mode,
+                self.app.magic_pen_custom_bindings,
+            )
+        except OSError:
+            # A cosmetic preference, same as the hint-dismissal writes
+            # elsewhere - never worth failing the whole save over a
+            # read-only home folder.
+            pass
         if self.app.use_llm_review and not self.app.llm_model_name:
             status, models = list_installed_models()
             _values, selected_model, _hint = format_llm_model_selector_state(

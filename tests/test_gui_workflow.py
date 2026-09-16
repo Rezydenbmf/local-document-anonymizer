@@ -28,6 +28,10 @@ from gui import (
     FLOATING_ACTIONS_SAVED,
     LLM_MODELS_FOUND_HINT,
     LLM_NO_MODELS_HINT,
+    MAGIC_PEN_BUILTIN_BINDINGS,
+    MAGIC_PEN_MODE_CLASSIC,
+    MAGIC_PEN_MODE_CUSTOM,
+    MAGIC_PEN_MODE_DEFAULT,
     PDF_OUTPUT_LABEL_ORIGINAL_SAFE,
     PDF_OUTPUT_LABEL_ORIGINAL_STRICT,
     PDF_OUTPUT_LABEL_REBUILT_REVIEW,
@@ -41,10 +45,12 @@ from gui import (
     canvas_point_to_pdf_point,
     category_label_pl,
     clamp_zoom_level,
+    cleanup_reminder_config_path,
     ctk_widget_scaling_factor,
     default_output_directory,
     detect_filename_pii_labels,
     dismiss_hint,
+    ensure_cleanup_reminder_baseline,
     environment_status_lookup,
     file_type_badge,
     filter_supported_paths,
@@ -77,13 +83,15 @@ from gui import (
     format_selected_file_count,
     format_short_path,
     hint_is_dismissed,
-    cleanup_reminder_config_path,
-    ensure_cleanup_reminder_baseline,
     history_config_path,
     is_degenerate_drag_rect,
+    is_valid_magic_pen_bindings,
     load_cleanup_reminder_config,
+    load_magic_pen_interaction_config,
     load_recent_folders,
     load_seen_hints,
+    magic_pen_bindings_description_pl,
+    magic_pen_interaction_config_path,
     mousewheel_scroll_units,
     normalize_drag_rect,
     open_path_with_default_app,
@@ -94,15 +102,17 @@ from gui import (
     pdf_redaction_scope_from_gui_label,
     record_recent_folder,
     remove_paths_by_indexes,
+    resolve_magic_pen_bindings,
     restore_hint,
     restrict_review_items_to_batch,
     review_status_label_pl,
     risk_style_key,
     save_cleanup_reminder_config,
+    save_magic_pen_interaction_config,
     save_recent_folders,
-    should_show_cleanup_reminder,
     save_seen_hints,
     scroll_sync_units,
+    should_show_cleanup_reminder,
     truncate_filename_middle,
     ui_hints_config_path,
     zoom_link_glyph,
@@ -1137,6 +1147,102 @@ class GuiWorkflowTests(unittest.TestCase):
             with patch("gui_helpers.ui_hints_config_path", return_value=config_path):
                 restore_hint(APPROVAL_LOCK_HINT_ID)
                 self.assertFalse(hint_is_dismissed(APPROVAL_LOCK_HINT_ID))
+
+    def test_is_valid_magic_pen_bindings_accepts_a_complete_bijection(self) -> None:
+        self.assertTrue(is_valid_magic_pen_bindings(MAGIC_PEN_BUILTIN_BINDINGS[MAGIC_PEN_MODE_DEFAULT]))
+        self.assertTrue(is_valid_magic_pen_bindings(MAGIC_PEN_BUILTIN_BINDINGS[MAGIC_PEN_MODE_CLASSIC]))
+
+    def test_is_valid_magic_pen_bindings_rejects_missing_button(self) -> None:
+        incomplete = {"left": "mark", "right": "pan"}
+        self.assertFalse(is_valid_magic_pen_bindings(incomplete))
+
+    def test_is_valid_magic_pen_bindings_rejects_duplicate_action(self) -> None:
+        two_buttons_same_action = {"left": "mark", "right": "mark", "middle": "pan"}
+        self.assertFalse(is_valid_magic_pen_bindings(two_buttons_same_action))
+
+    def test_is_valid_magic_pen_bindings_rejects_non_dict(self) -> None:
+        self.assertFalse(is_valid_magic_pen_bindings(None))
+        self.assertFalse(is_valid_magic_pen_bindings(["left", "right", "middle"]))
+
+    def test_resolve_magic_pen_bindings_returns_builtin_for_default_and_classic(self) -> None:
+        self.assertEqual(
+            resolve_magic_pen_bindings(MAGIC_PEN_MODE_DEFAULT, None),
+            MAGIC_PEN_BUILTIN_BINDINGS[MAGIC_PEN_MODE_DEFAULT],
+        )
+        self.assertEqual(
+            resolve_magic_pen_bindings(MAGIC_PEN_MODE_CLASSIC, None),
+            MAGIC_PEN_BUILTIN_BINDINGS[MAGIC_PEN_MODE_CLASSIC],
+        )
+
+    def test_resolve_magic_pen_bindings_returns_custom_mapping_when_valid(self) -> None:
+        custom = {"left": "erase", "right": "mark", "middle": "pan"}
+        self.assertEqual(resolve_magic_pen_bindings(MAGIC_PEN_MODE_CUSTOM, custom), custom)
+
+    def test_resolve_magic_pen_bindings_falls_back_to_default_for_invalid_custom(self) -> None:
+        broken = {"left": "mark"}
+        self.assertEqual(
+            resolve_magic_pen_bindings(MAGIC_PEN_MODE_CUSTOM, broken),
+            MAGIC_PEN_BUILTIN_BINDINGS[MAGIC_PEN_MODE_DEFAULT],
+        )
+
+    def test_resolve_magic_pen_bindings_falls_back_to_default_for_unknown_mode(self) -> None:
+        self.assertEqual(
+            resolve_magic_pen_bindings("not_a_real_mode", None),
+            MAGIC_PEN_BUILTIN_BINDINGS[MAGIC_PEN_MODE_DEFAULT],
+        )
+
+    def test_magic_pen_bindings_description_lists_all_three_buttons_left_to_right(self) -> None:
+        description = magic_pen_bindings_description_pl(
+            MAGIC_PEN_BUILTIN_BINDINGS[MAGIC_PEN_MODE_DEFAULT]
+        )
+        left_index = description.index("Lewy")
+        right_index = description.index("Prawy")
+        middle_index = description.index("Środkowy")
+        self.assertLess(left_index, right_index)
+        self.assertLess(right_index, middle_index)
+        self.assertIn("zaznaczanie", description)
+        self.assertIn("przesuwanie widoku", description)
+        self.assertIn("odznaczanie", description)
+
+    def test_magic_pen_interaction_config_path_is_under_home_dot_folder(self) -> None:
+        path = magic_pen_interaction_config_path()
+        self.assertEqual(path.parent.name, ".anonimizer")
+        self.assertEqual(path.name, "magic_pen_interaction.json")
+
+    def test_load_magic_pen_interaction_config_missing_file_returns_defaults(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            missing = Path(temp_dir) / "does_not_exist.json"
+            config = load_magic_pen_interaction_config(missing)
+            self.assertEqual(config["mode"], MAGIC_PEN_MODE_DEFAULT)
+            self.assertTrue(is_valid_magic_pen_bindings(config["custom_bindings"]))
+
+    def test_load_magic_pen_interaction_config_ignores_corrupt_file(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            path = Path(temp_dir) / "corrupt.json"
+            path.write_text("{not valid json", encoding="utf-8")
+            config = load_magic_pen_interaction_config(path)
+            self.assertEqual(config["mode"], MAGIC_PEN_MODE_DEFAULT)
+
+    def test_load_magic_pen_interaction_config_ignores_invalid_custom_bindings(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            path = Path(temp_dir) / "config.json"
+            path.write_text(
+                '{"mode": "custom", "custom_bindings": {"left": "mark"}}',
+                encoding="utf-8",
+            )
+            config = load_magic_pen_interaction_config(path)
+            self.assertEqual(config["mode"], "custom")
+            self.assertTrue(is_valid_magic_pen_bindings(config["custom_bindings"]))
+
+    def test_save_and_load_magic_pen_interaction_config_round_trips(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            path = Path(temp_dir) / "nested" / "config.json"
+            custom = {"left": "erase", "right": "pan", "middle": "mark"}
+            save_magic_pen_interaction_config(path, MAGIC_PEN_MODE_CUSTOM, custom)
+
+            config = load_magic_pen_interaction_config(path)
+            self.assertEqual(config["mode"], MAGIC_PEN_MODE_CUSTOM)
+            self.assertEqual(config["custom_bindings"], custom)
 
     def test_format_approval_lock_warning_title_singular_and_plural(self) -> None:
         self.assertEqual(format_approval_lock_warning_title(1), "Zatwierdzić plik?")

@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import tkinter as tk
 from collections.abc import Callable
+from typing import ClassVar
 
 import customtkinter as ctk
 from PIL import Image
@@ -31,6 +32,10 @@ try:
         COLOR_WARNING_SOFT,
         COLOR_WARNING_TEXT,
         FONT_FAMILY,
+        MAGIC_PEN_ACTION_ERASE,
+        MAGIC_PEN_ACTION_MARK,
+        MAGIC_PEN_ACTION_PAN,
+        MAGIC_PEN_BUTTON_LABELS_PL,
         MAGIC_PEN_HINT_ID,
         RISK_STYLES,
         RISK_SUMMARY_TEXT_PL,
@@ -65,6 +70,10 @@ except ImportError:
         COLOR_WARNING_SOFT,
         COLOR_WARNING_TEXT,
         FONT_FAMILY,
+        MAGIC_PEN_ACTION_ERASE,
+        MAGIC_PEN_ACTION_MARK,
+        MAGIC_PEN_ACTION_PAN,
+        MAGIC_PEN_BUTTON_LABELS_PL,
         MAGIC_PEN_HINT_ID,
         RISK_STYLES,
         RISK_SUMMARY_TEXT_PL,
@@ -457,7 +466,36 @@ class MagicPenHintDialog:
     ApprovalLockWarningDialog - restorable from Settings > Ogólne.
     """
 
-    def __init__(self, app: AnonymizerApp, parent_window: tk.Misc) -> None:
+    # One sentence per action, each built with whichever button the
+    # current interaction mode actually assigns it (see
+    # resolve_magic_pen_bindings) - never hardcoded to LPM/PPM, so this
+    # text can't drift out of sync with real behavior across "Domyślny",
+    # "Klasyczny" or a user's own "Niestandardowy" assignment.
+    _ACTION_HINT_TEMPLATES_PL: ClassVar[dict[str, tuple[str, str]]] = {
+        MAGIC_PEN_ACTION_MARK: (
+            "✏",
+            (
+                "{button}: zaznacz i przeciągnij myszą w prawym oknie edycji, "
+                "aby ręcznie ukryć coś, co program pominął."
+            ),
+        ),
+        MAGIC_PEN_ACTION_ERASE: (
+            "🖱",
+            (
+                "{button}: kliknij (albo przytrzymaj i przeciągnij po kilku "
+                "naraz) na kolorowym zaznaczeniu, aby cofnąć automatyczną "
+                "anonimizację tego fragmentu."
+            ),
+        ),
+        MAGIC_PEN_ACTION_PAN: (
+            "🖐",
+            "{button}: przeciągnij, aby przesunąć widok bez użycia scrolla.",
+        ),
+    }
+
+    def __init__(
+        self, app: AnonymizerApp, parent_window: tk.Misc, bindings: dict[str, str]
+    ) -> None:
         # Transient to (and centered over, and refocused back onto on
         # close) parent_window - the comparison window this hint was
         # actually triggered from, *not* app.root. A real bug was found
@@ -487,22 +525,21 @@ class MagicPenHintDialog:
             justify="left",
         ).pack(fill="x", padx=20, pady=(20, 12))
 
-        for glyph, text in (
-            (
-                "✏",
-                (
-                    "Zaznacz i przeciągnij myszą w prawym oknie edycji, aby "
-                    "ręcznie ukryć coś, co program pominął."
-                ),
-            ),
-            (
-                "🖱",
-                (
-                    "Kliknij prawym przyciskiem na kolorowym zaznaczeniu (albo "
-                    "użyj przycisku „Usuń zaznaczenie”), aby cofnąć "
-                    "automatyczną anonimizację tego fragmentu."
-                ),
-            ),
+        button_by_action = {action: button for button, action in bindings.items()}
+        action_rows = []
+        for action in (
+            MAGIC_PEN_ACTION_MARK,
+            MAGIC_PEN_ACTION_ERASE,
+            MAGIC_PEN_ACTION_PAN,
+        ):
+            button = button_by_action.get(action)
+            if button is None:
+                continue
+            glyph, template = self._ACTION_HINT_TEMPLATES_PL[action]
+            action_rows.append(
+                (glyph, template.format(button=MAGIC_PEN_BUTTON_LABELS_PL[button]))
+            )
+        action_rows.append(
             (
                 "✓",
                 (
@@ -510,8 +547,10 @@ class MagicPenHintDialog:
                     "w pełni edytowalny - po zatwierdzeniu edycja nie jest już "
                     "możliwa."
                 ),
-            ),
-        ):
+            )
+        )
+
+        for glyph, text in action_rows:
             row = ctk.CTkFrame(window, fg_color="transparent")
             row.pack(fill="x", padx=20, pady=4)
             ctk.CTkLabel(
