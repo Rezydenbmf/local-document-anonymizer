@@ -3151,6 +3151,75 @@ Timing script and synthetic fixtures were scratch-only (session
 scratchpad, never committed) - nothing about a real document was read or
 needed to answer this.
 
+**Etap 2 implemented the same session, once the user said to go ahead:
+both candidates from the measurement above.** (a) `ner.prepare_ner_context`
+now caches the loaded spaCy pipeline in a module-level dict, keyed on
+`(spacy module object, model name)` rather than model name alone - the
+module-object half of the key exists specifically so a test's
+`unittest.mock.patch`-installed fake spaCy module can never collide with
+a real load cached under the same default model name (confirmed
+necessary: keying on model name alone broke all 29 NER-touching tests by
+making the whole suite share the first test's fake results). (b)
+`manual_redaction.regenerate_pdf_with_manual_overrides` and
+`compute_visible_redaction_rects` gained an optional precomputed
+`word_pages`/`spans` pair (both or neither - a partial pair is treated as
+neither); `gui_comparison_window.ComparisonWindow` computes and caches
+that pair once per window via a new `_cached_detection()` method, keyed
+on the settings that can actually change mid-session, and reuses it
+across window-open, every manual-edit save, and the reload after each
+save - eliminating the repeated OCR/NER recompute the Etap 2 measurement
+found, not just the burn-in step the original framing was about.
+Verified correctness (identical `redaction_count` and output text with
+vs. without the precomputed pair) and measured a real 12.6x speedup on
+the manual-edit-save path for the same synthetic scanned PDF (14.4s ->
+1.1s).
+
+Per `CLAUDE.md`'s own rule, `code-review` (high effort, 8 finder angles)
+ran on the diff before merging since it touches `manual_redaction.py`.
+One real regression came back, independently flagged by 4 of the 8
+angles: the new cache's key covered the sensitive-terms dictionary's
+*path* but not its *contents*, so editing the dictionary file in place
+(same path) while the window stayed open - it's deliberately non-modal,
+the rest of the app stays usable - would silently keep serving
+detection results from before the edit, unlike the pre-cache code which
+always re-read the file fresh. Fixed by folding an mtime+size
+fingerprint of the dictionary file into the cache key, with a
+regression test (`tests/test_comparison_window_detection_cache.py`)
+locking in the fix. Also fixed a smaller asymmetry (the save path's
+failure handler didn't reset the cache the way the reload path's did)
+and de-duplicated the two `manual_redaction.py` functions' identical
+"use precomputed pair or recompute" logic into one shared helper.
+
+Three lower-severity findings were left as documented, currently-
+unreachable risks rather than fixed now, each because no code path
+today actually reaches the failure mode: the NER cache's check-then-act
+isn't locked against concurrent access (verified no caller today invokes
+`prepare_ner_context` from two threads - `anonymize_batch` runs
+synchronously on the Tk main thread, and `ComparisonWindow` is only
+created after it returns; revisit if batch processing ever moves to a
+background thread, already a known separate future TODO for the UI
+freeze); the NER pipeline cache has no eviction (only `DEFAULT_NER_MODEL`
+is ever requested anywhere today, so at most one pipeline is ever
+resident); and the new cache only removes redundant recompute across
+repeated saves within one already-open comparison window - it does not
+avoid the automatic batch pass's own detection being redone the first
+time a window opens for a scanned document, since that would mean
+threading `word_pages`/`spans` through `ReviewItem` from the batch
+pipeline, a bigger change than this session's scope.
+
+Full suite: 491 tests (5 new: 1 covering the precomputed-pair contract's
+edge cases in `test_manual_redaction.py`, 2 covering the NER cache in
+`test_ner.py`, 4 covering the detection cache in the new
+`test_comparison_window_detection_cache.py` - some added before the
+review, some as its regression guard). Lint at the established
+77-error baseline.
+
+```text
+2b89204 Document Etap 2 timing measurement: burn-in is not the bottleneck
+7883432 Cache detection results and the NER model to fix Etap 2's real bottleneck
+06d26cf Fix real regression the code-review pass found in the detection cache
+```
+
 ## Next Logical Step
 
 **⚠️ Standing note, not urgent yet — read before touching `llm_review.py`.**
@@ -3171,16 +3240,15 @@ for whenever that work actually starts, not a task to schedule now. See
 an outbound channel - this is exactly the point that feature would
 create the third leg).
 
-**Immediate:** the installer hand-off, the OCR fix, and Etap 1 (history
-cleanup/reminder/export picker) are all done and merged - see the
-narratives above. Etap 2 is now measured (see the narrative just above
-this section) - restructuring around "burn in only after confirm" is
-**not** the win it looked like; caching detection results across the
-automatic pass and a same-session manual-edit save (and separately,
-caching the spaCy model load) is the real, smaller, lower-risk candidate
-instead, still needing the user's own go-ahead before starting since it
-touches files `CLAUDE.md` flags for review. What's actually next is the
-rest of the staged plan from the 2026-09-15 conversation (notes drawn
+**Immediate:** the installer hand-off, the OCR fix, Etap 1 (history
+cleanup/reminder/export picker), and now Etap 2 (detection-result and
+NER-model caching, `code-review`-passed) are all done and merged - see
+the narratives above. Real pilot use of the magic pen on a scanned
+document, ideally editing the sensitive-terms dictionary mid-session, is
+the one thing that still needs the user's own hardware/eyes to confirm
+(added to `docs/DO_ZWERYFIKOWANIA.md`) - everything else about this
+change was verified programmatically. What's actually next is the rest
+of the staged plan from the 2026-09-15 conversation (notes drawn
 from the user's own `notatki.txt`, never committed): Etap 3 is a
 three-mode mouse-interaction redesign for the magic pen (LPM=mark/
 PPM=pan/middle-click=temporary unmark modifier, plus two alternate modes

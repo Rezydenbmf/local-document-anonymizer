@@ -43,6 +43,16 @@ przenoszę ją do „Potwierdzone" albo usuwam. Jeśli lista urośnie powyżej
       albo Dokumenty). Anulowanie okna teraz po cichu anuluje cały
       eksport (wcześniej zawsze lądowało w stałym podfolderze
       approved/) — potwierdź, że to oczekiwane zachowanie.
+- [ ] **Cache'owanie detekcji w oknie porównania (Etap 2, 2026-09-16)**
+      — zapis po ręcznej edycji magic penem na skanie powinien być teraz
+      wyraźnie szybszy (zmierzone: ~14s → ~1s na syntetycznym 6-stronicowym
+      skanie) zamiast robić OCR od nowa za każdym razem. Sprawdź na
+      prawdziwym, wielostronicowym skanie: czy zapis w oknie porównania
+      faktycznie odczuwalnie przyspieszył, i czy edycja słownika wrażliwych
+      terminów w trakcie otwartego okna porównania (ten sam plik, nowa
+      zawartość) nadal poprawnie wpływa na kolejny zapis — to naprawiony w
+      tej samej sesji błąd (code-review złapał go przed mergem), warto
+      potwierdzić na żywo.
 
 ## Potwierdzone
 
