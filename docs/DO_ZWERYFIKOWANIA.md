@@ -43,6 +43,22 @@ przenoszę ją do „Potwierdzone" albo usuwam. Jeśli lista urośnie powyżej
       albo Dokumenty). Anulowanie okna teraz po cichu anuluje cały
       eksport (wcześniej zawsze lądowało w stałym podfolderze
       approved/) — potwierdź, że to oczekiwane zachowanie.
+- [ ] **Magic pen — nowy system trybów interakcji myszy (Etap 3,
+      2026-09-16)** — trzy tryby: „Domyślny" (LPM=zaznacz, PPM=przesuń
+      widok, środkowy=przytrzymaj i kliknij/przeciągnij żeby odznaczyć),
+      „Klasyczny" (LPM=zaznacz, PPM=odznacz — jak dotychczas — plus
+      nowość: środkowy=przesuń widok), „Niestandardowy" (przypisujesz
+      sam w Ustawienia > Ogólne, przypisanie tej samej akcji do innego
+      przycisku zamienia je miejscami zamiast błędu). Stare przyciski
+      „Dodaj/Usuń zaznaczenie" (przypinanie LPM) zniknęły z paska u góry
+      — zastąpione małym opisem trybu obok Cofnij/Ponów. Sprawdź na
+      żywo: czy PPM rzeczywiście przesuwa widok w trybie domyślnym (nie
+      odznacza), czy przytrzymanie środkowego i przeciągnięcie po kilku
+      zaznaczeniach naraz faktycznie je zdejmuje, czy tryb
+      niestandardowy w Ustawieniach zapisuje się poprawnie między
+      sesjami, i czy podpowiedź przy pierwszym otwarciu dokumentu
+      (dialog „Co możesz zrobić z tym dokumentem?") poprawnie opisuje
+      wybrany tryb.
 - [ ] **Cache'owanie detekcji w oknie porównania (Etap 2, 2026-09-16)**
       — zapis po ręcznej edycji magic penem na skanie powinien być teraz
       wyraźnie szybszy (zmierzone: ~14s → ~1s na syntetycznym 6-stronicowym

@@ -3220,6 +3220,75 @@ review, some as its regression guard). Lint at the established
 06d26cf Fix real regression the code-review pass found in the detection cache
 ```
 
+**Etap 3: the magic pen's mouse-interaction redesign, from the 2026-09-15
+staged plan.** The plan's one-line summary ("three-mode mouse-interaction
+redesign, LPM=mark/PPM=pan/middle-click=temporary unmark modifier, plus
+two alternate modes selectable in Settings") wasn't enough to implement
+from alone - the full spec only ever lived in the user's own
+`notatki.txt`, never committed - so this round started with clarifying
+questions before writing any code, rather than guessing at button
+bindings that would have been real rework to undo. Confirmed: PPM loses
+its erase shortcut entirely in the new default mode (pan only); the
+middle button's "erase" is hold-and-click-or-drag, not a single click,
+so it can remove several redactions in one gesture; the existing hand/
+zoom pointer-tool toggle buttons stay as an additional, independent way
+to pan/zoom, not replaced by the new per-button dispatch. The two
+alternate modes turned out to be: a "Klasyczny" mode that keeps this
+app's original LPM=mark/PPM=erase scheme exactly as it always was and
+only adds middle=pan (so nobody's existing muscle memory breaks), and a
+fully user-assignable "Niestandardowy" mode.
+
+**Design:** three named modes (`default`, `classic`, `custom`) each
+resolve to a `{button: action}` mapping - `resolve_magic_pen_bindings` in
+`gui_helpers.py`, the single source of truth every consumer (canvas
+button bindings, the sidebar hint text, the Settings mode selector, the
+first-open `MagicPenHintDialog`) reads from, so none of them can drift
+out of sync with each other the way a hardcoded per-mode string would.
+This directly replaced the old "pin LMB to draw or erase" tool-chip UI
+in the comparison window's title bar (`_build_tool_chip` and friends,
+deleted) - with three real buttons each doing one job, pinning one of
+two buttons to double duty stopped making sense, so it was retired
+rather than left alongside the new system as redundant/confusing
+UI. `ComparisonWindow`'s three separate press/drag/release handlers per
+mouse button were consolidated into one action-driven dispatch
+(`_on_pane_button_press/drag/release`), gated on whichever action
+`_button_action` resolves for that button - erase now supports a
+continuous drag (hit-testing every rectangle the cursor passes over,
+deduplicated per gesture via `rect_info_key` so dragging back over an
+already-erased rect can't toggle it back on), a strict superset of the
+old click-only behavior, so "Klasyczny" mode's PPM=erase keeps working
+exactly as before while gaining drag-support nobody previously had.
+
+**Custom mode's editor** (Settings > Ogólne) is three per-button
+dropdowns; assigning an action a button already holds *swaps* the two
+rather than erroring or leaving two buttons sharing one action, so
+`is_valid_magic_pen_bindings`'s bijection invariant can never be broken
+from the UI. Persisted the same way every other local preference in this
+app is - `~/.anonimizer/magic_pen_interaction.json` via a
+`magic_pen_interaction_config_path`/`load_.../save_...` triplet mirroring
+the existing `ui_hints_seen.json`/`history.json` pattern exactly, loaded
+once into `AnonymizerApp.magic_pen_interaction_mode`/
+`magic_pen_custom_bindings` at startup.
+
+**Verification**: real headless Tk/CTk widget trees were built and
+driven programmatically (this sandbox has no display to screenshot, but
+Tk itself works headlessly here - confirmed separately) rather than only
+unit-testing the pure logic underneath, since a GUI redesign's actual
+risk is in the widget wiring, not the dispatch math. Caught in that pass
+and fixed before committing: `winfo_ismapped()` doesn't work to check
+whether a widget is packed when the whole window tree is withdrawn (as
+it is for every headless check here) - switched to `winfo_manager() ==
+"pack"`, which doesn't depend on visibility. Full suite: 520 tests (15
+new pure-logic tests for the bindings/persistence functions in
+`test_gui_workflow.py`, 9 new dispatch tests in the new
+`test_comparison_window_mouse_dispatch.py`, 6 new Settings-dialog tests
+in the new `test_settings_dialog_magic_pen_mode.py`). Lint at the
+established 77-error baseline. `code-review` was not run before merging
+this batch - `CLAUDE.md`'s rule requiring it only names
+`anonymizer.py`/`pdf_redaction.py`/`manual_redaction.py`/`ocr.py`, and
+explicitly carves out UI-only changes; this batch touches none of the
+first four.
+
 ## Next Logical Step
 
 **⚠️ Standing note, not urgent yet — read before touching `llm_review.py`.**
@@ -3241,23 +3310,23 @@ an outbound channel - this is exactly the point that feature would
 create the third leg).
 
 **Immediate:** the installer hand-off, the OCR fix, Etap 1 (history
-cleanup/reminder/export picker), and now Etap 2 (detection-result and
-NER-model caching, `code-review`-passed) are all done and merged - see
-the narratives above. Real pilot use of the magic pen on a scanned
-document, ideally editing the sensitive-terms dictionary mid-session, is
-the one thing that still needs the user's own hardware/eyes to confirm
-(added to `docs/DO_ZWERYFIKOWANIA.md`) - everything else about this
-change was verified programmatically. What's actually next is the rest
-of the staged plan from the 2026-09-15 conversation (notes drawn
-from the user's own `notatki.txt`, never committed): Etap 3 is a
-three-mode mouse-interaction redesign for the magic pen (LPM=mark/
-PPM=pan/middle-click=temporary unmark modifier, plus two alternate modes
-selectable in Settings); Etap 4-6 build selective category-based
-anonymization (8 categories, grounded in which detectors are
-pattern-reliable vs. AI-probabilistic) with per-page scoping; Etap 7
+cleanup/reminder/export picker), Etap 2 (detection-result and NER-model
+caching, `code-review`-passed) and now Etap 3 (magic-pen mouse-
+interaction redesign) are all done and merged - see the narratives
+above. Real pilot use of the magic pen - all three modes, ideally
+including a custom-mode assignment and editing the sensitive-terms
+dictionary mid-session for the Etap 2 cache-invalidation fix - is the
+one thing that still needs the user's own hardware/eyes to confirm
+(tracked in `docs/DO_ZWERYFIKOWANIA.md`); everything else about both
+changes was verified programmatically, including real headless Tk widget
+trees for Etap 3 specifically. What's actually next is the rest of the
+staged plan from the 2026-09-15 conversation (notes drawn from the
+user's own `notatki.txt`, never committed): Etap 4-6 build selective
+category-based anonymization (8 categories, grounded in which detectors
+are pattern-reliable vs. AI-probabilistic) with per-page scoping; Etap 7
 investigates qpdf for stripping e-signatures a real case showed this app
-currently misses. None of these are started. **This conversation has
-also run long enough
+currently misses. Neither is started. **This conversation has also run
+long enough
 that it should not be the one to start them** - continue in a fresh
 session; `CLAUDE.md`, this file, and `docs/DO_ZWERYFIKOWANIA.md` carry
 everything forward.

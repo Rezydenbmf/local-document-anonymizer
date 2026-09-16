@@ -107,7 +107,9 @@ try:
         hint_is_dismissed,
         history_config_path,
         load_cleanup_reminder_config,
+        load_magic_pen_interaction_config,
         load_recent_folders,
+        magic_pen_interaction_config_path,
         open_path_with_default_app,
         parse_dropped_file_paths,
         parse_report_summary,
@@ -235,7 +237,9 @@ except ImportError:
         hint_is_dismissed,
         history_config_path,
         load_cleanup_reminder_config,
+        load_magic_pen_interaction_config,
         load_recent_folders,
+        magic_pen_interaction_config_path,
         open_path_with_default_app,
         parse_dropped_file_paths,
         parse_report_summary,
@@ -284,6 +288,14 @@ class AnonymizerApp:
         self.pdf_output_label = PDF_OUTPUT_LABEL_VISUAL_REDACTION
         self.auto_open_on_approve = True
         self.show_usage_hints = True
+        self.magic_pen_interaction_config_path = magic_pen_interaction_config_path()
+        _magic_pen_config = load_magic_pen_interaction_config(
+            self.magic_pen_interaction_config_path
+        )
+        self.magic_pen_interaction_mode: str = _magic_pen_config["mode"]
+        self.magic_pen_custom_bindings: dict[str, str] = _magic_pen_config[
+            "custom_bindings"
+        ]
         # Collapsed to a slim rail (see _build_quick_settings_panel) once
         # the user clicks the panel's own collapse toggle - per direct
         # feedback that "Szybkie akcje" can get in the way and should be

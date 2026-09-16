@@ -37,6 +37,12 @@ try:
         FLOATING_ACTIONS_SAVED,
         FONT_FAMILY,
         LEGEND_ITEMS,
+        MAGIC_PEN_ACTION_ERASE,
+        MAGIC_PEN_ACTION_MARK,
+        MAGIC_PEN_ACTION_PAN,
+        MAGIC_PEN_BUTTON_LEFT,
+        MAGIC_PEN_BUTTON_MIDDLE,
+        MAGIC_PEN_BUTTON_RIGHT,
         MAGIC_PEN_HINT_ID,
         ZOOM_LINK_HINT_ID,
         IconTooltip,
@@ -50,6 +56,8 @@ try:
         format_pending_edit_summary_lines,
         format_save_button_text,
         hint_is_dismissed,
+        magic_pen_bindings_description_pl,
+        resolve_magic_pen_bindings,
     )
     from .manual_redaction import (
         EMPTY_MANUAL_EDITS,
@@ -93,6 +101,12 @@ except ImportError:
         FLOATING_ACTIONS_SAVED,
         FONT_FAMILY,
         LEGEND_ITEMS,
+        MAGIC_PEN_ACTION_ERASE,
+        MAGIC_PEN_ACTION_MARK,
+        MAGIC_PEN_ACTION_PAN,
+        MAGIC_PEN_BUTTON_LEFT,
+        MAGIC_PEN_BUTTON_MIDDLE,
+        MAGIC_PEN_BUTTON_RIGHT,
         MAGIC_PEN_HINT_ID,
         ZOOM_LINK_HINT_ID,
         IconTooltip,
@@ -106,6 +120,8 @@ except ImportError:
         format_pending_edit_summary_lines,
         format_save_button_text,
         hint_is_dismissed,
+        magic_pen_bindings_description_pl,
+        resolve_magic_pen_bindings,
     )
     from manual_redaction import (
         EMPTY_MANUAL_EDITS,
@@ -179,6 +195,15 @@ ZOOM_MAX = 3.0
 ZOOM_STEP = 0.1
 ZOOM_DEFAULT = 1.0
 ZOOM_LINK_HINT_ID = "zoom_link_toggle"
+
+# Tk's own button-number convention (1=left, 2=middle, 3=right) mapped to
+# the button names resolve_magic_pen_bindings works with, so the canvas
+# binding loop and _button_action share one vocabulary instead of two.
+_TK_BUTTON_TO_NAME = {
+    1: MAGIC_PEN_BUTTON_LEFT,
+    2: MAGIC_PEN_BUTTON_MIDDLE,
+    3: MAGIC_PEN_BUTTON_RIGHT,
+}
 
 
 def clamp_zoom_level(
@@ -425,17 +450,23 @@ class ComparisonWindow:
         self._edit_undo_stack: list[tuple[list[ManualRect], set]] = []
         self._edit_redo_stack: list[tuple[list[ManualRect], set]] = []
         self.pen_status_label: ctk.CTkLabel | None = None
-        # Manual-mode tool pinning: None means the modeless default (LMB
-        # draws, RMB always erases). Pinning to "draw" or "erase" locks
-        # LMB to that one action - RMB keeps working as erase regardless,
-        # so pinning never takes away the existing shortcut, only adds a
-        # single-button way to work for anyone who'd rather pick a tool
-        # explicitly. _transient_tool tracks a chip lighting up because
-        # its action is actually happening right now (independent of
-        # pinning), cleared the moment that press/click ends.
-        self.pinned_tool: str | None = None
-        self._transient_tool: str | None = None
-        self._tool_chips: dict[str, ctk.CTkButton] = {}
+        # Etap 3: each mouse button (left/right/middle) is independently
+        # bound to one of three actions (mark/erase/pan) per
+        # app.magic_pen_interaction_mode - see _button_action and
+        # resolve_magic_pen_bindings in gui_helpers.py. Replaces the
+        # earlier "pin LMB to draw or erase, RMB always erases" scheme:
+        # with three real buttons instead of two doing double duty, that
+        # pinning UI became redundant rather than complementary.
+        # _active_gesture_action tracks which action the currently-held
+        # button performs, so drag/release handlers (which only see the
+        # event, not which button started the gesture) know what to do.
+        # _erased_this_gesture de-duplicates a drag-erase: each rect the
+        # cursor passes over is removed at most once per press-to-release
+        # gesture, so dragging back over the same spot doesn't toggle it
+        # on and off repeatedly.
+        self._active_gesture_action: str | None = None
+        self._erased_this_gesture: set = set()
+        self.mode_indicator_label: ctk.CTkLabel | None = None
         self.left_frame: ctk.CTkScrollableFrame | None = None
         self.right_frame: ctk.CTkScrollableFrame | None = None
         self.original_zoom = ZOOM_DEFAULT
@@ -858,13 +889,18 @@ class ComparisonWindow:
         )
         self.undo_button.pack(side="right", padx=(0, 10))
 
-        self._tool_chips["erase"] = self._build_tool_chip(
-            parent, "🧹", "Usuń zaznaczenie", "erase"
+        self.mode_indicator_label = ctk.CTkLabel(
+            parent,
+            text=self._current_bindings_description(),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLOR_TEXT_MUTED,
         )
-        self._tool_chips["draw"] = self._build_tool_chip(
-            parent, "✏", "Dodaj zaznaczenie", "draw"
+        self.mode_indicator_label.pack(side="right", padx=(0, 10))
+        IconTooltip(
+            self.mode_indicator_label,
+            "Co robi każdy przycisk myszy w tym oknie. Zmień tryb w "
+            "Ustawienia > Ogólne.",
         )
-        self._refresh_tool_chip_visuals()
 
     # -- zoom: independent or linked, like a dual-zone climate control ------
 
@@ -1555,7 +1591,7 @@ class ComparisonWindow:
             return
         if hint_is_dismissed(MAGIC_PEN_HINT_ID):
             return
-        MagicPenHintDialog(self.app, self.window)
+        MagicPenHintDialog(self.app, self.window, self._current_bindings())
 
     def _rebuild_original_pane(self) -> None:
         if self.left_frame is None:
@@ -1703,10 +1739,7 @@ class ComparisonWindow:
         else:
             ctk.CTkLabel(
                 inner,
-                text=(
-                    "LPM: nowe zaznaczenie. PPM: usuń istniejące. "
-                    "Narzędzia i licznik zmian - na dole okna."
-                ),
+                text=self._sidebar_bindings_hint_text(),
                 font=ctk.CTkFont(family=FONT_FAMILY, size=10),
                 text_color=COLOR_TEXT_MUTED,
                 anchor="w",
@@ -1788,68 +1821,23 @@ class ComparisonWindow:
             self._sidebar_widget = self._build_magic_pen_sidebar(self.content_row)
             self._sidebar_widget.pack(side="right", fill="y", padx=(12, 0))
 
-    def _build_tool_chip(
-        self, parent: ctk.CTkFrame, glyph: str, label: str, tool: str
-    ) -> ctk.CTkButton:
-        # A compact single button rather than the wider vertical card
-        # this used when it lived in the (now-collapsible) sidebar - it
-        # sits in a horizontal bottom row now, next to its sibling and
-        # the save/cancel buttons, so it needs to stay narrow. Given a
-        # visible border and a larger size than the first version - per
-        # direct user feedback that the plain COLOR_BG fill read as flat
-        # text rather than an obviously clickable control.
-        chip = ctk.CTkButton(
-            parent,
-            text=f"{glyph} {label}",
-            height=34,
-            corner_radius=8,
-            border_width=1,
-            border_color=COLOR_BORDER,
-            fg_color=COLOR_BG,
-            hover_color=COLOR_ICON_IDLE,
-            text_color=COLOR_TEXT_MUTED,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
-            command=lambda t=tool: self._toggle_pinned_tool(t),
+    def _current_bindings(self) -> dict[str, str]:
+        return resolve_magic_pen_bindings(
+            self.app.magic_pen_interaction_mode, self.app.magic_pen_custom_bindings
         )
-        # side="right": these live in the title bar now, packed after the
-        # undo/redo pair, so first-packed ends up rightmost and the
-        # on-screen order reads draw, erase, undo, redo left to right.
-        chip.pack(side="right", padx=(8, 0))
-        IconTooltip(
-            chip,
-            "Kliknij, aby przypisać LPM tylko do tego narzędzia (tryb ręczny). "
-            "PPM zawsze usuwa zaznaczenie, niezależnie od wybranego trybu. "
-            "Kliknij ponownie, aby wrócić do trybu automatycznego.",
+
+    def _current_bindings_description(self) -> str:
+        return magic_pen_bindings_description_pl(self._current_bindings())
+
+    def _button_action(self, button: str) -> str:
+        return self._current_bindings().get(button, MAGIC_PEN_ACTION_MARK)
+
+    def _sidebar_bindings_hint_text(self) -> str:
+        return (
+            f"{self._current_bindings_description()}. Odznaczanie: "
+            "przytrzymaj i przeciągnij, by usunąć kilka naraz. Licznik "
+            "zmian - na dole okna."
         )
-        return chip
-
-    def _toggle_pinned_tool(self, tool: str) -> None:
-        self.pinned_tool = None if self.pinned_tool == tool else tool
-        self._refresh_tool_chip_visuals()
-
-    def _flash_tool_chip(self, tool: str) -> None:
-        """Briefly light up a chip for a one-shot action (a right-click has
-        no natural "held" duration the way a LMB drag does)."""
-        self._transient_tool = tool
-        self._refresh_tool_chip_visuals()
-        self.window.after(250, self._clear_transient_tool)
-
-    def _clear_transient_tool(self) -> None:
-        self._transient_tool = None
-        self._refresh_tool_chip_visuals()
-
-    def _refresh_tool_chip_visuals(self) -> None:
-        for tool, chip in self._tool_chips.items():
-            self._set_tool_chip_active(
-                chip,
-                active=(self.pinned_tool == tool or self._transient_tool == tool),
-            )
-
-    def _set_tool_chip_active(self, chip: ctk.CTkButton, *, active: bool) -> None:
-        if active:
-            chip.configure(fg_color=COLOR_ACCENT, text_color="#FFFFFF")
-        else:
-            chip.configure(fg_color=COLOR_BG, text_color=COLOR_TEXT_MUTED)
 
     # -- magic pen: rendering -------------------------------------------------
 
@@ -1954,29 +1942,34 @@ class ComparisonWindow:
                     self._page_canvases[page_index] = canvas
                     self._page_zoom[page_index] = zoom
                     if not self.locked:
-                        # Modeless: left button always draws a new
-                        # redaction, right button always toggles an
-                        # existing one - no mode to switch first. An
-                        # approved (locked) file skips all four bindings
-                        # entirely rather than binding-then-ignoring, so
-                        # the canvas genuinely behaves like a plain,
-                        # non-interactive preview.
-                        canvas.bind(
-                            "<ButtonPress-1>",
-                            lambda event, p=page_index: self._on_pane_press(event, p),
-                        )
-                        canvas.bind(
-                            "<B1-Motion>",
-                            lambda event, p=page_index: self._on_pane_drag(event, p),
-                        )
-                        canvas.bind(
-                            "<ButtonRelease-1>",
-                            lambda event, p=page_index: self._on_pane_release(event, p),
-                        )
-                        canvas.bind(
-                            "<ButtonPress-3>",
-                            lambda event, p=page_index: self._on_pane_right_click(event, p),
-                        )
+                        # Every one of the three mouse buttons is bound to
+                        # whatever action self._button_action resolves it
+                        # to under the current interaction mode - which
+                        # button does what is data (see
+                        # resolve_magic_pen_bindings), not baked into
+                        # these bindings. An approved (locked) file skips
+                        # every binding entirely rather than
+                        # binding-then-ignoring, so the canvas genuinely
+                        # behaves like a plain, non-interactive preview.
+                        for tk_button_id, button_name in _TK_BUTTON_TO_NAME.items():
+                            canvas.bind(
+                                f"<ButtonPress-{tk_button_id}>",
+                                lambda event, p=page_index, b=button_name: (
+                                    self._on_pane_button_press(event, p, b)
+                                ),
+                            )
+                            canvas.bind(
+                                f"<B{tk_button_id}-Motion>",
+                                lambda event, p=page_index, b=button_name: (
+                                    self._on_pane_button_drag(event, p, b)
+                                ),
+                            )
+                            canvas.bind(
+                                f"<ButtonRelease-{tk_button_id}>",
+                                lambda event, p=page_index, b=button_name: (
+                                    self._on_pane_button_release(event, p, b)
+                                ),
+                            )
         except Exception:  # noqa: BLE001 - preview must never crash the app
             ctk.CTkLabel(
                 parent,
@@ -2024,39 +2017,65 @@ class ComparisonWindow:
         ]
         return list(self.visible_rects) + pending
 
-    def _on_pane_press(self, event: tk.Event, page_number: int) -> None:
-        """LMB draws a new redaction by default; pinned to "erase" it
-        instead toggles the rectangle under the cursor immediately, the
-        same one-click action RMB always performs. Either way, the
-        matching tool chip lights up for as long as the button is held.
+    def _on_pane_button_press(
+        self, event: tk.Event, page_number: int, button: str
+    ) -> None:
+        """Dispatch a mouse-button press to whichever action this window's
+        interaction mode currently assigns that button - mark a new
+        redaction, erase an existing one, or pan the view. Which of the
+        three happens is entirely data-driven (see resolve_magic_pen_bindings
+        via self._button_action), not hardcoded per physical button.
         """
-        active_tool = self.pinned_tool or "draw"
-        self._transient_tool = active_tool
-        self._refresh_tool_chip_visuals()
-        if active_tool == "erase":
+        action = self._button_action(button)
+        self._active_gesture_action = action
+        if action == MAGIC_PEN_ACTION_PAN:
+            target = self._pan_target(self.right_frame)
+            if target is not None:
+                target.scan_mark(event.x_root, event.y_root)
+            return
+        if action == MAGIC_PEN_ACTION_ERASE:
+            self._erased_this_gesture = set()
             self._erase_at_point(event.x, event.y, page_number)
             return
+        # mark: start a new redaction rectangle
         self._drag_start = (event.x, event.y)
         self._drag_rect_id = None
-
-    def _on_pane_right_click(self, event: tk.Event, page_number: int) -> None:
-        """Right button always toggles the rectangle under the cursor,
-        regardless of the pinned tool - pinning to "draw" only locks in
-        what LMB does, it never takes this shortcut away."""
-        self._flash_tool_chip("erase")
-        self._erase_at_point(event.x, event.y, page_number)
 
     def _erase_at_point(self, x: float, y: float, page_number: int) -> None:
         zoom = self._page_zoom.get(page_number, 1.0)
         px, py = canvas_point_to_pdf_point(x, y, zoom)
         hit = find_rect_at_point(self._hit_test_pool(), page_number, px, py)
-        if hit is not None:
-            self._toggle_pending_remove(hit)
-
-    def _on_pane_drag(self, event: tk.Event, page_number: int) -> None:
-        if self.pinned_tool == "erase":
+        if hit is None:
             return
-        if self._drag_start is None:
+        key = rect_info_key(hit)
+        if key in self._erased_this_gesture:
+            # Already toggled off earlier in this same press-to-release
+            # gesture - a drag that passes back over the same rect must
+            # not toggle it a second time.
+            return
+        self._erased_this_gesture.add(key)
+        self._toggle_pending_remove(hit)
+
+    def _on_pane_button_drag(
+        self, event: tk.Event, page_number: int, button: str
+    ) -> None:
+        # The action in effect for this gesture was fixed at press time,
+        # not re-read from the (possibly since-changed) current mode -
+        # button always means what it meant when the gesture started.
+        action = self._active_gesture_action
+        if action == MAGIC_PEN_ACTION_PAN:
+            target = self._pan_target(self.right_frame)
+            if target is None:
+                return
+            try:
+                target.scan_dragto(event.x_root, event.y_root, gain=1)
+            except TypeError:
+                target.scan_dragto(event.x_root, event.y_root)
+            return
+        if action == MAGIC_PEN_ACTION_ERASE:
+            self._erase_at_point(event.x, event.y, page_number)
+            return
+        if action != MAGIC_PEN_ACTION_MARK or self._drag_start is None:
             return
         canvas = self._page_canvases.get(page_number)
         if canvas is None:
@@ -2068,10 +2087,15 @@ class ComparisonWindow:
             x0, y0, event.x, event.y, outline="#dc2626", width=2, dash=(4, 2)
         )
 
-    def _on_pane_release(self, event: tk.Event, page_number: int) -> None:
-        self._transient_tool = None
-        self._refresh_tool_chip_visuals()
-        if self.pinned_tool == "erase":
+    def _on_pane_button_release(
+        self, event: tk.Event, page_number: int, button: str
+    ) -> None:
+        action = self._active_gesture_action
+        self._active_gesture_action = None
+        if action == MAGIC_PEN_ACTION_ERASE:
+            self._erased_this_gesture = set()
+            return
+        if action != MAGIC_PEN_ACTION_MARK:
             return
         if self._drag_start is None:
             return

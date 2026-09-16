@@ -426,6 +426,153 @@ def restore_hint(hint_id: str) -> None:
         pass
 
 
+# -- magic pen: mouse-interaction modes (Etap 3) ----------------------------
+#
+# Three ways the magic pen's left/right/middle mouse buttons can map onto
+# its three actions (mark a new redaction, un-redact/erase an existing
+# one, pan the view): "default" gives each action its own dedicated
+# button (LMB=mark, RMB=pan, middle=hold-to-erase); "classic" keeps this
+# app's original two-button scheme (LMB=mark, RMB=erase) and only adds
+# middle=pan, so existing muscle memory for LMB/RMB still works exactly
+# as before; "custom" lets the user assign the mapping themselves in
+# Settings. Kept in gui_helpers.py rather than gui_comparison_window.py
+# so the mapping logic is plain, Tk-independent and unit-testable, and
+# reusable from gui_settings_dialog.py without a GUI-module import cycle.
+
+MAGIC_PEN_MODE_DEFAULT = "default"
+MAGIC_PEN_MODE_CLASSIC = "classic"
+MAGIC_PEN_MODE_CUSTOM = "custom"
+MAGIC_PEN_MODES = (MAGIC_PEN_MODE_DEFAULT, MAGIC_PEN_MODE_CLASSIC, MAGIC_PEN_MODE_CUSTOM)
+
+MAGIC_PEN_ACTION_MARK = "mark"
+MAGIC_PEN_ACTION_ERASE = "erase"
+MAGIC_PEN_ACTION_PAN = "pan"
+MAGIC_PEN_ACTIONS = (MAGIC_PEN_ACTION_MARK, MAGIC_PEN_ACTION_ERASE, MAGIC_PEN_ACTION_PAN)
+
+MAGIC_PEN_BUTTON_LEFT = "left"
+MAGIC_PEN_BUTTON_RIGHT = "right"
+MAGIC_PEN_BUTTON_MIDDLE = "middle"
+MAGIC_PEN_BUTTONS = (MAGIC_PEN_BUTTON_LEFT, MAGIC_PEN_BUTTON_RIGHT, MAGIC_PEN_BUTTON_MIDDLE)
+
+MAGIC_PEN_BUILTIN_BINDINGS: dict[str, dict[str, str]] = {
+    MAGIC_PEN_MODE_DEFAULT: {
+        MAGIC_PEN_BUTTON_LEFT: MAGIC_PEN_ACTION_MARK,
+        MAGIC_PEN_BUTTON_RIGHT: MAGIC_PEN_ACTION_PAN,
+        MAGIC_PEN_BUTTON_MIDDLE: MAGIC_PEN_ACTION_ERASE,
+    },
+    MAGIC_PEN_MODE_CLASSIC: {
+        MAGIC_PEN_BUTTON_LEFT: MAGIC_PEN_ACTION_MARK,
+        MAGIC_PEN_BUTTON_RIGHT: MAGIC_PEN_ACTION_ERASE,
+        MAGIC_PEN_BUTTON_MIDDLE: MAGIC_PEN_ACTION_PAN,
+    },
+}
+
+MAGIC_PEN_BUTTON_LABELS_PL = {
+    MAGIC_PEN_BUTTON_LEFT: "Lewy przycisk",
+    MAGIC_PEN_BUTTON_RIGHT: "Prawy przycisk",
+    MAGIC_PEN_BUTTON_MIDDLE: "Środkowy przycisk",
+}
+MAGIC_PEN_ACTION_LABELS_PL = {
+    MAGIC_PEN_ACTION_MARK: "zaznaczanie",
+    MAGIC_PEN_ACTION_ERASE: "odznaczanie",
+    MAGIC_PEN_ACTION_PAN: "przesuwanie widoku",
+}
+
+
+def is_valid_magic_pen_bindings(bindings: object) -> bool:
+    """True when ``bindings`` is a complete, unambiguous button->action
+    assignment: exactly the 3 known buttons as keys, each of the 3 known
+    actions used exactly once as a value."""
+    if not isinstance(bindings, dict):
+        return False
+    if set(bindings.keys()) != set(MAGIC_PEN_BUTTONS):
+        return False
+    return set(bindings.values()) == set(MAGIC_PEN_ACTIONS)
+
+
+def resolve_magic_pen_bindings(
+    mode: str, custom_bindings: object = None
+) -> dict[str, str]:
+    """Return the button->action mapping actually in effect for ``mode``.
+
+    Falls back to the default mode's bindings for an unrecognized mode
+    name or an invalid/incomplete custom mapping - the same "never trust
+    raw config shape" defensiveness every other loader in this module
+    uses - so a corrupt settings file can never leave an action silently
+    unreachable from any button.
+    """
+    if mode == MAGIC_PEN_MODE_CUSTOM:
+        if is_valid_magic_pen_bindings(custom_bindings):
+            return dict(custom_bindings)
+        return dict(MAGIC_PEN_BUILTIN_BINDINGS[MAGIC_PEN_MODE_DEFAULT])
+    return dict(
+        MAGIC_PEN_BUILTIN_BINDINGS.get(
+            mode, MAGIC_PEN_BUILTIN_BINDINGS[MAGIC_PEN_MODE_DEFAULT]
+        )
+    )
+
+
+def magic_pen_bindings_description_pl(bindings: dict[str, str]) -> str:
+    """One-line Polish summary of a button->action mapping, in a fixed
+    left/right/middle order - built from the same bindings the actual
+    mouse dispatch uses, so the sidebar hint and dialog text can never
+    drift out of sync with real behavior the way a hardcoded per-mode
+    string could.
+    """
+    parts = []
+    for button in MAGIC_PEN_BUTTONS:
+        action = bindings.get(button)
+        if action is None:
+            continue
+        label = MAGIC_PEN_ACTION_LABELS_PL.get(action, action)
+        parts.append(f"{MAGIC_PEN_BUTTON_LABELS_PL[button]}: {label}")
+    return " · ".join(parts)
+
+
+def magic_pen_interaction_config_path() -> Path:
+    """Return the local file that remembers the user's chosen magic-pen
+    mouse-interaction mode and, for the custom mode, their own
+    button->action assignment. A pure UI preference - never touches
+    document content or paths."""
+    return Path.home() / ".anonimizer" / "magic_pen_interaction.json"
+
+
+def load_magic_pen_interaction_config(config_path: Path) -> dict[str, object]:
+    """Load ``{"mode": ..., "custom_bindings": ...}``, tolerating a
+    missing/corrupt file or a bindings shape that isn't a complete valid
+    assignment, the same defensive way every other config in this module
+    loads."""
+    try:
+        raw = json.loads(config_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        raw = {}
+    if not isinstance(raw, dict):
+        raw = {}
+    mode = raw.get("mode")
+    if mode not in MAGIC_PEN_MODES:
+        mode = MAGIC_PEN_MODE_DEFAULT
+    custom_bindings = raw.get("custom_bindings")
+    if not is_valid_magic_pen_bindings(custom_bindings):
+        custom_bindings = dict(MAGIC_PEN_BUILTIN_BINDINGS[MAGIC_PEN_MODE_DEFAULT])
+    return {"mode": mode, "custom_bindings": custom_bindings}
+
+
+def save_magic_pen_interaction_config(
+    config_path: Path, mode: str, custom_bindings: dict[str, str]
+) -> None:
+    """Persist the chosen mode/custom mapping, creating the config folder
+    if needed."""
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(
+        json.dumps(
+            {"mode": mode, "custom_bindings": custom_bindings},
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+
 def _file_word(count: int) -> str:
     return "file" if count == 1 else "files"
 
