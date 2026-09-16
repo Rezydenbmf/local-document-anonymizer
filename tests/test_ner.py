@@ -59,8 +59,10 @@ class FakeSpacy:
     def __init__(self, model: FakeNerModel | None = None, error: Exception | None = None):
         self.model = model
         self.error = error
+        self.load_count = 0
 
     def load(self, model_name: str):
+        self.load_count += 1
         if self.error is not None:
             raise self.error
         return self.model
@@ -713,6 +715,41 @@ class NerFoundationTests(unittest.TestCase):
         self.assertEqual(counters["NER_PERSON"], 1)
         self.assertIn("* NER_PERSON: 1", report_text)
         self.assertNotIn(person, report_text)
+
+
+class NerModelCachingTests(unittest.TestCase):
+    """Loading a spaCy pipeline is real, measured latency (1-3+ seconds -
+    see docs/PROJECT_STATE.md's Etap 2 timing entry), so
+    prepare_ner_context() caches the loaded pipeline instead of reloading
+    it on every call. The cache is keyed on the spaCy module object as
+    well as the model name specifically so it can never reuse a load
+    across two different callers/tests that patched in two different fake
+    modules under the same model name - see prepare_ner_context."""
+
+    def test_same_module_and_model_name_loads_only_once(self) -> None:
+        fake_spacy = FakeSpacy(model=FakeNerModel([("Jan Kowalski", "persName")]))
+
+        with patch("ner._spacy_module", return_value=fake_spacy):
+            first = prepare_ner_context(enabled=True)
+            second = prepare_ner_context(enabled=True)
+
+        self.assertEqual(fake_spacy.load_count, 1)
+        self.assertIs(first.nlp, second.nlp)
+
+    def test_different_module_instances_never_share_a_cached_load(self) -> None:
+        """Regression guard: an earlier version of this cache was keyed on
+        model name alone, which made every test in this file reuse the
+        very first test's fake NER results for the rest of the suite."""
+        first_model = FakeNerModel([("Jan Kowalski", "persName")])
+        second_model = FakeNerModel([("Anna Nowak", "persName")])
+
+        with patch("ner._spacy_module", return_value=FakeSpacy(model=first_model)):
+            first_context = prepare_ner_context(enabled=True)
+        with patch("ner._spacy_module", return_value=FakeSpacy(model=second_model)):
+            second_context = prepare_ner_context(enabled=True)
+
+        self.assertIs(first_context.nlp, first_model)
+        self.assertIs(second_context.nlp, second_model)
 
 
 if __name__ == "__main__":

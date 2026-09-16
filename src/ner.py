@@ -210,6 +210,17 @@ def _spacy_module():
         return None
 
 
+# Loading a spaCy pipeline from disk costs 1-3+ seconds - real, measured
+# latency (see docs/PROJECT_STATE.md's Etap 2 timing entry), and a loaded
+# pipeline is safe to reuse across calls (spaCy's own documented usage
+# pattern: load once, call nlp(text) many times). Without this cache,
+# prepare_ner_context() paid that cost on every single PDF in a batch and
+# again on every magic-pen manual-edit save. Keyed on (spacy module
+# object, model name) rather than just the model name - see
+# prepare_ner_context for why the module identity matters too.
+_LOADED_NLP_CACHE: dict[tuple[Any, str], Any] = {}
+
+
 def check_ner_model_installed(model_name: str = DEFAULT_NER_MODEL) -> str:
     """Cheaply report NER availability without loading the model.
 
@@ -324,22 +335,33 @@ def prepare_ner_context(
             warning="local NER dependency is missing",
         )
 
-    try:
-        nlp = spacy_module.load(safe_model_name)
-    except OSError:
-        return NerContext(
-            enabled=True,
-            status=NER_STATUS_MODEL_MISSING,
-            model_name=safe_model_name,
-            warning="local NER model is missing",
-        )
-    except Exception:
-        return NerContext(
-            enabled=True,
-            status=NER_STATUS_UNAVAILABLE,
-            model_name=safe_model_name,
-            warning="local NER model could not be loaded",
-        )
+    # Keyed on the spaCy module object itself (not just the model name),
+    # so a test double patched in via _spacy_module() (a fresh fake object
+    # per test) never collides with a real load cached under the same
+    # default model name from an earlier call. Using the object itself
+    # rather than id() also means the cache holds a strong reference to
+    # it, so a garbage-collected-and-reused id can never cause a false
+    # collision either.
+    cache_key = (spacy_module, safe_model_name)
+    nlp = _LOADED_NLP_CACHE.get(cache_key)
+    if nlp is None:
+        try:
+            nlp = spacy_module.load(safe_model_name)
+        except OSError:
+            return NerContext(
+                enabled=True,
+                status=NER_STATUS_MODEL_MISSING,
+                model_name=safe_model_name,
+                warning="local NER model is missing",
+            )
+        except Exception:
+            return NerContext(
+                enabled=True,
+                status=NER_STATUS_UNAVAILABLE,
+                model_name=safe_model_name,
+                warning="local NER model could not be loaded",
+            )
+        _LOADED_NLP_CACHE[cache_key] = nlp
 
     return NerContext(
         enabled=True,
