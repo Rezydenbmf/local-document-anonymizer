@@ -15,7 +15,11 @@ import customtkinter as ctk
 from PIL import Image, ImageTk
 
 try:
-    from .anonymizer import compute_pdf_redaction_spans
+    from .anonymizer import (
+        category_selection_path,
+        compute_pdf_redaction_spans,
+        load_category_selection,
+    )
     from .file_readers import (
         read_docx_file,
         read_txt_file,
@@ -79,7 +83,11 @@ try:
         ReviewItem,
     )
 except ImportError:
-    from anonymizer import compute_pdf_redaction_spans
+    from anonymizer import (
+        category_selection_path,
+        compute_pdf_redaction_spans,
+        load_category_selection,
+    )
     from file_readers import (
         read_docx_file,
         read_txt_file,
@@ -415,6 +423,17 @@ class ComparisonWindow:
         self.source_path = original_path
         self.original_path = original_path
         self.result_path = result_path
+        # The Etap 4 category selection this document's visual output was
+        # originally produced with (see anonymizer.category_selection_path)
+        # - None if the sidecar is missing (a pre-Etap-4 output, or the
+        # visual redaction step itself failed) or corrupt, which
+        # resolve_active_labels() correctly treats as "no filtering".
+        # Threaded into every detection recompute this window triggers
+        # (see _cached_detection) so a manual edit's "regenerate" pass
+        # never silently redacts a category the user originally excluded.
+        self._original_active_categories: tuple[str, ...] | None = (
+            load_category_selection(category_selection_path(result_path))
+        )
         self._images: list[ctk.CTkImage] = []
         self._tk_images: list[ImageTk.PhotoImage] = []
         self._page_canvases: dict[int, tk.Canvas] = {}
@@ -1880,6 +1899,7 @@ class ComparisonWindow:
                 self.source_path,
                 sensitive_terms_path=self.app.sensitive_terms_path,
                 use_ner=self.app.use_ner,
+                active_categories=self._original_active_categories,
             )
             self._detection_cache_key = key
         return self._detection_cache
@@ -1897,6 +1917,7 @@ class ComparisonWindow:
                 use_ner=self.app.use_ner,
                 word_pages=word_pages,
                 spans=spans,
+                active_categories=self._original_active_categories,
             )
         except (OSError, RuntimeError, ValueError):
             self.visible_rects = []
@@ -2406,6 +2427,7 @@ class ComparisonWindow:
                 use_ner=self.app.use_ner,
                 word_pages=word_pages,
                 spans=spans,
+                active_categories=self._original_active_categories,
             )
             os.replace(staging_path, self.result_path)
             save_manual_edits(manual_edits_path(self.result_path), new_edits)

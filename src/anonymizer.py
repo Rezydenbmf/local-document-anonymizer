@@ -3,6 +3,7 @@
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
+import json
 import re
 
 try:
@@ -35,6 +36,7 @@ try:
         build_pdf_visual_path,
         build_report_path,
         build_shared_collision_suffix,
+        internal_artifacts_dir,
         save_anonymized_docx_copy,
         save_anonymized_image_txt_copy,
         save_anonymized_pdf_txt_copy,
@@ -122,6 +124,7 @@ except ImportError:
         build_pdf_visual_path,
         build_report_path,
         build_shared_collision_suffix,
+        internal_artifacts_dir,
         save_anonymized_docx_copy,
         save_anonymized_image_txt_copy,
         save_anonymized_pdf_txt_copy,
@@ -196,6 +199,176 @@ SUPPORTED_LABELS = (
     "IBAN",
 )
 REPORT_CATEGORY_ORDER = (*SUPPORTED_LABELS, *NER_LABELS)
+
+# Etap 4: user-facing "pick what to anonymize this run" categories, each
+# grouping one or more internal detection labels the user thinks of as
+# one thing (e.g. "Adres" covers three separately-detected regex labels).
+# Deliberately only 8 - not every internal label - per the user's own
+# spec (2026-09-16 conversation): anything NOT covered by a group below
+# (DOWOD_OSOBISTY, PERSON_NAME_TYPO, NER_ORG, NER_LOCATION, NER_MISC) is
+# never user-toggleable and always gets redacted regardless of selection
+# - the safe default, since leaving something *out* of the checklist can
+# only mean "always protected", never "silently exposed". The dictionary
+# (sensitive_terms.py) and RECZNE (magic-pen manual edits) are likewise
+# always-on and outside this mechanism entirely - both are the user's
+# own explicit, separate choices already.
+CATEGORY_PESEL = "pesel"
+CATEGORY_PERSON = "person"
+CATEGORY_PHONE = "phone"
+CATEGORY_EMAIL = "email"
+CATEGORY_IBAN = "iban"
+CATEGORY_ADDRESS = "address"
+CATEGORY_COMPANY = "company"
+CATEGORY_DATE = "date"
+CATEGORY_GROUPS: dict[str, tuple[str, ...]] = {
+    CATEGORY_PESEL: ("PESEL",),
+    CATEGORY_PERSON: ("NER_PERSON",),
+    CATEGORY_PHONE: ("TELEFON",),
+    CATEGORY_EMAIL: ("EMAIL",),
+    CATEGORY_IBAN: ("IBAN",),
+    CATEGORY_ADDRESS: ("ULICA", "MIEJSCOWOSC", "POSTAL_CODE"),
+    CATEGORY_COMPANY: ("NIP", "REGON"),
+    CATEGORY_DATE: ("DATA",),
+}
+ALL_CATEGORIES = tuple(CATEGORY_GROUPS.keys())
+_CATEGORY_CONTROLLED_LABELS = frozenset(
+    label for labels in CATEGORY_GROUPS.values() for label in labels
+)
+# Never gated by category selection - see the module comment above.
+ALWAYS_ON_LABELS = (
+    frozenset(SUPPORTED_LABELS) | frozenset(NER_LABELS)
+) - _CATEGORY_CONTROLLED_LABELS
+
+
+def resolve_active_labels(
+    active_categories: Iterable[str] | None,
+) -> frozenset[str] | None:
+    """Return every internal detection label currently allowed to be
+    redacted, given the user's category selection for this task.
+
+    ``None`` means "no filtering" - every caller's behavior before this
+    feature existed, and what every existing caller that doesn't pass
+    ``active_categories`` still gets. An empty ``active_categories``
+    still redacts every always-on label (see ``ALWAYS_ON_LABELS``) - it
+    can narrow what the user controls, never remove the categories
+    outside their control.
+    """
+    if active_categories is None:
+        return None
+    selected = frozenset(
+        label
+        for category in active_categories
+        for label in CATEGORY_GROUPS.get(category, ())
+    )
+    return ALWAYS_ON_LABELS | selected
+
+
+CATEGORY_SELECTION_SUFFIX = "_CATEGORY_SELECTION"
+CATEGORY_SELECTION_EXTENSION = ".json"
+
+
+def category_selection_path(output_pdf_path: str | Path) -> Path:
+    """Return the sidecar JSON path recording which Etap 4 categories
+    were active when this visual PDF/image output was first produced.
+
+    Same hidden internal-artifacts folder and naming convention
+    manual_redaction.py's manual_edits_path already uses for a related
+    purpose - needed so a later magic-pen manual edit's "regenerate"
+    pass (in manual_redaction.py, a separate module this one is never
+    allowed to import from - it imports compute_pdf_redaction_spans
+    *from here*) can re-detect using the *same* category selection the
+    user originally chose, instead of silently falling back to
+    redacting everything. Without this, editing an already-anonymized
+    document and saving would re-add redactions for categories the user
+    had deliberately excluded, changing the approved output out from
+    under them.
+    """
+    path = Path(output_pdf_path)
+    internal_dir = internal_artifacts_dir(path.parent)
+    return (
+        internal_dir
+        / f"{path.stem}{CATEGORY_SELECTION_SUFFIX}{CATEGORY_SELECTION_EXTENSION}"
+    )
+
+
+def load_category_selection(path: str | Path) -> tuple[str, ...] | None:
+    """Load the category selection recorded at that path, or ``None`` if
+    missing/corrupt/never written - which resolve_active_labels()
+    treats as "no filtering", the same behavior a document anonymized
+    before this feature existed always had. That is the safe direction
+    for a missing/unreadable sidecar: redact everything rather than
+    silently redact less than intended.
+    """
+    try:
+        raw_text = Path(path).read_text(encoding="utf-8")
+        data = json.loads(raw_text)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    categories = data.get("active_categories")
+    if categories is None:
+        return None
+    if not isinstance(categories, list) or not all(
+        isinstance(item, str) for item in categories
+    ):
+        return None
+    return tuple(categories)
+
+
+def save_category_selection(
+    path: str | Path, active_categories: Iterable[str] | None
+) -> Path:
+    """Write the category selection sidecar - ``None`` records "no
+    filtering" explicitly (as ``null``), the same as never having one
+    of the 8 categories deselected. Never raises on a write failure
+    (e.g. a read-only folder) - a cosmetic-adjacent app-state file, not
+    worth failing the whole anonymization run over; the caller decides
+    whether to log/ignore."""
+    destination = Path(path)
+    payload = {
+        "active_categories": (
+            list(active_categories) if active_categories is not None else None
+        ),
+    }
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    return destination
+
+
+# audit.py's own leftover-risk scanner has a handful of broader,
+# audit-only pattern labels with no exact counterpart in
+# SUPPORTED_LABELS/NER_LABELS (see its _AUDIT_PATTERNS) - deliberately
+# looser catch-alls meant to flag things the real detector might have
+# missed. Two of them (ADDRESS_LIKE, STREET_LIKE) are unambiguously
+# address-shaped and safe to suppress whenever the user excludes the
+# "address" category, same as ULICA/MIEJSCOWOSC/POSTAL_CODE themselves.
+# The rest (CASE_REFERENCE, ID_LIKE_NUMBER, INITIAL_SURNAME,
+# LONG_NUMBER_SEQUENCE) are deliberately left un-mappable: ID_LIKE_NUMBER
+# in particular matches NIP/REGON *and* DOWOD_OSOBISTY/PASZPORT-shaped
+# text under one label, and DOWOD_OSOBISTY must never be suppressible via
+# the "company" category - excluding it would risk hiding a real leftover
+# ID-card/passport number alongside the NIP/REGON the user actually
+# meant to exempt. Left as a known, accepted gap rather than a wrong fix.
+_AUDIT_ONLY_ADDRESS_LABELS = frozenset({"ADDRESS_LIKE", "STREET_LIKE"})
+_ADDRESS_CATEGORY_LABELS = frozenset(CATEGORY_GROUPS[CATEGORY_ADDRESS])
+
+
+def _excluded_labels_for_audit(
+    active_labels: frozenset[str] | None,
+) -> frozenset[str] | None:
+    """Labels the post-hoc leftover-risk scanner (audit.py) should skip,
+    given the resolved active-label set - the complement of
+    ``active_labels`` within every label that scan even knows about.
+    ``None`` when nothing is being filtered."""
+    if active_labels is None:
+        return None
+    excluded = (frozenset(SUPPORTED_LABELS) | frozenset(NER_LABELS)) - active_labels
+    if _ADDRESS_CATEGORY_LABELS & excluded:
+        excluded = excluded | _AUDIT_ONLY_ADDRESS_LABELS
+    return excluded
 PDF_COVERAGE_WARNING = (
     "PDF redaction may be partial; some detected categories were not PDF-redacted"
 )
@@ -448,6 +621,8 @@ def _anonymize_text_with_dictionary_counters(
     text: str,
     sensitive_terms: Iterable[SensitiveTerm] | None = None,
     ner_context=None,
+    *,
+    active_labels: frozenset[str] | None = None,
 ) -> tuple[str, dict[str, int], dict[str, int], dict[str, object]]:
     """Return anonymized text, counters, dictionary counters, and NER metadata."""
     if not isinstance(text, str):
@@ -456,6 +631,7 @@ def _anonymize_text_with_dictionary_counters(
     anonymized, counters, dictionary_counters = _apply_dictionary_and_regex(
         text,
         sensitive_terms=sensitive_terms,
+        active_labels=active_labels,
     )
 
     if ner_context is None:
@@ -467,7 +643,7 @@ def _anonymize_text_with_dictionary_counters(
         )
     else:
         anonymized, ner_counters, ner_result = anonymize_text_with_ner(
-            anonymized, ner_context
+            anonymized, ner_context, allowed_labels=active_labels
         )
         _merge_counters(counters, ner_counters)
 
@@ -477,20 +653,34 @@ def _anonymize_text_with_dictionary_counters(
 def _apply_dictionary_and_regex(
     text: str,
     sensitive_terms: Iterable[SensitiveTerm] | None = None,
+    *,
+    active_labels: frozenset[str] | None = None,
 ) -> tuple[str, dict[str, int], dict[str, int]]:
-    """Apply deterministic replacements before optional NER."""
+    """Apply deterministic replacements before optional NER.
+
+    ``active_labels`` (see ``resolve_active_labels``) skips a pattern's
+    substitution entirely rather than substituting-then-discarding, so
+    excluded values are never touched in the output text at all - not
+    just left out of the counters. ``None`` (the default) redacts every
+    label, exactly as before this parameter existed. The dictionary pass
+    above is never filtered - it is always the user's own explicit,
+    separate choice.
+    """
     anonymized, counters = apply_sensitive_terms(text, sensitive_terms)
     dictionary_counters = dict(counters)
 
     for label, pattern in _PATTERNS:
+        if active_labels is not None and label not in active_labels:
+            continue
         anonymized, count = pattern.subn(f"[{label}]", anonymized)
         if count:
             counters[label] = counters.get(label, 0) + count
-    anonymized, weak_phone_count = _replace_contextual_weak_phone_numbers(
-        anonymized
-    )
-    if weak_phone_count:
-        counters["TELEFON"] = counters.get("TELEFON", 0) + weak_phone_count
+    if active_labels is None or "TELEFON" in active_labels:
+        anonymized, weak_phone_count = _replace_contextual_weak_phone_numbers(
+            anonymized
+        )
+        if weak_phone_count:
+            counters["TELEFON"] = counters.get("TELEFON", 0) + weak_phone_count
 
     return anonymized, counters, dictionary_counters
 
@@ -683,9 +873,22 @@ def _regex_pdf_spans_for_page(
     page_text: str,
     page_number: int,
     occupied_ranges: list[tuple[int, int]],
+    *,
+    active_labels: frozenset[str] | None = None,
 ) -> list[PdfRedactionSpan]:
+    """``active_labels`` must be applied *before* a span is added, not
+    filtered out of the result afterward - _add_pdf_span reserves
+    ``occupied_ranges`` as a side effect, and NER (source="ner") runs
+    after this in _pdf_detection_spans_for_word_pages. A category
+    excluded here still reserving its range would silently block an
+    always-on NER span (e.g. NER_PERSON) that overlaps the same text
+    from ever being added, leaving that PII completely unredacted -
+    exactly the bug a post-hoc-only filter caused.
+    """
     spans: list[PdfRedactionSpan] = []
     for label, pattern in _PATTERNS:
+        if active_labels is not None and label not in active_labels:
+            continue
         for match in pattern.finditer(page_text):
             _add_pdf_span(
                 spans,
@@ -696,18 +899,19 @@ def _regex_pdf_spans_for_page(
                 end=match.end(),
                 source="regex",
             )
-    for match in WEAK_GROUPED_PHONE_PATTERN.finditer(page_text):
-        if not _has_phone_context(page_text, match.start()):
-            continue
-        _add_pdf_span(
-            spans,
-            occupied_ranges,
-            label="TELEFON",
-            page_number=page_number,
-            start=match.start(),
-            end=match.end(),
-            source="regex",
-        )
+    if active_labels is None or "TELEFON" in active_labels:
+        for match in WEAK_GROUPED_PHONE_PATTERN.finditer(page_text):
+            if not _has_phone_context(page_text, match.start()):
+                continue
+            _add_pdf_span(
+                spans,
+                occupied_ranges,
+                label="TELEFON",
+                page_number=page_number,
+                start=match.start(),
+                end=match.end(),
+                source="regex",
+            )
     return spans
 
 
@@ -736,6 +940,8 @@ def _ner_pdf_spans_for_page(
     page_number: int,
     occupied_ranges: list[tuple[int, int]],
     ner_context,
+    *,
+    active_labels: frozenset[str] | None = None,
 ) -> list[PdfRedactionSpan]:
     if ner_context is None or not getattr(ner_context, "enabled", False):
         return []
@@ -747,6 +953,8 @@ def _ner_pdf_spans_for_page(
     spans: list[PdfRedactionSpan] = []
     for entity in entities:
         if entity.label not in PDF_VISUAL_NER_REDACTION_LABELS:
+            continue
+        if active_labels is not None and entity.label not in active_labels:
             continue
         _add_pdf_span(
             spans,
@@ -765,7 +973,23 @@ def _pdf_detection_spans_for_word_pages(
     *,
     sensitive_terms: Iterable[SensitiveTerm] | None,
     ner_context,
+    active_labels: frozenset[str] | None = None,
 ) -> list[PdfRedactionSpan]:
+    """Detect spans in dictionary -> regex -> NER order, same as always -
+    but with Etap 4's category selection applied *before* each span is
+    added, not filtered out of the result afterward. This matters
+    because of a real bug a post-hoc-only filter had: _add_pdf_span
+    reserves the character range in occupied_ranges as a side effect of
+    being *called*, regardless of whether its span survives to the
+    return value. An excluded regex label (e.g. ULICA, filtered out
+    post-hoc) would still have reserved its range, silently blocking the
+    always-on NER span for the same text (e.g. a person's name inside an
+    address) from ever being added by the later NER pass -  leaving that
+    PII completely unredacted in both categories. Filtering before
+    reservation, in every one of the three per-page helpers below,
+    closes that gap. Dictionary spans are never filtered - always the
+    user's own explicit, separate choice.
+    """
     spans: list[PdfRedactionSpan] = []
     for page in word_pages:
         occupied_ranges: list[tuple[int, int]] = []
@@ -778,7 +1002,12 @@ def _pdf_detection_spans_for_word_pages(
             )
         )
         spans.extend(
-            _regex_pdf_spans_for_page(page.text, page.page_number, occupied_ranges)
+            _regex_pdf_spans_for_page(
+                page.text,
+                page.page_number,
+                occupied_ranges,
+                active_labels=active_labels,
+            )
         )
         spans.extend(
             _ner_pdf_spans_for_page(
@@ -786,6 +1015,7 @@ def _pdf_detection_spans_for_word_pages(
                 page.page_number,
                 occupied_ranges,
                 ner_context,
+                active_labels=active_labels,
             )
         )
     return spans
@@ -836,6 +1066,7 @@ def compute_pdf_redaction_spans(
     sensitive_terms_path: str | Path | None = None,
     use_ner: bool = False,
     ner_model_name: str = DEFAULT_NER_MODEL,
+    active_categories: Iterable[str] | None = None,
 ) -> tuple[list, list[PdfRedactionSpan]]:
     """Recompute word pages and detection spans for a source document.
 
@@ -843,14 +1074,24 @@ def compute_pdf_redaction_spans(
     workflow, without producing any output file. Used to regenerate a
     true-redacted visual PDF (for example after manual "magic pen" edits)
     without re-running the full ``anonymize_batch`` pipeline.
+
+    ``active_categories`` should be the same Etap 4 category selection
+    the document was originally anonymized with, so a magic-pen edit's
+    regeneration doesn't silently redact categories the user chose to
+    leave unredacted. ``None`` (the default) redacts everything, exactly
+    as before this parameter existed.
     """
     terms, _dictionary_status = _prepare_workflow_dictionary(
         sensitive_terms, sensitive_terms_path
     )
     ner_context = prepare_ner_context(enabled=use_ner, model_name=ner_model_name)
+    active_labels = resolve_active_labels(active_categories)
     word_pages = word_pages_for_redaction_geometry(source_path)
     spans = _pdf_detection_spans_for_word_pages(
-        word_pages, sensitive_terms=terms, ner_context=ner_context
+        word_pages,
+        sensitive_terms=terms,
+        ner_context=ner_context,
+        active_labels=active_labels,
     )
     return word_pages, spans
 
@@ -886,6 +1127,7 @@ def _attach_pdf_coverage_metadata(
     ner_result: dict[str, object],
     pdf_redaction_scope: str = PDF_REDACTION_SCOPE_SAFE,
     ner_pdf_redaction_skipped_categories: dict[str, int] | None = None,
+    active_labels: frozenset[str] | None = None,
 ) -> dict[str, object]:
     metadata = dict(pdf_redaction_result)
     scope = _normalize_pdf_redaction_scope(pdf_redaction_scope)
@@ -896,6 +1138,11 @@ def _attach_pdf_coverage_metadata(
         label: count
         for label, count in detected.items()
         if pdf_redacted.get(label, 0) <= 0
+        # A category the user deliberately excluded (Etap 4) isn't a PDF
+        # redaction *gap* - the coverage warning below exists to catch
+        # cases where redaction unexpectedly failed, not to second-guess
+        # an intentional choice already surfaced elsewhere in the report.
+        and (active_labels is None or label in active_labels)
     }
     default_pdf_labels = (
         PDF_VISUAL_NER_REDACTION_LABELS
@@ -1098,18 +1345,21 @@ def _anonymize_txt_file_result(
     ner_model_name: str = DEFAULT_NER_MODEL,
     use_llm_review: bool = False,
     llm_model_name: str = "",
+    active_categories: Iterable[str] | None = None,
 ) -> FileWorkflowResult:
     """Anonymize a TXT file and return paths needed by batch processing."""
     terms, dictionary_status = _prepare_workflow_dictionary(
         sensitive_terms, sensitive_terms_path
     )
     ner_context = prepare_ner_context(enabled=use_ner, model_name=ner_model_name)
+    active_labels = resolve_active_labels(active_categories)
     text = read_txt_file(source_path)
     anonymized, counters, dictionary_counters, ner_result = (
         _anonymize_text_with_dictionary_counters(
             text,
             sensitive_terms=terms,
             ner_context=ner_context,
+            active_labels=active_labels,
         )
     )
     output_path = save_anonymized_txt_copy(
@@ -1126,7 +1376,11 @@ def _anonymize_txt_file_result(
         label_counters=dictionary_counters,
     )
     audit_result = _attach_dictionary_result(
-        audit_text(anonymized, sensitive_terms=terms),
+        audit_text(
+            anonymized,
+            sensitive_terms=terms,
+            excluded_labels=_excluded_labels_for_audit(active_labels),
+        ),
         dictionary_result,
     )
     audit_result = _attach_ner_result(audit_result, ner_result)
@@ -1229,12 +1483,14 @@ def _anonymize_docx_file_result(
     ner_model_name: str = DEFAULT_NER_MODEL,
     use_llm_review: bool = False,
     llm_model_name: str = "",
+    active_categories: Iterable[str] | None = None,
 ) -> FileWorkflowResult:
     """Anonymize a DOCX file and return paths needed by batch processing."""
     terms, dictionary_status = _prepare_workflow_dictionary(
         sensitive_terms, sensitive_terms_path
     )
     ner_context = prepare_ner_context(enabled=use_ner, model_name=ner_model_name)
+    active_labels = resolve_active_labels(active_categories)
     dictionary_counters: dict[str, int] = {}
     ner_counters: dict[str, int] = {}
     ner_status = build_ner_metadata(
@@ -1251,6 +1507,7 @@ def _anonymize_docx_file_result(
             text,
             sensitive_terms=terms,
             ner_context=ner_context,
+            active_labels=active_labels,
         )
         anonymized, counters, paragraph_dictionary_counters, paragraph_ner_result = (
             paragraph_result
@@ -1271,7 +1528,7 @@ def _anonymize_docx_file_result(
 
     def anonymize_docx_run(text: str) -> tuple[str, dict[str, int]]:
         anonymized, counters, _, _ = _anonymize_text_with_dictionary_counters(
-            text, sensitive_terms=terms
+            text, sensitive_terms=terms, active_labels=active_labels
         )
         return anonymized, counters
 
@@ -1300,7 +1557,11 @@ def _anonymize_docx_file_result(
             for label in NER_LABELS
         }
     audit_result = _attach_dictionary_result(
-        audit_text(anonymized_text, sensitive_terms=terms),
+        audit_text(
+            anonymized_text,
+            sensitive_terms=terms,
+            excluded_labels=_excluded_labels_for_audit(active_labels),
+        ),
         dictionary_result,
     )
     audit_result = _attach_ner_result(audit_result, ner_result)
@@ -1415,12 +1676,14 @@ def _anonymize_pdf_file_result(
     llm_model_name: str = "",
     pdf_redaction_scope: str = PDF_REDACTION_SCOPE_SAFE,
     pdf_output_mode: str = PDF_OUTPUT_MODE_VISUAL,
+    active_categories: Iterable[str] | None = None,
 ) -> FileWorkflowResult:
     """Anonymize a PDF file and return paths needed by batch processing."""
     terms, dictionary_status = _prepare_workflow_dictionary(
         sensitive_terms, sensitive_terms_path
     )
     ner_context = prepare_ner_context(enabled=use_ner, model_name=ner_model_name)
+    active_labels = resolve_active_labels(active_categories)
     text_based_pdf = False
     word_pages = []
     ocr_word_pages: list = []
@@ -1469,6 +1732,7 @@ def _anonymize_pdf_file_result(
             active_word_pages,
             sensitive_terms=terms,
             ner_context=ner_context,
+            active_labels=active_labels,
         )
         if active_word_pages
         else []
@@ -1481,12 +1745,22 @@ def _anonymize_pdf_file_result(
     pre_ner_text, counters, dictionary_counters = _apply_dictionary_and_regex(
         text,
         sensitive_terms=terms,
+        active_labels=active_labels,
     )
     normalized_pdf_scope = _normalize_pdf_redaction_scope(pdf_redaction_scope)
+    scope_ner_labels = _pdf_ner_allowed_labels_for_scope(normalized_pdf_scope)
+    if active_labels is not None:
+        # The "original_redaction" text-search fallback path's NER terms
+        # must respect Etap 4's category selection too, same as every
+        # other redaction path - intersect rather than replace, so the
+        # existing safe/strict scope restriction still applies on top.
+        scope_ner_labels = tuple(
+            label for label in scope_ner_labels if label in active_labels
+        )
     pdf_ner_redaction_terms, pdf_ner_skipped_categories = _pdf_ner_redaction_plan(
         pre_ner_text,
         ner_context,
-        allowed_labels=_pdf_ner_allowed_labels_for_scope(normalized_pdf_scope),
+        allowed_labels=scope_ner_labels,
     )
     if ner_context is None:
         anonymized = pre_ner_text
@@ -1500,6 +1774,7 @@ def _anonymize_pdf_file_result(
         anonymized, ner_counters, ner_result = anonymize_text_with_ner(
             pre_ner_text,
             ner_context,
+            allowed_labels=active_labels,
         )
         _merge_counters(counters, ner_counters)
 
@@ -1561,6 +1836,15 @@ def _anonymize_pdf_file_result(
                 output_path=pdf_visual_output_path,
             )
             pdf_redaction_result["text_extraction"] = text_extraction_label
+            try:
+                save_category_selection(
+                    category_selection_path(pdf_visual_output_path),
+                    active_categories,
+                )
+            except OSError:
+                # Cosmetic-adjacent app state, not the anonymization
+                # itself - see save_category_selection's docstring.
+                pass
         except Exception as visual_redaction_error:  # noqa: BLE001
             # Deliberately broad, not just RuntimeError: this step draws
             # on PyMuPDF internals (page.apply_redactions(), a malformed
@@ -1616,6 +1900,7 @@ def _anonymize_pdf_file_result(
                 sensitive_terms=terms,
                 extra_redaction_terms=pdf_ner_redaction_terms,
                 output_path=pdf_original_redacted_output_path,
+                active_labels=active_labels,
             )
         except RuntimeError:
             pdf_redaction_result = build_pdf_redaction_metadata(status="unavailable")
@@ -1668,7 +1953,11 @@ def _anonymize_pdf_file_result(
         label_counters=dictionary_counters,
     )
     audit_result = _attach_dictionary_result(
-        audit_text(anonymized_output_text, sensitive_terms=terms),
+        audit_text(
+            anonymized_output_text,
+            sensitive_terms=terms,
+            excluded_labels=_excluded_labels_for_audit(active_labels),
+        ),
         dictionary_result,
     )
     audit_result = _attach_ner_result(audit_result, ner_result)
@@ -1679,6 +1968,7 @@ def _anonymize_pdf_file_result(
         ner_result=ner_result,
         pdf_redaction_scope=normalized_pdf_scope,
         ner_pdf_redaction_skipped_categories=pdf_ner_skipped_categories,
+        active_labels=active_labels,
     )
     report_path = _build_anonymization_report_path(source_path, output_dir=output_dir)
     checklist_path = _save_review_checklist(
@@ -1783,12 +2073,14 @@ def _anonymize_image_file_result(
     ner_model_name: str = DEFAULT_NER_MODEL,
     use_llm_review: bool = False,
     llm_model_name: str = "",
+    active_categories: Iterable[str] | None = None,
 ) -> FileWorkflowResult:
     """Anonymize OCR text from an image and return paths for batch processing."""
     terms, dictionary_status = _prepare_workflow_dictionary(
         sensitive_terms, sensitive_terms_path
     )
     ner_context = prepare_ner_context(enabled=use_ner, model_name=ner_model_name)
+    active_labels = resolve_active_labels(active_categories)
     # Try OCR *with* word-level positions first - same reasoning as the PDF
     # path: it produces the same text a plain OCR pass would, plus the
     # coordinates needed for a true colored-redaction visual PDF alongside
@@ -1811,6 +2103,7 @@ def _anonymize_image_file_result(
             ocr_text,
             sensitive_terms=terms,
             ner_context=ner_context,
+            active_labels=active_labels,
         )
     )
     # Same shared-number rule the PDF path above follows, for the same
@@ -1834,19 +2127,30 @@ def _anonymize_image_file_result(
     pdf_redaction_result: dict[str, object] = {}
     if ocr_word_pages:
         image_detection_spans = _pdf_detection_spans_for_word_pages(
-            ocr_word_pages, sensitive_terms=terms, ner_context=ner_context
+            ocr_word_pages,
+            sensitive_terms=terms,
+            ner_context=ner_context,
+            active_labels=active_labels,
+        )
+        image_visual_output_path = apply_collision_suffix(
+            build_image_visual_pdf_path(source_path, output_dir=output_dir),
+            image_output_suffix,
         )
         try:
             pdf_redaction_result = save_word_coordinate_redacted_image_copy(
                 source_path,
                 word_pages=ocr_word_pages,
                 spans=image_detection_spans,
-                output_path=apply_collision_suffix(
-                    build_image_visual_pdf_path(source_path, output_dir=output_dir),
-                    image_output_suffix,
-                ),
+                output_path=image_visual_output_path,
             )
             pdf_redaction_result["text_extraction"] = "ocr_word_coordinates"
+            try:
+                save_category_selection(
+                    category_selection_path(image_visual_output_path),
+                    active_categories,
+                )
+            except OSError:
+                pass
         except RuntimeError:
             pdf_redaction_result = build_pdf_redaction_metadata(status="unavailable")
             pdf_redaction_result["text_extraction"] = "ocr_word_coordinates"
@@ -1862,7 +2166,11 @@ def _anonymize_image_file_result(
         label_counters=dictionary_counters,
     )
     audit_result = _attach_dictionary_result(
-        audit_text(anonymized, sensitive_terms=terms),
+        audit_text(
+            anonymized,
+            sensitive_terms=terms,
+            excluded_labels=_excluded_labels_for_audit(active_labels),
+        ),
         dictionary_result,
     )
     audit_result = _attach_ner_result(audit_result, ner_result)
@@ -2081,6 +2389,7 @@ def _anonymize_file_result(
     llm_model_name: str = "",
     pdf_redaction_scope: str = PDF_REDACTION_SCOPE_SAFE,
     pdf_output_mode: str = PDF_OUTPUT_MODE_VISUAL,
+    active_categories: Iterable[str] | None = None,
 ) -> FileWorkflowResult:
     """Anonymize one supported file and return paths needed by batch processing."""
     path = Path(source_path)
@@ -2095,6 +2404,7 @@ def _anonymize_file_result(
             ner_model_name=ner_model_name,
             use_llm_review=use_llm_review,
             llm_model_name=llm_model_name,
+            active_categories=active_categories,
         )
     if path.suffix.lower() == DOCX_EXTENSION:
         return _anonymize_docx_file_result(
@@ -2106,6 +2416,7 @@ def _anonymize_file_result(
             ner_model_name=ner_model_name,
             use_llm_review=use_llm_review,
             llm_model_name=llm_model_name,
+            active_categories=active_categories,
         )
     if path.suffix.lower() == PDF_EXTENSION:
         return _anonymize_pdf_file_result(
@@ -2119,6 +2430,7 @@ def _anonymize_file_result(
             llm_model_name=llm_model_name,
             pdf_redaction_scope=pdf_redaction_scope,
             pdf_output_mode=pdf_output_mode,
+            active_categories=active_categories,
         )
     if path.suffix.lower() in IMAGE_EXTENSIONS:
         return _anonymize_image_file_result(
@@ -2130,6 +2442,7 @@ def _anonymize_file_result(
             ner_model_name=ner_model_name,
             use_llm_review=use_llm_review,
             llm_model_name=llm_model_name,
+            active_categories=active_categories,
         )
 
     suffix = path.suffix.lower() or "<none>"
@@ -2203,9 +2516,18 @@ def anonymize_batch(
     llm_model_name: str = "",
     pdf_redaction_scope: str = PDF_REDACTION_SCOPE_SAFE,
     pdf_output_mode: str = PDF_OUTPUT_MODE_VISUAL,
+    active_categories: Iterable[str] | None = None,
     progress_callback: Callable[[int, int, Path], None] | None = None,
 ) -> BatchResult:
-    """Anonymize supported files sequentially into one output workspace."""
+    """Anonymize supported files sequentially into one output workspace.
+
+    ``active_categories`` (Etap 4) restricts redaction, for every file in
+    this batch, to the given user-facing categories (see
+    ``CATEGORY_GROUPS``) plus everything never under the user's control
+    (``ALWAYS_ON_LABELS``) - the dictionary and NER_ORG/LOCATION/MISC are
+    always redacted regardless. ``None`` (the default) redacts
+    everything, exactly as before this parameter existed.
+    """
     if sensitive_terms is not None and sensitive_terms_path is not None:
         raise ValueError(
             "Provide either sensitive_terms or sensitive_terms_path, not both."
@@ -2256,6 +2578,7 @@ def anonymize_batch(
                 llm_model_name=llm_model_name,
                 pdf_redaction_scope=pdf_redaction_scope,
                 pdf_output_mode=pdf_output_mode,
+                active_categories=active_categories,
             )
         except Exception as error:
             error_count += 1

@@ -69,6 +69,25 @@ przenoszę ją do „Potwierdzone" albo usuwam. Jeśli lista urośnie powyżej
       zawartość) nadal poprawnie wpływa na kolejny zapis — to naprawiony w
       tej samej sesji błąd (code-review złapał go przed mergem), warto
       potwierdzić na żywo.
+- [ ] **Wybór kategorii do anonimizacji per zadanie (Etap 4, 2026-09-16)**
+      — 8 checkboxów w „Szybkie akcje" (PESEL, imię i nazwisko/AI,
+      telefon, e-mail, IBAN, adres, dane firmy, data), wszystkie
+      domyślnie zaznaczone. Odznaczenie kategorii zostawia ją
+      nietkniętą w wyniku — reszta (dowód osobisty, nietypowe nazwiska,
+      organizacje/lokalizacje/inne wykryte przez AI, własny słownik,
+      ręczne magic-pen) zawsze się anonimizuje, niezależnie od wyboru.
+      Sprawdź na żywo: czy odznaczenie np. „Adres" faktycznie zostawia
+      adres widoczny w PDF/TXT/DOCX, czy raport/checklist nie pokazuje
+      mylącego „wykryto i zanonimizowano" dla odznaczonej kategorii
+      (błąd znaleziony i naprawiony przez code-review przed mergem), i
+      **koniecznie**: otwórz potem taki dokument w oknie porównania
+      (magic pen), zrób dowolną niepowiązaną ręczną edycję i zapisz —
+      odznaczona kategoria (np. adres) powinna zostać nadal widoczna po
+      zapisie, nie zostać nagle domazana. To też był realny błąd
+      złapany przez code-review (regenerowanie po edycji ręcznej nie
+      znało pierwotnego wyboru kategorii) — naprawiony przez mały plik
+      JSON zapisywany obok wizualnego PDF-a, ale warto potwierdzić na
+      żywej aplikacji, nie tylko w testach.
 
 ## Potwierdzone
 

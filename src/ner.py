@@ -671,8 +671,21 @@ def anonymize_entities(text: str, entities: list[NerEntity]) -> str:
 def anonymize_text_with_ner(
     text: str,
     context: NerContext,
+    *,
+    allowed_labels: frozenset[str] | None = None,
 ) -> tuple[str, dict[str, int], dict[str, object]]:
-    """Apply local NER if available and return safe metadata."""
+    """Apply local NER if available and return safe metadata.
+
+    ``allowed_labels`` (Etap 4 category selection) restricts which
+    detected entities actually get redacted in ``text`` - an entity
+    whose label isn't in it is left untouched. Detection itself, and
+    every counter this returns, stays unfiltered either way: this only
+    controls what gets *substituted*, never what gets *reported* as
+    found, so "detected but deliberately not redacted" stays visible in
+    the report rather than silently disappearing. ``None`` (the
+    default) redacts every label, exactly as before this parameter
+    existed.
+    """
     if context.status != NER_STATUS_AVAILABLE:
         return (
             text,
@@ -706,8 +719,28 @@ def anonymize_text_with_ner(
             ),
         )
 
-    anonymized = anonymize_entities(text, entities)
-    active_counters = {label: count for label, count in counters.items() if count}
+    redacted_entities = (
+        entities
+        if allowed_labels is None
+        else [entity for entity in entities if entity.label in allowed_labels]
+    )
+    anonymized = anonymize_entities(text, redacted_entities)
+    # Built from redacted_entities, not the full (unfiltered) counters
+    # above - a category the caller excluded via allowed_labels must not
+    # show up here as "handled". This is what flows into the main
+    # report/checklist's detected-categories count (see
+    # _anonymize_text_with_dictionary_counters), and it must match what
+    # actually happened to the text: nothing was substituted for an
+    # excluded label, so claiming it as anonymized would be a false
+    # reassurance that PII was handled when it's still fully in the
+    # clear. The full, unfiltered ``counters`` still goes into this
+    # function's ner_metadata below, unaffected - the PDF coverage-
+    # warning calculation (_attach_pdf_coverage_metadata) reads from
+    # there and is separately made aware of active_labels to correctly
+    # exclude a deliberate omission from triggering a false warning.
+    active_counters: dict[str, int] = {}
+    for entity in redacted_entities:
+        active_counters[entity.label] = active_counters.get(entity.label, 0) + 1
     return (
         anonymized,
         active_counters,

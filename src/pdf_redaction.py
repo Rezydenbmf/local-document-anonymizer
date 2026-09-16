@@ -878,10 +878,14 @@ def save_word_coordinate_redacted_image_copy(
         )
 
 
-def _redact_pattern_matches(page, page_text: str) -> dict[str, int]:
+def _redact_pattern_matches(
+    page, page_text: str, *, active_labels: frozenset[str] | None = None
+) -> dict[str, int]:
     counters: dict[str, int] = {}
     seen_locations: set[tuple[str, float, float, float, float]] = set()
     for item in PDF_REDACTION_PATTERNS:
+        if active_labels is not None and item.label not in active_labels:
+            continue
         for match in item.pattern.finditer(page_text):
             matched_text = match.group(0)
             for rect in _search_page_for_text(page, matched_text):
@@ -972,12 +976,18 @@ def save_redacted_pdf_copy(
     extra_redaction_terms: Iterable[tuple[str, str]] | None = None,
     output_dir: str | Path | None = None,
     output_path: str | Path | None = None,
+    active_labels: frozenset[str] | None = None,
 ) -> dict[str, object]:
     """Create a true-redacted PDF copy and return safe metadata.
 
     ``output_path`` writes that exact path instead of picking an
     independent collision-safe name - used so every companion file of one
-    run shares one number (see build_shared_collision_suffix)."""
+    run shares one number (see build_shared_collision_suffix).
+    ``active_labels`` (Etap 4 category selection) restricts which regex
+    patterns get redacted here - the dictionary pass and
+    ``extra_redaction_terms`` (already filtered by the caller, if at
+    all) are unaffected, matching every other redaction path's rule that
+    the user's own dictionary is always-on."""
     fitz = _load_fitz_module()
     source = Path(source_path)
     if output_path is not None:
@@ -991,7 +1001,12 @@ def save_redacted_pdf_copy(
     with fitz.open(source) as document:
         for page in document:
             page_text = page.get_text("text") or ""
-            _merge_counters(counters, _redact_pattern_matches(page, page_text))
+            _merge_counters(
+                counters,
+                _redact_pattern_matches(
+                    page, page_text, active_labels=active_labels
+                ),
+            )
             _merge_counters(counters, _redact_dictionary_matches(page, sensitive_terms))
             _merge_counters(counters, _redact_exact_text_matches(page, extra_redaction_terms))
             page.apply_redactions()

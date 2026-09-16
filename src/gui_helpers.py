@@ -17,6 +17,15 @@ from tkinterdnd2 import TkinterDnD
 
 try:
     from .anonymizer import (
+        ALL_CATEGORIES,
+        CATEGORY_ADDRESS,
+        CATEGORY_COMPANY,
+        CATEGORY_DATE,
+        CATEGORY_EMAIL,
+        CATEGORY_IBAN,
+        CATEGORY_PERSON,
+        CATEGORY_PESEL,
+        CATEGORY_PHONE,
         PDF_OUTPUT_MODE_ORIGINAL_REDACTION,
         PDF_OUTPUT_MODE_REBUILT_REVIEW,
         PDF_OUTPUT_MODE_VISUAL,
@@ -47,6 +56,15 @@ try:
     )
 except ImportError:
     from anonymizer import (
+        ALL_CATEGORIES,
+        CATEGORY_ADDRESS,
+        CATEGORY_COMPANY,
+        CATEGORY_DATE,
+        CATEGORY_EMAIL,
+        CATEGORY_IBAN,
+        CATEGORY_PERSON,
+        CATEGORY_PESEL,
+        CATEGORY_PHONE,
         PDF_OUTPUT_MODE_ORIGINAL_REDACTION,
         PDF_OUTPUT_MODE_REBUILT_REVIEW,
         PDF_OUTPUT_MODE_VISUAL,
@@ -1471,6 +1489,32 @@ CATEGORY_LABELS_PL = {
     "NER_MISC": "Inne (AI)",
     "RECZNE": "Ręcznie ukryte (magic pen)",
 }
+
+# Etap 4: the 8 user-facing "co anonimizować w tym zadaniu" categories -
+# display order matches anonymizer.ALL_CATEGORIES (the user's own order,
+# 2026-09-16). Everything NOT covered by one of these (dowód osobisty,
+# nietypowe nazwiska, organizacje/lokalizacje/inne wykryte przez AI) is
+# never shown here - it stays always-on, never a checkbox, since leaving
+# it off this list can only mean "zawsze chronione", never "ukryte przed
+# użytkownikiem".
+CATEGORY_SELECTION_LABELS_PL = {
+    CATEGORY_PESEL: "PESEL",
+    CATEGORY_PERSON: "Imię i nazwisko (AI, mniejsza pewność)",
+    CATEGORY_PHONE: "Numer telefonu",
+    CATEGORY_EMAIL: "Adres e-mail",
+    CATEGORY_IBAN: "Numer konta bankowego (IBAN)",
+    CATEGORY_ADDRESS: "Adres (ulica, miejscowość, kod pocztowy)",
+    CATEGORY_COMPANY: "Dane firmy (NIP, REGON)",
+    CATEGORY_DATE: "Data",
+}
+CATEGORY_SELECTION_ORDER = ALL_CATEGORIES
+
+
+def category_selection_label_pl(category: str) -> str:
+    """Polish display label for one of the 8 Etap 4 categories."""
+    return CATEGORY_SELECTION_LABELS_PL.get(category, category)
+
+
 RISK_SUMMARY_TEXT_PL = {
     "ok": "Nie znaleziono podejrzanych pozostałości.",
     "warning": "Warto sprawdzić - coś może wymagać uwagi.",
