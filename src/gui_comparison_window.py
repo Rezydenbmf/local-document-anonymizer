@@ -1853,19 +1853,38 @@ class ComparisonWindow:
 
     # -- magic pen: rendering -------------------------------------------------
 
+    def _sensitive_terms_fingerprint(self) -> object:
+        """Cheap on-disk fingerprint for the dictionary file, so editing it
+        in place (same path, new content) while this window stays open -
+        it is deliberately non-modal, the rest of the app stays usable -
+        still invalidates the detection cache the same way it always
+        forced a fresh re-read before this cache existed. mtime+size is
+        enough to catch a real edit without hashing the whole file on
+        every reload/save."""
+        path = self.app.sensitive_terms_path
+        if not path:
+            return None
+        try:
+            stat = Path(path).stat()
+        except OSError:
+            return None
+        return (stat.st_mtime_ns, stat.st_size)
+
     def _cached_detection(self) -> tuple[list, list]:
         """Return this session's (word_pages, spans) for ``self.source_path``,
         computing and caching them once instead of on every reload/save.
 
         The cache key covers the detection settings that can actually
-        change while this window stays open (NER on/off, dictionary path)
-        so a mid-session Settings change still triggers a fresh, correct
-        recompute rather than reusing stale results - only the repeated,
-        wasted recompute of the *same* detection is being avoided here.
+        change while this window stays open (NER on/off, dictionary path
+        and its contents) so a mid-session Settings or dictionary-file
+        change still triggers a fresh, correct recompute rather than
+        reusing stale results - only the repeated, wasted recompute of
+        the *same* detection is being avoided here.
         """
         key = (
             str(self.source_path),
             str(self.app.sensitive_terms_path or ""),
+            self._sensitive_terms_fingerprint(),
             bool(self.app.use_ner),
         )
         if self._detection_cache is None or self._detection_cache_key != key:
@@ -2371,6 +2390,12 @@ class ComparisonWindow:
                 staging_path.unlink(missing_ok=True)
             except OSError:
                 pass
+            # Same reset _reload_visible_rects does on failure - a
+            # detection error here could mean the cached pair is
+            # unreliable, so the next attempt recomputes clean rather
+            # than keep serving a result that just failed.
+            self._detection_cache = None
+            self._detection_cache_key = None
             if self.pen_status_label is not None:
                 self.pen_status_label.configure(text="Nie udało się zapisać zmian.")
             return

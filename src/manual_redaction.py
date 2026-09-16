@@ -149,6 +149,34 @@ def save_manual_edits(path: str | Path, edits: ManualEdits) -> Path:
     return destination
 
 
+def _resolve_word_pages_and_spans(
+    source_path: str | Path,
+    *,
+    word_pages: Sequence | None,
+    spans: object,
+    sensitive_terms: list[SensitiveTerm] | None,
+    sensitive_terms_path: str | Path | None,
+    use_ner: bool,
+    ner_model_name: str,
+) -> tuple[Sequence, object]:
+    """Return ``(word_pages, spans)`` as-given when both were supplied by
+    the caller, otherwise recompute detection from scratch. Shared by
+    :func:`regenerate_pdf_with_manual_overrides` and
+    :func:`compute_visible_redaction_rects` so their "both or neither"
+    precomputed-pair contract can't drift apart between the two.
+    """
+    if word_pages is not None and spans is not None:
+        return word_pages, spans
+    kwargs = {
+        "sensitive_terms": sensitive_terms,
+        "sensitive_terms_path": sensitive_terms_path,
+        "use_ner": use_ner,
+    }
+    if ner_model_name:
+        kwargs["ner_model_name"] = ner_model_name
+    return compute_pdf_redaction_spans(source_path, **kwargs)
+
+
 def regenerate_pdf_with_manual_overrides(
     source_path: str | Path,
     *,
@@ -176,15 +204,15 @@ def regenerate_pdf_with_manual_overrides(
     two is treated as not passing either, since a partial pair can't be
     used safely.
     """
-    if word_pages is None or spans is None:
-        kwargs = {
-            "sensitive_terms": sensitive_terms,
-            "sensitive_terms_path": sensitive_terms_path,
-            "use_ner": use_ner,
-        }
-        if ner_model_name:
-            kwargs["ner_model_name"] = ner_model_name
-        word_pages, spans = compute_pdf_redaction_spans(source_path, **kwargs)
+    word_pages, spans = _resolve_word_pages_and_spans(
+        source_path,
+        word_pages=word_pages,
+        spans=spans,
+        sensitive_terms=sensitive_terms,
+        sensitive_terms_path=sensitive_terms_path,
+        use_ner=use_ner,
+        ner_model_name=ner_model_name,
+    )
 
     extra_rects = [(rect.page, rect.as_tuple()) for rect in edits.added]
     if Path(source_path).suffix.lower() in IMAGE_EXTENSIONS:
@@ -231,15 +259,15 @@ def compute_visible_redaction_rects(
     does, to skip redetection when a caller already has one from this
     session on this exact source file.
     """
-    if word_pages is None or spans is None:
-        kwargs = {
-            "sensitive_terms": sensitive_terms,
-            "sensitive_terms_path": sensitive_terms_path,
-            "use_ner": use_ner,
-        }
-        if ner_model_name:
-            kwargs["ner_model_name"] = ner_model_name
-        word_pages, spans = compute_pdf_redaction_spans(source_path, **kwargs)
+    word_pages, spans = _resolve_word_pages_and_spans(
+        source_path,
+        word_pages=word_pages,
+        spans=spans,
+        sensitive_terms=sensitive_terms,
+        sensitive_terms_path=sensitive_terms_path,
+        use_ner=use_ner,
+        ner_model_name=ner_model_name,
+    )
     auto_rects, _counters, _unmapped = compute_redaction_rects(
         word_pages, spans, removed_span_keys=edits.removed
     )
