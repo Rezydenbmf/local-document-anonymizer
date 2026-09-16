@@ -3088,7 +3088,7 @@ rather than assumed either way.
 Full suite: 482 tests. Lint at the established 77-error baseline.
 
 ```text
-<PLACEHOLDER_HASH> Add single-history cleanup, 30-day reminder, and export-destination picker
+c8cc3c6 Add single-history cleanup, 30-day reminder, and export-destination picker
 ```
 
 ## Next Logical Step
