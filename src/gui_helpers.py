@@ -8,7 +8,7 @@ import subprocess
 import sys
 import tkinter as tk
 from collections.abc import Mapping, Sequence
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import customtkinter as ctk
@@ -248,6 +248,101 @@ def format_recent_folder_timestamp(timestamp: str) -> str:
     except ValueError:
         return "nieznana data"
     return parsed.strftime("%d.%m.%Y, %H:%M")
+
+
+DEFAULT_CLEANUP_REMINDER_DAYS = 30
+# A real reported workflow, not a guess: a document sent for approval can
+# come back with revised instructions anywhere from same-day to two weeks
+# later, so the folder it lives in genuinely needs to survive that long. A
+# month is a safe margin past the slowest realistic round-trip before it is
+# worth nudging the user to clean up.
+
+
+def cleanup_reminder_config_path() -> Path:
+    """Return the local file tracking the "Wyczyść historię" reminder:
+    whether it is on, the interval, and when cleanup last ran. Same
+    plain-local-file contract as history_config_path - paths and a
+    timestamp only, never anything from inside an output folder."""
+    return Path.home() / ".anonimizer" / "cleanup_reminder.json"
+
+
+def load_cleanup_reminder_config(config_path: Path) -> dict[str, object]:
+    """Load the reminder config, tolerating a missing/corrupt file with
+    reasonable defaults (reminder on, 30-day interval, never cleaned)."""
+    defaults: dict[str, object] = {
+        "enabled": True,
+        "interval_days": DEFAULT_CLEANUP_REMINDER_DAYS,
+        "last_cleanup_at": None,
+    }
+    try:
+        raw = json.loads(config_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return defaults
+    if not isinstance(raw, dict):
+        return defaults
+    enabled = raw.get("enabled")
+    interval = raw.get("interval_days")
+    last_cleanup_at = raw.get("last_cleanup_at")
+    return {
+        "enabled": enabled if isinstance(enabled, bool) else defaults["enabled"],
+        "interval_days": (
+            interval
+            if isinstance(interval, int) and interval > 0
+            else defaults["interval_days"]
+        ),
+        "last_cleanup_at": (
+            last_cleanup_at if isinstance(last_cleanup_at, str) else None
+        ),
+    }
+
+
+def save_cleanup_reminder_config(config_path: Path, config: dict[str, object]) -> None:
+    """Persist the reminder config, creating the config folder if needed."""
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(
+        json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+
+def should_show_cleanup_reminder(config: dict[str, object], now: datetime) -> bool:
+    """Whether the "time to clean up" banner should show right now.
+
+    Never fires when the reminder is off, or when there is no baseline
+    to count from yet (``last_cleanup_at`` is None) - callers should seed
+    one (see ``ensure_cleanup_reminder_baseline``) the first time they
+    encounter that, so the interval starts counting from first use
+    instead of either nagging immediately on a brand-new install or
+    silently never firing because no cleanup has ever run.
+    """
+    if not config.get("enabled", True):
+        return False
+    last_cleanup_at = config.get("last_cleanup_at")
+    if not isinstance(last_cleanup_at, str):
+        return False
+    try:
+        last_cleanup = datetime.fromisoformat(last_cleanup_at)
+    except ValueError:
+        return True
+    interval_days = config.get("interval_days", DEFAULT_CLEANUP_REMINDER_DAYS)
+    if not isinstance(interval_days, int) or interval_days <= 0:
+        interval_days = DEFAULT_CLEANUP_REMINDER_DAYS
+    return (now - last_cleanup) >= timedelta(days=interval_days)
+
+
+def ensure_cleanup_reminder_baseline(config_path: Path, now: datetime) -> None:
+    """Seed ``last_cleanup_at`` with ``now`` the first time this config is
+    ever loaded with no baseline yet (new install, or an existing config
+    predating this feature) - called once at startup. Without this, a
+    missing baseline would either need to nag on day one of first use or
+    never fire at all; seeding it here means the 30-day (or whatever is
+    configured) countdown starts from when the user first had the app
+    running, which is the only reference point that makes sense before
+    any real cleanup has happened.
+    """
+    config = load_cleanup_reminder_config(config_path)
+    if config.get("last_cleanup_at") is None:
+        config["last_cleanup_at"] = now.isoformat()
+        save_cleanup_reminder_config(config_path, config)
 
 
 def ui_hints_config_path() -> Path:

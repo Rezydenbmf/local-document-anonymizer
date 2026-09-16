@@ -87,7 +87,9 @@ try:
         DnDCTk,
         IconTooltip,
         apply_subtle_scrollbar,
+        cleanup_reminder_config_path,
         default_output_directory,
+        ensure_cleanup_reminder_baseline,
         environment_status_lookup,
         file_type_badge,
         filter_supported_paths,
@@ -104,6 +106,7 @@ try:
         get_file_type_icon,
         hint_is_dismissed,
         history_config_path,
+        load_cleanup_reminder_config,
         load_recent_folders,
         open_path_with_default_app,
         parse_dropped_file_paths,
@@ -115,14 +118,17 @@ try:
         restrict_review_items_to_batch,
         review_status_label_pl,
         risk_style_key,
+        save_cleanup_reminder_config,
         save_recent_folders,
+        should_show_cleanup_reminder,
         truncate_filename_middle,
     )
     from .gui_settings_dialog import SettingsDialog
     from .output_cleanup import (
         apply_output_cleanup_plan,
-        build_output_cleanup_plan,
-        format_cleanup_plan_summary,
+        build_history_cleanup_plan,
+        format_file_size,
+        format_history_cleanup_summary,
     )
     from .review import (
         REVIEW_STATUS_APPROVED,
@@ -209,7 +215,9 @@ except ImportError:
         DnDCTk,
         IconTooltip,
         apply_subtle_scrollbar,
+        cleanup_reminder_config_path,
         default_output_directory,
+        ensure_cleanup_reminder_baseline,
         environment_status_lookup,
         file_type_badge,
         filter_supported_paths,
@@ -226,6 +234,7 @@ except ImportError:
         get_file_type_icon,
         hint_is_dismissed,
         history_config_path,
+        load_cleanup_reminder_config,
         load_recent_folders,
         open_path_with_default_app,
         parse_dropped_file_paths,
@@ -237,14 +246,17 @@ except ImportError:
         restrict_review_items_to_batch,
         review_status_label_pl,
         risk_style_key,
+        save_cleanup_reminder_config,
         save_recent_folders,
+        should_show_cleanup_reminder,
         truncate_filename_middle,
     )
     from gui_settings_dialog import SettingsDialog
     from output_cleanup import (
         apply_output_cleanup_plan,
-        build_output_cleanup_plan,
-        format_cleanup_plan_summary,
+        build_history_cleanup_plan,
+        format_file_size,
+        format_history_cleanup_summary,
     )
     from review import (
         REVIEW_STATUS_APPROVED,
@@ -291,6 +303,15 @@ class AnonymizerApp:
         self.history_config_path = history_config_path()
         self.recent_folders: list[dict[str, str]] = load_recent_folders(
             self.history_config_path
+        )
+        self.cleanup_reminder_config_path = cleanup_reminder_config_path()
+        # First-ever launch (or an existing install predating this feature)
+        # gets its 30-day-by-default countdown seeded to start now, rather
+        # than either nagging immediately or never firing because no
+        # cleanup has ever run - see should_show_cleanup_reminder's
+        # docstring for why a missing baseline can't just default to "due".
+        ensure_cleanup_reminder_baseline(
+            self.cleanup_reminder_config_path, datetime.now(timezone.utc)
         )
 
         self.file_card_frame: ctk.CTkScrollableFrame | None = None
@@ -1772,6 +1793,25 @@ class AnonymizerApp:
             text_color=COLOR_TEXT,
         ).pack(side="left", padx=(12, 0))
 
+        if self.recent_folders:
+            # One button for the whole history, not one repeated per
+            # folder - direct feedback was that a button per folder was
+            # pointless when every copy did the exact same thing.
+            ctk.CTkButton(
+                header,
+                text="Wyczyść historię",
+                width=140,
+                height=28,
+                corner_radius=8,
+                fg_color="transparent",
+                border_width=1,
+                border_color=COLOR_BORDER,
+                hover_color=COLOR_ICON_IDLE,
+                text_color=COLOR_TEXT,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                command=self.clean_history,
+            ).pack(side="right")
+
         ctk.CTkLabel(
             self.content,
             text=(
@@ -1783,6 +1823,12 @@ class AnonymizerApp:
             wraplength=700,
             justify="left",
         ).pack(fill="x", pady=(0, 10))
+
+        reminder_config = load_cleanup_reminder_config(self.cleanup_reminder_config_path)
+        if self.recent_folders and should_show_cleanup_reminder(
+            reminder_config, datetime.now(timezone.utc)
+        ):
+            self._build_cleanup_reminder_banner(self.content)
 
         scroll = ctk.CTkScrollableFrame(
             self.content, fg_color="transparent", label_text=""
@@ -1801,6 +1847,42 @@ class AnonymizerApp:
 
         for entry in self.recent_folders:
             self._build_history_card(scroll, entry)
+
+    def _build_cleanup_reminder_banner(self, parent: ctk.CTkFrame) -> None:
+        banner = ctk.CTkFrame(
+            parent,
+            corner_radius=10,
+            fg_color=COLOR_WARNING_SOFT,
+            border_width=1,
+            border_color=COLOR_WARNING,
+        )
+        banner.pack(fill="x", pady=(0, 10))
+        row = ctk.CTkFrame(banner, fg_color="transparent")
+        row.pack(fill="x", padx=14, pady=10)
+        ctk.CTkLabel(
+            row,
+            text=(
+                "Dawno nie sprzątano historii wyników - warto przejrzeć "
+                "i wyczyścić stare pliki robocze."
+            ),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLOR_WARNING_TEXT,
+            anchor="w",
+            wraplength=520,
+            justify="left",
+        ).pack(side="left", fill="x", expand=True)
+        ctk.CTkButton(
+            row,
+            text="Wyczyść teraz",
+            width=120,
+            height=28,
+            corner_radius=8,
+            fg_color=COLOR_WARNING,
+            hover_color=COLOR_WARNING_TEXT,
+            text_color="#FFFFFF",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11, weight="bold"),
+            command=self.clean_history,
+        ).pack(side="right")
 
     def _build_history_card(
         self, parent: ctk.CTkFrame, entry: dict[str, str]
@@ -1848,27 +1930,6 @@ class AnonymizerApp:
                 font=ctk.CTkFont(family=FONT_FAMILY, size=11, weight="bold"),
                 command=lambda p=folder_path: self.open_history_folder(p),
             ).pack(side="right")
-            # Re-running into the same folder is the normal way people
-            # work, and nothing ever removed the previous run's files -
-            # so folders accumulate one numbered generation per run. An
-            # audit of what the app leaves on disk flagged that directly:
-            # more generations is more to look after, and an old
-            # generation can be less redacted than the current one while
-            # looking just as finished.
-            ctk.CTkButton(
-                row,
-                text="Wyczyść stare",
-                width=110,
-                height=30,
-                corner_radius=8,
-                fg_color="transparent",
-                border_width=1,
-                border_color=COLOR_BORDER,
-                hover_color=COLOR_ICON_IDLE,
-                text_color=COLOR_TEXT,
-                font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-                command=lambda p=folder_path: self.clean_output_folder(p),
-            ).pack(side="right", padx=(0, 8))
         else:
             ctk.CTkLabel(
                 row,
@@ -1877,30 +1938,105 @@ class AnonymizerApp:
                 text_color=COLOR_HIGH_RISK,
             ).pack(side="right")
 
-    def clean_output_folder(self, folder_path: str) -> None:
-        """Remove superseded output generations from one folder, after
-        showing exactly what would go. Never deletes without that
-        confirmation, and only ever considers files this app itself wrote
-        (see output_cleanup) - pointing the output at the folder the
-        source documents live in is normal, and those must be safe."""
-        plan = build_output_cleanup_plan(folder_path)
-        summary = format_cleanup_plan_summary(plan)
-        if plan.is_empty:
-            messagebox.showinfo("Wyczyść stare wyniki", summary, parent=self.root)
+    def clean_history(self) -> None:
+        """Sweep every folder in the output history at once, after showing
+        exactly what would go - replaces the old per-folder button, which
+        did the same thing regardless of which folder's copy you clicked.
+
+        Two-step by design, matching direct feedback: working/internal
+        files (reports, checklists) are removed unconditionally, since
+        nobody wants them - but the final anonymized results are only
+        ever removed if the user explicitly says so in a *separate*
+        follow-up confirmation, never bundled into the first yes/no.
+        Only ever considers files this app itself wrote (see
+        output_cleanup) - pointing the output at the folder the source
+        documents live in is normal, and those must stay untouchable.
+        """
+        folders = [
+            entry.get("path", "")
+            for entry in self.recent_folders
+            if Path(entry.get("path", "")).is_dir()
+        ]
+        if not folders:
+            messagebox.showinfo(
+                "Wyczyść historię", "Brak folderów w historii.", parent=self.root
+            )
             return
-        confirmed = messagebox.askyesno(
-            "Wyczyść stare wyniki",
-            f"{summary}\n\nUsunąć je teraz? Tej operacji nie można cofnąć.",
-            parent=self.root,
-        )
-        if not confirmed:
+
+        # One filesystem walk, two plans - see build_history_cleanup_plan's
+        # docstring for why this replaced two separate calls the caller
+        # used to diff against each other (a real race window, and a
+        # final-files byte total computed by subtraction that could go
+        # visibly wrong right before an irreversible deletion).
+        working_plan, final_plan = build_history_cleanup_plan(folders)
+
+        if working_plan.is_empty and final_plan.is_empty:
+            messagebox.showinfo(
+                "Wyczyść historię",
+                "Brak plików do usunięcia w historii.",
+                parent=self.root,
+            )
+            self._record_cleanup_ran()
             return
-        removed, failed = apply_output_cleanup_plan(plan)
-        message = f"Usunięto {removed} plików."
-        if failed:
-            message += f" Nie udało się usunąć: {failed}."
-        messagebox.showinfo("Wyczyść stare wyniki", message, parent=self.root)
+
+        # Tracks whether anything was *actually* deleted this run, so the
+        # reminder countdown only resets on a real cleanup - not merely on
+        # having opened the dialog and declined both prompts, which used
+        # to silently suppress the reminder for another interval with
+        # nothing on disk actually cleaned up.
+        anything_removed = False
+
+        if not working_plan.is_empty:
+            summary = format_history_cleanup_summary(
+                working_plan, include_final_outputs=False
+            )
+            confirmed = messagebox.askyesno(
+                "Wyczyść historię",
+                f"{summary}\n\nUsunąć je teraz? Tej operacji nie można cofnąć.",
+                parent=self.root,
+            )
+            if confirmed:
+                removed, failed = apply_output_cleanup_plan(working_plan)
+                anything_removed = anything_removed or removed > 0
+                message = f"Usunięto {removed} plików roboczych."
+                if failed:
+                    message += f" Nie udało się usunąć: {failed}."
+                messagebox.showinfo("Wyczyść historię", message, parent=self.root)
+
+        if not final_plan.is_empty:
+            confirmed_final = messagebox.askyesno(
+                "Wyczyść historię",
+                "Czy chcesz też usunąć finalne wyniki anonimizacji "
+                f"({final_plan.removable_count} plików, "
+                f"{format_file_size(final_plan.total_bytes)})?\n\n"
+                "To usunie też Twoje zanonimizowane dokumenty z tych "
+                "folderów, nie tylko pliki robocze. Tej operacji nie można "
+                "cofnąć.",
+                parent=self.root,
+            )
+            if confirmed_final:
+                removed, failed = apply_output_cleanup_plan(final_plan)
+                anything_removed = anything_removed or removed > 0
+                message = f"Usunięto {removed} finalnych plików wynikowych."
+                if failed:
+                    message += f" Nie udało się usunąć: {failed}."
+                messagebox.showinfo("Wyczyść historię", message, parent=self.root)
+
+        if anything_removed:
+            self._record_cleanup_ran()
         self.show_history_screen()
+
+    def _record_cleanup_ran(self) -> None:
+        """Reset the "time to clean up" reminder's countdown - called only
+        when a cleanup actually removed something (or when there was
+        nothing to remove in the first place, handled separately above).
+        Declining every confirmation must NOT reset the countdown - that
+        would silently suppress the reminder for another interval while
+        the clutter it exists to flag is still sitting on disk untouched.
+        """
+        config = load_cleanup_reminder_config(self.cleanup_reminder_config_path)
+        config["last_cleanup_at"] = datetime.now(timezone.utc).isoformat()
+        save_cleanup_reminder_config(self.cleanup_reminder_config_path, config)
 
     # ------------------------------------------------------------------
     # Settings modal
@@ -2748,11 +2884,41 @@ class AnonymizerApp:
             pass
 
     def export_approved(self) -> None:
+        # Previously always landed in a fixed "approved" subfolder inside
+        # the already-cluttered output folder, with no way to choose -
+        # direct feedback was that this defeated the point of "exporting"
+        # anywhere at all. Cancelling the picker cancels the export.
         if self.review_dir is None:
             return
+        destination = filedialog.askdirectory(
+            title="Wybierz folder docelowy dla zatwierdzonych plików",
+            initialdir=self.review_dir,
+        )
+        if not destination:
+            return
+        # The dialog opens inside review_dir itself (a sensible starting
+        # point), which makes it easy to accidentally pick that same
+        # folder as the destination. Without this check that silently
+        # duplicated every approved file in place with a "_2" suffix
+        # instead of erroring - build_collision_safe_path treats "the
+        # file already exists because source and destination are the
+        # same folder" the same as any other name collision.
+        if Path(destination).resolve() == Path(self.review_dir).resolve():
+            messagebox.showerror(
+                "Eksport",
+                "Folder docelowy nie może być tym samym folderem, z którego "
+                "eksportujesz - wybierz inne miejsce.",
+                parent=self.root,
+            )
+            return
         try:
-            export_approved_workspace(self.review_dir)
-        except (FileNotFoundError, ValueError, OSError):
+            export_approved_workspace(self.review_dir, destination_dir=destination)
+        except (FileNotFoundError, ValueError, OSError) as error:
+            messagebox.showerror(
+                "Eksport",
+                f"Nie udało się wyeksportować do wybranego folderu:\n{error}",
+                parent=self.root,
+            )
             return
         if self.review_summary_label is not None:
             self.review_summary_label.configure(

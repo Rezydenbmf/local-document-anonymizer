@@ -22,6 +22,7 @@ GUI and no deletion of its own, deliberately:
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -64,6 +65,29 @@ _OUTPUT_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
         re.compile(r"^(?P<stem>.+)_MANUAL_EDITS(?P<number>_\d+)?\.json$"),
     ),
 )
+
+
+# The families a user actually wants to keep, per direct feedback: "po co
+# nam te stare pliki - user chce mieć zanonimizowany [wynik] i oryginał, to
+# dwa które potrzebuje; wszystkie te txt/checklisty nie potrzebuje". Every
+# PDF output mode (visual/review/original_redacted) writes a different
+# family for what is, depending on the user's chosen mode, *the* deliverable
+# - so all of them count as a "final result", never just one. manual_edits
+# is included too even though it looks internal: it is what lets a document
+# be reopened and re-edited later (a real workflow - approval round-trips
+# reported to take anywhere from same-day to two weeks), so silently
+# dropping it would quietly break editability rather than just tidy up.
+_FINAL_RESULT_FAMILIES = frozenset(
+    {"anon_txt", "anon_docx", "visual", "review", "original_redacted", "manual_edits"}
+)
+
+
+def _family_of(group: str) -> str:
+    """The output family for a classify_output_file() group - group is
+    either the bare family name (batch-level artifacts) or
+    "stem|family" (everything anchored to a document), so splitting off
+    the last "|"-separated piece gets the family either way."""
+    return group.rsplit("|", 1)[-1]
 
 
 def _generation_number(raw_number: str | None) -> int:
@@ -166,6 +190,68 @@ def build_output_cleanup_plan(output_dir: str | Path) -> OutputCleanupPlan:
     )
 
 
+def _plan_from_paths(paths: list[Path], *, kept_count: int) -> OutputCleanupPlan:
+    total_bytes = 0
+    for path in paths:
+        try:
+            total_bytes += path.stat().st_size
+        except OSError:
+            continue
+    return OutputCleanupPlan(
+        removable_paths=tuple(paths), kept_count=kept_count, total_bytes=total_bytes
+    )
+
+
+def build_history_cleanup_plan(
+    output_dirs: Sequence[str | Path],
+) -> tuple[OutputCleanupPlan, OutputCleanupPlan]:
+    """Plan a single "Wyczyść historię" sweep across every folder in the
+    user's output history at once - one button for the whole history
+    instead of one per folder, per direct feedback that a button repeated
+    per folder was pointless when it always does the same thing.
+
+    Unlike build_output_cleanup_plan (kept for its own tests/possible
+    reuse, but no longer wired to any button), this is not generation-
+    aware - it does not matter whether a file is the newest run or the
+    oldest. What matters is *what kind* of file it is: working/internal
+    files (reports, checklists, batch summaries) are always removable;
+    the final-result families (see _FINAL_RESULT_FAMILIES) are only
+    removable on the caller's separate, explicit opt-in - the two-tier
+    "always clear junk, only optionally clear real results" the user
+    asked for.
+
+    Returns ``(working_plan, final_plan)`` from a *single* filesystem
+    walk - deliberately not two separate calls the caller diffs against
+    each other (an earlier version worked that way). Two independent
+    scans open a race window where a file changes or disappears between
+    them, and forced the caller to derive final_plan's byte total by
+    subtracting two already-summed totals - which can go visibly wrong
+    (even negative) if that race is hit, right before an irreversible
+    deletion. One walk, two buckets, each plan's own total summed
+    directly from its own paths, makes that class of bug structurally
+    impossible rather than merely unlikely.
+    """
+    working_paths: list[Path] = []
+    final_paths: list[Path] = []
+    for output_dir in output_dirs:
+        folder = Path(output_dir)
+        if not folder.is_dir():
+            continue
+        for path in _iter_output_files(folder):
+            classified = classify_output_file(path.name)
+            if classified is None:
+                continue
+            group, _generation = classified
+            if _family_of(group) in _FINAL_RESULT_FAMILIES:
+                final_paths.append(path)
+            else:
+                working_paths.append(path)
+
+    working_plan = _plan_from_paths(working_paths, kept_count=len(final_paths))
+    final_plan = _plan_from_paths(final_paths, kept_count=0)
+    return working_plan, final_plan
+
+
 def apply_output_cleanup_plan(plan: OutputCleanupPlan) -> tuple[int, int]:
     """Delete the planned files; return ``(removed, failed)``.
 
@@ -189,11 +275,37 @@ def format_cleanup_plan_summary(plan: OutputCleanupPlan) -> str:
     """One human-readable line describing a plan, for the confirmation."""
     if plan.is_empty:
         return "Brak starszych wersji do usunięcia - w folderze jest tylko najnowszy wynik."
-    megabytes = plan.total_bytes / (1024 * 1024)
-    size_text = (
-        f"{megabytes:.1f} MB" if megabytes >= 0.1 else f"{max(plan.total_bytes // 1024, 1)} KB"
-    )
+    size_text = format_file_size(plan.total_bytes)
     return (
         f"Do usunięcia: {plan.removable_count} starszych plików ({size_text}). "
         f"Najnowsza wersja każdego dokumentu zostaje ({plan.kept_count} plików)."
+    )
+
+
+def format_file_size(total_bytes: int) -> str:
+    """Human-readable byte count for a confirmation dialog - MB above
+    ~100KB, KB below (never "0 KB", even for a handful of tiny files)."""
+    megabytes = total_bytes / (1024 * 1024)
+    return f"{megabytes:.1f} MB" if megabytes >= 0.1 else f"{max(total_bytes // 1024, 1)} KB"
+
+
+def format_history_cleanup_summary(
+    plan: OutputCleanupPlan, *, include_final_outputs: bool
+) -> str:
+    """One human-readable line for the "Wyczyść historię" confirmation -
+    deliberately separate from format_cleanup_plan_summary, since that one
+    talks about "the newest generation" (build_output_cleanup_plan's
+    concept), which does not apply here: build_history_cleanup_plan keeps
+    or removes by file *kind*, not by version number."""
+    if plan.is_empty:
+        return "Brak plików do usunięcia w historii."
+    size_text = format_file_size(plan.total_bytes)
+    if include_final_outputs:
+        return (
+            f"Do usunięcia: {plan.removable_count} plików ({size_text}), "
+            "łącznie z finalnymi wynikami anonimizacji."
+        )
+    return (
+        f"Do usunięcia: {plan.removable_count} plików roboczych ({size_text}). "
+        f"Finalne wyniki anonimizacji zostają ({plan.kept_count} plików)."
     )

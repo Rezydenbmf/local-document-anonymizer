@@ -348,6 +348,36 @@ class ReviewWorkflowTests(unittest.TestCase):
             self.assertFalse((approved_dir / "rejected_ANON.txt").exists())
             self.assertFalse((approved_dir / "original.txt").exists())
 
+    def test_export_can_target_a_user_chosen_destination_outside_output_dir(
+        self,
+    ) -> None:
+        """Previously always landed in the fixed approved/ subfolder with
+        no way to choose - direct feedback was that this defeated the
+        point of "exporting" anywhere at all."""
+        with workspace_temp_dir() as temp_dir:
+            output_dir = Path(temp_dir) / "wyniki"
+            output_dir.mkdir()
+            (output_dir / "umowa_ANON.txt").write_text(
+                "Approved anonymized content.", encoding="utf-8"
+            )
+            workspace = detect_review_workspace(output_dir)
+            items = apply_review_statuses(
+                workspace.items, {"umowa_ANON.txt": REVIEW_STATUS_APPROVED}
+            )
+            save_review_files(output_dir, items=items, saved_at="2026-06-18T10:00:00Z")
+
+            destination = Path(temp_dir) / "gdzie_indziej" / "nawet_nieistniejacy"
+            export_result = export_approved_workspace(
+                output_dir,
+                exported_at="2026-06-18T11:00:00Z",
+                destination_dir=destination,
+            )
+
+            self.assertEqual(export_result.approved_dir, destination)
+            self.assertTrue((destination / "umowa_ANON.txt").exists())
+            # Never lands in the old fixed spot when a destination was given.
+            self.assertFalse((output_dir / "approved").exists())
+
     def test_export_handles_missing_report_and_records_safe_index(self) -> None:
         with workspace_temp_dir() as temp_dir:
             output_dir = Path(temp_dir)
