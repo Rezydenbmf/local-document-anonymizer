@@ -15,6 +15,7 @@ from tkinterdnd2 import DND_FILES
 
 try:
     from .anonymizer import (
+        ALL_CATEGORIES,
         BatchResult,
         anonymize_batch,
     )
@@ -49,6 +50,7 @@ try:
         APP_TITLE,
         APP_VERSION,
         APPROVAL_LOCK_HINT_ID,
+        CATEGORY_SELECTION_ORDER,
         COLOR_ACCENT,
         COLOR_ACCENT_HOVER,
         COLOR_ACCENT_SOFT,
@@ -87,6 +89,7 @@ try:
         DnDCTk,
         IconTooltip,
         apply_subtle_scrollbar,
+        category_selection_label_pl,
         cleanup_reminder_config_path,
         default_output_directory,
         ensure_cleanup_reminder_baseline,
@@ -145,6 +148,7 @@ try:
     )
 except ImportError:
     from anonymizer import (
+        ALL_CATEGORIES,
         BatchResult,
         anonymize_batch,
     )
@@ -179,6 +183,7 @@ except ImportError:
         APP_TITLE,
         APP_VERSION,
         APPROVAL_LOCK_HINT_ID,
+        CATEGORY_SELECTION_ORDER,
         COLOR_ACCENT,
         COLOR_ACCENT_HOVER,
         COLOR_ACCENT_SOFT,
@@ -217,6 +222,7 @@ except ImportError:
         DnDCTk,
         IconTooltip,
         apply_subtle_scrollbar,
+        category_selection_label_pl,
         cleanup_reminder_config_path,
         default_output_directory,
         ensure_cleanup_reminder_baseline,
@@ -296,6 +302,12 @@ class AnonymizerApp:
         self.magic_pen_custom_bindings: dict[str, str] = _magic_pen_config[
             "custom_bindings"
         ]
+        # Etap 4: which of the 8 user-facing categories get redacted on
+        # the *next* "Anonimizuj" click - a per-task choice (per the
+        # user's own 2026-09-16 answer), not a persisted-forever setting
+        # like use_ner above, so it resets to "everything on" (the safe
+        # default) every launch rather than being written to disk.
+        self.active_categories: set[str] = set(ALL_CATEGORIES)
         # Collapsed to a slim rail (see _build_quick_settings_panel) once
         # the user clicks the panel's own collapse toggle - per direct
         # feedback that "Szybkie akcje" can get in the way and should be
@@ -1276,6 +1288,47 @@ class AnonymizerApp:
             command=lambda: self.open_settings(initial_tab="Słownik"),
         ).pack(side="right")
 
+        ctk.CTkLabel(
+            inner,
+            text="Kategorie do anonimizacji (to zadanie)",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11, weight="bold"),
+            text_color=COLOR_TEXT,
+            anchor="w",
+        ).pack(fill="x", pady=(0, 0))
+        ctk.CTkLabel(
+            inner,
+            text=(
+                "Odznacz, czego NIE anonimizować w tym zadaniu. Wszystko "
+                "inne (dowód osobisty, nietypowe nazwiska, dane wykryte "
+                "przez AI poza imieniem i nazwiskiem) jest anonimizowane "
+                "zawsze."
+            ),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+            text_color=COLOR_TEXT_MUTED,
+            anchor="w",
+            wraplength=QUICK_SETTINGS_PANEL_WIDTH - 40,
+            justify="left",
+        ).pack(fill="x", pady=(0, 6))
+        for category in CATEGORY_SELECTION_ORDER:
+            category_var = tk.BooleanVar(value=category in self.active_categories)
+
+            def _on_category_toggle(cat=category, var=category_var) -> None:
+                if var.get():
+                    self.active_categories.add(cat)
+                else:
+                    self.active_categories.discard(cat)
+
+            ctk.CTkCheckBox(
+                inner,
+                text=category_selection_label_pl(category),
+                variable=category_var,
+                command=_on_category_toggle,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                text_color=COLOR_TEXT,
+                fg_color=COLOR_ACCENT,
+                hover_color=COLOR_ACCENT_HOVER,
+            ).pack(anchor="w", pady=(0, 4))
+
         ctk.CTkButton(
             inner,
             text="Więcej ustawień →",
@@ -2162,6 +2215,7 @@ class AnonymizerApp:
                 pdf_output_mode=pdf_output_mode_from_gui_label(
                     self.pdf_output_label
                 ),
+                active_categories=self.active_categories,
                 progress_callback=self._update_processing,
             )
         except Exception:

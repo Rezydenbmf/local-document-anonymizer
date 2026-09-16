@@ -212,14 +212,30 @@ def determine_risk_level(findings: dict[str, int]) -> str:
 
 
 def audit_text(
-    text: str, sensitive_terms: Iterable[SensitiveTerm] | None = None
+    text: str,
+    sensitive_terms: Iterable[SensitiveTerm] | None = None,
+    *,
+    excluded_labels: frozenset[str] | None = None,
 ) -> dict[str, object]:
-    """Return safe audit metadata for suspicious text left after anonymization."""
+    """Return safe audit metadata for suspicious text left after anonymization.
+
+    ``excluded_labels`` (Etap 4 category selection - the internal labels
+    NOT covered by the user's active category selection for this task)
+    skips those patterns entirely, so content the user deliberately chose
+    not to redact never gets flagged as a leftover-risk "warning"/"high
+    risk" finding here. ``None`` (the default) checks every pattern,
+    exactly as before this parameter existed.
+    """
     if not isinstance(text, str):
         raise TypeError("text must be a string")
 
+    excluded = excluded_labels or frozenset()
     findings = {
-        label: sum(1 for _ in pattern.finditer(text))
+        label: (
+            0
+            if label in excluded
+            else sum(1 for _ in pattern.finditer(text))
+        )
         for label, pattern in _AUDIT_PATTERNS
     }
     findings["SENSITIVE_DICTIONARY_TERM"] = _count_sensitive_dictionary_terms(

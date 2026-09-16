@@ -671,8 +671,21 @@ def anonymize_entities(text: str, entities: list[NerEntity]) -> str:
 def anonymize_text_with_ner(
     text: str,
     context: NerContext,
+    *,
+    allowed_labels: frozenset[str] | None = None,
 ) -> tuple[str, dict[str, int], dict[str, object]]:
-    """Apply local NER if available and return safe metadata."""
+    """Apply local NER if available and return safe metadata.
+
+    ``allowed_labels`` (Etap 4 category selection) restricts which
+    detected entities actually get redacted in ``text`` - an entity
+    whose label isn't in it is left untouched. Detection itself, and
+    every counter this returns, stays unfiltered either way: this only
+    controls what gets *substituted*, never what gets *reported* as
+    found, so "detected but deliberately not redacted" stays visible in
+    the report rather than silently disappearing. ``None`` (the
+    default) redacts every label, exactly as before this parameter
+    existed.
+    """
     if context.status != NER_STATUS_AVAILABLE:
         return (
             text,
@@ -706,7 +719,12 @@ def anonymize_text_with_ner(
             ),
         )
 
-    anonymized = anonymize_entities(text, entities)
+    redacted_entities = (
+        entities
+        if allowed_labels is None
+        else [entity for entity in entities if entity.label in allowed_labels]
+    )
+    anonymized = anonymize_entities(text, redacted_entities)
     active_counters = {label: count for label, count in counters.items() if count}
     return (
         anonymized,
