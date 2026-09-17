@@ -1,7 +1,12 @@
 """Tests for Etap 4: letting the user pick, per task, which of 8
-user-facing categories actually get redacted - everything else
-(DOWOD_OSOBISTY, PERSON_NAME_TYPO, NER_ORG, NER_LOCATION, NER_MISC, the
-dictionary, RECZNE) stays always-on regardless of selection. See
+user-facing categories actually get redacted. "Adres" and "Dane firmy"
+also cover the AI-detected NER_LOCATION/NER_ORG spans, not just their
+regex counterparts (revised 2026-09-17 after live testing showed
+deselecting everything but PESEL still left company names and address
+fragments redacted - a checkbox promising "Adres" must mean no
+address-shaped text survives, whichever detector found it). Everything
+else (DOWOD_OSOBISTY, PERSON_NAME_TYPO, NER_MISC, the dictionary,
+RECZNE) stays always-on regardless of selection. See
 docs/PROJECT_STATE.md's Etap 4 narrative for the full design.
 """
 
@@ -65,16 +70,34 @@ class ResolveActiveLabelsTests(unittest.TestCase):
         active = resolve_active_labels([CATEGORY_EMAIL])
         self.assertIn("EMAIL", active)
 
-    def test_address_category_covers_all_three_address_labels(self) -> None:
+    def test_address_category_covers_regex_and_ai_detected_address_labels(
+        self,
+    ) -> None:
         active = resolve_active_labels([CATEGORY_ADDRESS])
         self.assertIn("ULICA", active)
         self.assertIn("MIEJSCOWOSC", active)
         self.assertIn("POSTAL_CODE", active)
+        self.assertIn("NER_LOCATION", active)
 
-    def test_company_category_covers_nip_and_regon(self) -> None:
+    def test_company_category_covers_nip_regon_and_ai_detected_org_name(
+        self,
+    ) -> None:
         active = resolve_active_labels([CATEGORY_COMPANY])
         self.assertIn("NIP", active)
         self.assertIn("REGON", active)
+        self.assertIn("NER_ORG", active)
+
+    def test_deselecting_address_excludes_the_ai_detected_location_too(
+        self,
+    ) -> None:
+        active = resolve_active_labels([CATEGORY_PESEL])
+        self.assertNotIn("NER_LOCATION", active)
+
+    def test_deselecting_company_excludes_the_ai_detected_org_name_too(
+        self,
+    ) -> None:
+        active = resolve_active_labels([CATEGORY_PESEL])
+        self.assertNotIn("NER_ORG", active)
 
     def test_unselected_category_label_is_excluded(self) -> None:
         active = resolve_active_labels([CATEGORY_EMAIL])
@@ -88,13 +111,13 @@ class ResolveActiveLabelsTests(unittest.TestCase):
 
     def test_always_on_labels_cover_the_expected_gaps(self) -> None:
         # Regression guard for the exact gap list the user confirmed
-        # (2026-09-16): anything not covered by one of the 8 named
-        # categories must never become togglable by accident.
+        # (2026-09-16, revised 2026-09-17: NER_ORG/NER_LOCATION moved into
+        # CATEGORY_COMPANY/CATEGORY_ADDRESS - see the module docstring).
+        # Anything not covered by one of the 8 named categories must
+        # never become togglable by accident.
         self.assertEqual(
             ALWAYS_ON_LABELS,
-            frozenset(
-                {"DOWOD_OSOBISTY", "PERSON_NAME_TYPO", "NER_ORG", "NER_LOCATION", "NER_MISC"}
-            ),
+            frozenset({"DOWOD_OSOBISTY", "PERSON_NAME_TYPO", "NER_MISC"}),
         )
 
     def test_every_supported_label_is_reachable(self) -> None:
@@ -189,6 +212,33 @@ class AnonymizeTextWithNerFilteringTests(unittest.TestCase):
             )
         self.assertEqual(anonymized, "Jan Kowalski przyszedl.")
         self.assertNotIn("NER_PERSON", counters)
+
+    def test_selecting_only_pesel_leaves_an_ai_detected_company_name_visible(
+        self,
+    ) -> None:
+        """Direct regression test for the exact scenario reported live:
+        deselect every category but PESEL, and a company name detected
+        by NER (not a regex label at all) must stay untouched - before
+        CATEGORY_COMPANY grew NER_ORG (2026-09-17), this always redacted
+        anyway, contradicting what the "Dane firmy" checkbox promises.
+        """
+        context = NerContext(enabled=True, status="available", model_name="x")
+        with patch("ner.detect_entities_with_details") as mock_detect:
+            from ner import NerEntity
+
+            mock_detect.return_value = (
+                [NerEntity(start=0, end=13, label="NER_ORG")],
+                {"NER_ORG": 1},
+                {},
+                0,
+            )
+            anonymized, counters, _ = anonymize_text_with_ner(
+                "Firma Testowa Sp. z o.o.",
+                context,
+                allowed_labels=resolve_active_labels([CATEGORY_PESEL]),
+            )
+        self.assertEqual(anonymized, "Firma Testowa Sp. z o.o.")
+        self.assertNotIn("NER_ORG", counters)
 
 
 class AuditTextExclusionTests(unittest.TestCase):

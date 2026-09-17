@@ -1495,19 +1495,21 @@ CATEGORY_LABELS_PL = {
 
 # Etap 4: the 8 user-facing "co anonimizować w tym zadaniu" categories -
 # display order matches anonymizer.ALL_CATEGORIES (the user's own order,
-# 2026-09-16). Everything NOT covered by one of these (dowód osobisty,
-# nietypowe nazwiska, organizacje/lokalizacje/inne wykryte przez AI) is
-# never shown here - it stays always-on, never a checkbox, since leaving
-# it off this list can only mean "zawsze chronione", never "ukryte przed
-# użytkownikiem".
+# 2026-09-16). "Adres" and "Dane firmy" each cover both the regex-detected
+# fields and their AI-detected counterpart (NER_LOCATION/NER_ORG - see
+# anonymizer.CATEGORY_GROUPS, revised 2026-09-17 after live testing).
+# Everything NOT covered by one of these (dowód osobisty, nietypowe
+# nazwiska, pozostałe dane wykryte przez AI) is never shown here - it
+# stays always-on, never a checkbox, since leaving it off this list can
+# only mean "zawsze chronione", never "ukryte przed użytkownikiem".
 CATEGORY_SELECTION_LABELS_PL = {
     CATEGORY_PESEL: "PESEL",
     CATEGORY_PERSON: "Imię i nazwisko (AI, mniejsza pewność)",
     CATEGORY_PHONE: "Numer telefonu",
     CATEGORY_EMAIL: "Adres e-mail",
     CATEGORY_IBAN: "Numer konta bankowego (IBAN)",
-    CATEGORY_ADDRESS: "Adres (ulica, miejscowość, kod pocztowy)",
-    CATEGORY_COMPANY: "Dane firmy (NIP, REGON)",
+    CATEGORY_ADDRESS: "Adres (ulica, miejscowość, kod pocztowy, AI)",
+    CATEGORY_COMPANY: "Dane firmy (nazwa, NIP, REGON)",
     CATEGORY_DATE: "Data",
 }
 CATEGORY_SELECTION_ORDER = ALL_CATEGORIES

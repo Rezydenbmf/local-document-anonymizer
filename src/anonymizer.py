@@ -202,16 +202,31 @@ REPORT_CATEGORY_ORDER = (*SUPPORTED_LABELS, *NER_LABELS)
 
 # Etap 4: user-facing "pick what to anonymize this run" categories, each
 # grouping one or more internal detection labels the user thinks of as
-# one thing (e.g. "Adres" covers three separately-detected regex labels).
-# Deliberately only 8 - not every internal label - per the user's own
-# spec (2026-09-16 conversation): anything NOT covered by a group below
-# (DOWOD_OSOBISTY, PERSON_NAME_TYPO, NER_ORG, NER_LOCATION, NER_MISC) is
-# never user-toggleable and always gets redacted regardless of selection
-# - the safe default, since leaving something *out* of the checklist can
-# only mean "always protected", never "silently exposed". The dictionary
-# (sensitive_terms.py) and RECZNE (magic-pen manual edits) are likewise
-# always-on and outside this mechanism entirely - both are the user's
-# own explicit, separate choices already.
+# one thing (e.g. "Adres" covers both the regex-detected street/city/
+# postal-code labels and the AI-detected NER_LOCATION spans - a user
+# unchecking "Adres" expects *no* address-shaped text left, not just
+# the subset a regex happened to catch). Deliberately only 8 - not every
+# internal label - per the user's own spec (2026-09-16 conversation,
+# revised 2026-09-17 after live testing showed the original NER_ORG/
+# NER_LOCATION-always-on split didn't match what a "Dane firmy"/"Adres"
+# checkbox actually promises: deselecting everything but PESEL still
+# left company names and address fragments redacted). What's left
+# uncovered by any group (DOWOD_OSOBISTY, PERSON_NAME_TYPO, NER_MISC) is
+# still never user-toggleable and always gets redacted regardless of
+# selection - the safe default for anything with no checkbox to attach
+# it to, since leaving something *out* of the checklist can only mean
+# "always protected", never "silently exposed". DOWOD_OSOBISTY
+# specifically must stay always-on even though it looks NIP/REGON-
+# adjacent: the audit leftover-scanner's ID_LIKE_NUMBER pattern matches
+# NIP/REGON *and* DOWOD_OSOBISTY/PASZPORT-shaped text under one label,
+# so folding it into "Dane firmy" would risk hiding a real leftover
+# ID-card/passport number alongside the NIP/REGON the user meant to
+# exempt (see _AUDIT_ONLY_ADDRESS_LABELS below for the same reasoning
+# applied to ULICA/MIEJSCOWOSC/POSTAL_CODE/NER_LOCATION's own
+# audit-only counterparts). The dictionary (sensitive_terms.py) and
+# RECZNE (magic-pen manual edits) are likewise always-on and outside
+# this mechanism entirely - both are the user's own explicit, separate
+# choices already.
 CATEGORY_PESEL = "pesel"
 CATEGORY_PERSON = "person"
 CATEGORY_PHONE = "phone"
@@ -226,8 +241,8 @@ CATEGORY_GROUPS: dict[str, tuple[str, ...]] = {
     CATEGORY_PHONE: ("TELEFON",),
     CATEGORY_EMAIL: ("EMAIL",),
     CATEGORY_IBAN: ("IBAN",),
-    CATEGORY_ADDRESS: ("ULICA", "MIEJSCOWOSC", "POSTAL_CODE"),
-    CATEGORY_COMPANY: ("NIP", "REGON"),
+    CATEGORY_ADDRESS: ("ULICA", "MIEJSCOWOSC", "POSTAL_CODE", "NER_LOCATION"),
+    CATEGORY_COMPANY: ("NIP", "REGON", "NER_ORG"),
     CATEGORY_DATE: ("DATA",),
 }
 ALL_CATEGORIES = tuple(CATEGORY_GROUPS.keys())
