@@ -3768,6 +3768,42 @@ passing (46 new/changed across `test_category_selection.py`,
 `test_comparison_window_detection_cache.py`), lint at the established
 77-error baseline.
 
+Two product-direction ideas from the same live-testing round, explicitly
+deferred by the user (2026-09-17: "najpierw dalsze testy pilotażowe") -
+not yet scoped or started, need their own planning pass each when picked
+up:
+
+- **The color legend as a live, bidirectional filter.** Right now the
+  legend in the comparison window's sidebar is read-only. The proposal:
+  detection would always run for every category regardless of the Etap 4
+  checkbox selection (so nothing is ever silently un-detected, only
+  un-redacted), and the legend itself becomes clickable - toggling a
+  legend entry (or the matching checkbox) would live-update the
+  highlight overlay on the document preview for that category, showing/
+  hiding its colored bars in real time, with unselected categories shown
+  greyed out in the legend rather than hidden. This is a real interaction
+  redesign (detection-vs-redaction separation, a new overlay-refresh
+  path, legend click handling) distinct from Etap 4's existing "pick
+  categories once per task" mechanism - closest existing precedent is
+  the still-unstarted Etap 5-6 "UI/UX polish and per-page scoping" item
+  already noted above.
+- **Encrypted local version history instead of numbered file copies.**
+  Today, re-anonymizing the same source document multiple times leaves
+  several numbered copies on disk (`_ANON_VISUAL.pdf`, `_2.pdf`, `_3.pdf`,
+  ...) until the user manually cleans them up, and "Wyczyść historię"
+  deletes them irreversibly. Proposal: keep only the latest version as a
+  plain file on disk, but retain every prior version's content
+  encrypted-at-rest in some local store the app manages, recoverable on
+  request; "Wyczyść historię" would then delete that encrypted history
+  too (still irreversible, just narrower in what's exposed day-to-day).
+  Real open questions before this could be scoped: where the encryption
+  key lives and how it's protected (a passphrase? tied to the OS user?),
+  what the storage format is (a SQLite blob store? one file per version?),
+  a restore UI, and whether the complexity is worth it for a local,
+  single-user, pre-release tool - a genuine security/complexity trade-off
+  the user should weigh explicitly before this is built, not something to
+  default into.
+
 ## Warning
 
 This repository is still an early-stage portfolio MVP. Do not use it to
