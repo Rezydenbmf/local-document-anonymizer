@@ -3787,22 +3787,37 @@ up:
   categories once per task" mechanism - closest existing precedent is
   the still-unstarted Etap 5-6 "UI/UX polish and per-page scoping" item
   already noted above.
-- **Encrypted local version history instead of numbered file copies.**
-  Today, re-anonymizing the same source document multiple times leaves
-  several numbered copies on disk (`_ANON_VISUAL.pdf`, `_2.pdf`, `_3.pdf`,
-  ...) until the user manually cleans them up, and "Wyczyść historię"
-  deletes them irreversibly. Proposal: keep only the latest version as a
-  plain file on disk, but retain every prior version's content
-  encrypted-at-rest in some local store the app manages, recoverable on
-  request; "Wyczyść historię" would then delete that encrypted history
-  too (still irreversible, just narrower in what's exposed day-to-day).
-  Real open questions before this could be scoped: where the encryption
-  key lives and how it's protected (a passphrase? tied to the OS user?),
-  what the storage format is (a SQLite blob store? one file per version?),
-  a restore UI, and whether the complexity is worth it for a local,
-  single-user, pre-release tool - a genuine security/complexity trade-off
-  the user should weigh explicitly before this is built, not something to
-  default into.
+- **Encrypted local version history instead of numbered file copies -
+  refined 2026-09-17 with the user's own concrete design, in response to
+  a direct question about restoring an older version after auto-trimming
+  newer ones (see the "auto-kasowanie starych wersji" question below,
+  which this design is meant to make safe to build).** Today,
+  re-anonymizing the same source document multiple times leaves several
+  numbered copies on disk (`_ANON_VISUAL.pdf`, `_2.pdf`, `_3.pdf`, ...)
+  until the user manually cleans them up, and "Wyczyść historię" deletes
+  every final output at once, irreversibly. The user's own proposed
+  shape: **exactly one PDF on disk at a time** (the current/latest
+  version, no numbered siblings) - every prior version's content lives
+  only in an internal store the app manages ("zaszyte w kodzie bazy
+  danych programu"), regenerated into a real PDF on disk only when the
+  user actually asks to see/restore that specific old version. "Wyczyść
+  historię" would, by default, clear working/internal files but leave
+  the current final PDF *and* the historical store alone; an additional,
+  separate opt-in checkbox would be needed to also clear the PDFs/store
+  ("a jako dodatkowa opcję można zaznaczyć też czyszczenie pdf-ów").
+  This is a real architecture change (a version-history subsystem, not
+  a simple file-cleanup tweak) and needs its own dedicated planning
+  session before implementation - real open questions still unresolved:
+  where the encryption key lives and how it's protected, what the
+  storage format is (SQLite blob store? one file per version?), the
+  restore UI/flow (browse a version list, then what - overwrite the
+  current file? open a preview?), and how "regenerate a PDF from stored
+  history" interacts with the magic-pen manual-edit/regenerate path
+  already in place for the *current* version. Nothing implemented yet;
+  the simple "auto-trim, keep only latest" version of this idea
+  (without history) was explicitly deferred until this fuller design is
+  built, precisely because it would otherwise make old versions
+  unrecoverable.
 
 **Table-row regex bleed: a static field label ("Adres") silently vanishing
 from a redacted table-layout document, root-caused and fixed the same
@@ -3899,6 +3914,27 @@ own dedicated testing pass with real-shaped company data (varied legal
 forms - Sp. z o.o., S.A., jednoosobowa działalność gospodarcza - and
 NIP/REGON formatting variations) before any fix can be scoped; nothing
 implemented yet.
+
+**Magic pen cursor shapes swapped for closer (but not exact) matches to
+the mode-indicator badge icons.** Direct feedback on the same badge
+work: the document cursor's `tcross`/`circle`/`fleur` (generic
+crosshair/circle/4-way-arrow) read as unrelated to the ✏/🧹/✋ badge
+emoji, and the pan cursor ("fleur") in particular looked like it "spun
+in a circle" rather than reading as a hand/grab gesture. Confirmed via
+`AskUserQuestion` that the core complaint was specifically the cursor
+shape, not the badges themselves cycling/misbehaving. Swapped to the
+closest built-in Tk/X11 cursor names available: mark → `pencil` (a real
+named Tk cursor, a much closer conceptual match to ✏ than a crosshair),
+pan → `hand2` (the conventional grab/pan cursor most apps already use,
+replacing the compass-like `fleur`), erase → `X_cursor` (reads as
+"remove/delete" more directly than a plain `circle`, since no built-in
+cursor is shaped like a broom). Explicitly out of scope, and flagged to
+the user as such: there is no built-in Tk cursor that visually matches
+these emoji exactly, and none can be tinted to match a badge's accent
+color - either would need a custom cursor image (its own asset-creation
+task), not a name swap. 601 tests passing (existing cursor-name
+assertions in `tests/test_comparison_window_magic_pen_visuals.py`
+updated to match), lint unchanged - UI-only, no `code-review` needed.
 
 ## Warning
 

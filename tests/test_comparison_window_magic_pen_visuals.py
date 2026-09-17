@@ -149,11 +149,11 @@ class MagicPenVisualsTests(unittest.TestCase):
 
     def test_idle_cursor_follows_left_buttons_action_in_default_mode(self) -> None:
         window = self._build_window(mode=MAGIC_PEN_MODE_DEFAULT)
-        self.assertEqual(window._idle_magic_pen_cursor(), "tcross")  # left = mark
+        self.assertEqual(window._idle_magic_pen_cursor(), "pencil")  # left = mark
 
     def test_idle_cursor_follows_left_buttons_action_in_classic_mode(self) -> None:
         window = self._build_window(mode=MAGIC_PEN_MODE_CLASSIC)
-        self.assertEqual(window._idle_magic_pen_cursor(), "tcross")  # left = mark
+        self.assertEqual(window._idle_magic_pen_cursor(), "pencil")  # left = mark
 
     def test_idle_cursor_is_arrow_for_a_locked_file(self) -> None:
         window = self._build_window(mode=MAGIC_PEN_MODE_DEFAULT, locked=True)
@@ -162,7 +162,7 @@ class MagicPenVisualsTests(unittest.TestCase):
     def test_custom_mode_idle_cursor_follows_whatever_left_does(self) -> None:
         custom = {"left": "pan", "right": "mark", "middle": "erase"}
         window = self._build_window(mode=MAGIC_PEN_MODE_CUSTOM, custom_bindings=custom)
-        self.assertEqual(window._idle_magic_pen_cursor(), "fleur")
+        self.assertEqual(window._idle_magic_pen_cursor(), "hand2")
 
     def test_pressing_a_button_updates_the_canvas_cursor_to_its_own_action(self) -> None:
         window = self._build_window(mode=MAGIC_PEN_MODE_DEFAULT)
@@ -174,14 +174,14 @@ class MagicPenVisualsTests(unittest.TestCase):
         # actual hit.
         window._on_pane_button_press(_event(500, 500), 1, "middle")  # middle = erase
 
-        self.assertEqual(canvas.cget("cursor"), "circle")
+        self.assertEqual(canvas.cget("cursor"), "X_cursor")
 
     def test_releasing_restores_the_idle_left_button_cursor(self) -> None:
         window = self._build_window(mode=MAGIC_PEN_MODE_DEFAULT)
         canvas = window._page_canvases[1]
 
         window._on_pane_button_press(_event(10, 10), 1, "right")  # right = pan
-        self.assertEqual(canvas.cget("cursor"), "fleur")
+        self.assertEqual(canvas.cget("cursor"), "hand2")
         window._on_pane_button_release(_event(10, 10), 1, "right")
 
         self.assertEqual(canvas.cget("cursor"), window._idle_magic_pen_cursor())

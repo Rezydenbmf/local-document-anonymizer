@@ -12,19 +12,6 @@ przenoszę ją do „Potwierdzone" albo usuwam. Jeśli lista urośnie powyżej
 
 ## Do sprawdzenia
 
-- [ ] **Czy chcesz automatyczne kasowanie starych wersji tego samego
-      pliku?** (2026-09-15, pytanie o funkcję, nie błąd) — konkretny
-      przykład: anonimizujesz tę samą umowę trzy razy, więc w folderze
-      masz `umowa_ANON_VISUAL.pdf`, `umowa_ANON_VISUAL_2.pdf` i
-      `umowa_ANON_VISUAL_3.pdf` (trzy wersje, bo za każdym razem
-      program dopisuje kolejny numer zamiast nadpisywać). Stara wersja
-      przycisku „Wyczyść stare" umiała same to posprzątać: zostawiała
-      tylko najnowszą (`_3`), kasując automatycznie `_1` i `_2`. Obecny
-      „Wyczyść historię” tego nie robi — albo zostają wszystkie trzy
-      wersje, albo kasujesz je wszystkie naraz ręcznie. Pytanie: chcesz,
-      żebym przywrócił automatyczne „zostaw tylko najnowszą wersję" jako
-      osobną opcję, czy obecne zachowanie (Ty decydujesz ręcznie, nic
-      nie znika samo) Ci odpowiada?
 - [ ] **Magic pen — nowy system trybów interakcji myszy (Etap 3,
       2026-09-16)** — trzy tryby: „Domyślny" (LPM=zaznacz, PPM=przesuń
       widok, środkowy=przytrzymaj i kliknij/przeciągnij żeby odznaczyć),
@@ -58,22 +45,24 @@ przenoszę ją do „Potwierdzone" albo usuwam. Jeśli lista urośnie powyżej
       danych, które wcześniej były ukryte, jest wystarczającym testem
       na żywo.
 
-- [ ] **Magic pen — czytelność trybu interakcji myszy (2026-09-17,
-      zaktualizowane po Twoim teście — realne błędy znalezione)** —
-      odpowiedź na feedback „graficznie nie widać co się robi": 3 kolorowe
-      plakietki z ikonką zamiast jednego szarego napisu (LPM/PPM/ŚPM +
-      ikonka akcji), strzałki Cofnij/Ponów teraz kolorują się na
-      niebiesko gdy faktycznie klikalne, kursor nad dokumentem miał
-      odzwierciedlać co zrobi dany przycisk, nowa ikonka ⚙ w oknie
-      porównania otwiera Ustawienia > Ogólne. **Twój feedback (ze
-      screenshotem plakietek):** „ppm zmienia się w kółko a na ikonce
-      jest inny symbol, a lpm zostaje jakiś celownik a nie taka ikonka
-      jak na indykatorach, spm też nie zgadza się z indykatorem i kolor
-      się też w żadnym nie zmienia" — czyli kursor nad dokumentem nie
-      odpowiada wizualnie plakietkom (inny symbol niż na plakietce), a
-      kolor kursora/wskaźnika nie zmienia się tak jak powinien. To
-      wymaga doprecyzowania ode mnie w czacie, zanim to naprawię —
-      pytania czekają w rozmowie.
+- [ ] **Magic pen — kursor bliżej pasuje do plakietek (2026-09-17,
+      zaktualizowane po Twoim teście — częściowo naprawione)** —
+      potwierdziłeś, że głównym problemem był kursor nad dokumentem nie
+      wyglądający jak ikonka na plakietce (krzyżyk/kółko/strzałki
+      zamiast czegoś przypominającego ✏/🧹/✋). Naprawione: zamieniłem
+      kursory na najbliższe dostępne w Windows/Tk — zaznaczanie →
+      `pencil` (ołówek), przesuwanie widoku → `hand2` (dłoń, ten sam
+      kursor co „łapka" w wielu programach), odznaczanie → `X_cursor`
+      (czytelniejsze jako „usuń" niż poprzednie kółko). **Uwaga —
+      granica techniczna, nie da się obejść bez nowej grafiki:** system
+      nie ma gotowego kursora w kształcie miotły (🧹), a żaden gotowy
+      kursor nie da się pokolorować pod kolor plakietki — to wymagałoby
+      własnej grafiki kursora (osobne, większe zadanie), nie samej
+      zmiany nazwy. Sprawdź na żywo: czy kursor teraz lepiej kojarzy
+      się z plakietką dla każdego z 3 trybów. Osobno, jeśli nadal
+      widzisz coś dziwnego z samymi plakietkami LPM/PPM/ŚPM w pasku
+      tytułowym (np. PPM „cyklujące" bez klikania) — to osobny wątek,
+      opisz dokładniej co widzisz, bo tego jeszcze nie naprawiałem.
 
 - [ ] **Kategorie do anonimizacji — czytelność etykiet checkboxów
       (2026-09-17, zaktualizowane po Twoim teście — realny błąd

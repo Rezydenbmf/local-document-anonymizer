@@ -252,9 +252,18 @@ _MAGIC_PEN_ACTION_COLORS = {
     MAGIC_PEN_ACTION_PAN: (COLOR_WARNING, COLOR_WARNING_SOFT),
 }
 _MAGIC_PEN_CURSOR_BY_ACTION = {
-    MAGIC_PEN_ACTION_MARK: "tcross",
-    MAGIC_PEN_ACTION_ERASE: "circle",
-    MAGIC_PEN_ACTION_PAN: "fleur",
+    # Named Tk/X11 system cursors - the closest built-in shapes to the
+    # badge emoji above ("pencil" is a real Tk cursor name, "hand2" is
+    # the conventional grab/pan cursor most apps already use). Per
+    # direct feedback the previous "tcross"/"fleur" pair read as generic
+    # crosshair/4-way-arrow shapes with no visible connection to the
+    # badges at all. There's no built-in cursor shaped like a broom
+    # (the erase badge's icon) or colored to match a badge's accent -
+    # that would need a custom cursor image (its own, bigger task), not
+    # a name swap.
+    MAGIC_PEN_ACTION_MARK: "pencil",
+    MAGIC_PEN_ACTION_ERASE: "X_cursor",
+    MAGIC_PEN_ACTION_PAN: "hand2",
 }
 
 
