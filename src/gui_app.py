@@ -1165,8 +1165,8 @@ class AnonymizerApp:
             category_inner,
             text=(
                 "Odznacz, czego NIE anonimizować w tym zadaniu. Wszystko "
-                "inne (dowód osobisty, nietypowe nazwiska, dane wykryte "
-                "przez AI poza imieniem i nazwiskiem) jest anonimizowane "
+                "inne (dowód osobisty, nietypowe nazwiska, pozostałe dane "
+                "wykryte przez AI spoza tej listy) jest anonimizowane "
                 "zawsze."
             ),
             font=ctk.CTkFont(family=FONT_FAMILY, size=10),

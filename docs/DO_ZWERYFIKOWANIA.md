@@ -41,25 +41,40 @@ przenoszę ją do „Potwierdzone" albo usuwam. Jeśli lista urośnie powyżej
       sesjami, i czy podpowiedź przy pierwszym otwarciu dokumentu
       (dialog „Co możesz zrobić z tym dokumentem?") poprawnie opisuje
       wybrany tryb.
-- [ ] **Wybór kategorii do anonimizacji per zadanie (Etap 4, 2026-09-16)**
-      — 8 checkboxów w „Szybkie akcje" (PESEL, imię i nazwisko/AI,
-      telefon, e-mail, IBAN, adres, dane firmy, data), wszystkie
-      domyślnie zaznaczone. Odznaczenie kategorii zostawia ją
-      nietkniętą w wyniku — reszta (dowód osobisty, nietypowe nazwiska,
-      organizacje/lokalizacje/inne wykryte przez AI, własny słownik,
-      ręczne magic-pen) zawsze się anonimizuje, niezależnie od wyboru.
-      Sprawdź na żywo: czy odznaczenie np. „Adres" faktycznie zostawia
-      adres widoczny w PDF/TXT/DOCX, czy raport/checklist nie pokazuje
-      mylącego „wykryto i zanonimizowano" dla odznaczonej kategorii
-      (błąd znaleziony i naprawiony przez code-review przed mergem), i
-      **koniecznie**: otwórz potem taki dokument w oknie porównania
-      (magic pen), zrób dowolną niepowiązaną ręczną edycję i zapisz —
-      odznaczona kategoria (np. adres) powinna zostać nadal widoczna po
-      zapisie, nie zostać nagle domazana. To też był realny błąd
-      złapany przez code-review (regenerowanie po edycji ręcznej nie
-      znało pierwotnego wyboru kategorii) — naprawiony przez mały plik
-      JSON zapisywany obok wizualnego PDF-a, ale warto potwierdzić na
-      żywej aplikacji, nie tylko w testach.
+- [ ] **Wybór kategorii do anonimizacji per zadanie (Etap 4, 2026-09-16,
+      zaktualizowane 2026-09-17 po Twoim teście)** — 8 checkboxów w
+      „Szybkie akcje" (PESEL, imię i nazwisko/AI, telefon, e-mail, IBAN,
+      adres, dane firmy, data), wszystkie domyślnie zaznaczone.
+      **Znaleziony realny błąd, na żywo, ze screenshotami:** odznaczyłeś
+      wszystko poza PESEL, a program dalej anonimizował nazwę firmy i
+      fragmenty adresu. Przyczyna: „Adres"/„Dane firmy" kontrolowały
+      tylko pola wykryte regexem (NIP/REGON, ulica/miejscowość/kod
+      pocztowy) — nazwy firm i lokalizacje wykryte przez AI były zawsze
+      włączone, niezależnie od checkboxów. Naprawione: „Adres" i „Dane
+      firmy" teraz wyłączają też odpowiadające im dane wykryte przez AI.
+      Reszta (dowód osobisty, nietypowe nazwiska, pozostałe dane
+      wykryte przez AI, własny słownik, ręczne magic-pen) nadal zawsze
+      się anonimizuje. **Sprawdź dokładnie ten sam scenariusz co
+      ostatnio**: odznacz wszystko poza PESEL na dokumencie z nazwą
+      firmy i adresem (np. faktura VAT) — nazwa firmy i adres powinny
+      teraz zostać widoczne, tylko PESEL zanonimizowany.
+
+- [ ] **Wersjonowanie wyboru kategorii w pliku JSON (2026-09-17,
+      techniczna poprawka, trudna do bezpośredniego sprawdzenia)** —
+      przy okazji poprzedniego punktu code-review znalazł powiązany,
+      poważniejszy błąd: plik JSON zapamiętujący wybór kategorii przy
+      pierwszej anonimizacji zapisywał tylko nazwy kategorii, a nie to,
+      co dokładnie wtedy oznaczały. Gdyby ta zmiana (jak wyżej) trafiła
+      do apki bez tej poprawki, otwarcie **starszego** dokumentu w oknie
+      porównania i zapisanie jakiejkolwiek niepowiązanej ręcznej edycji
+      mogłoby po cichu odsłonić wcześniej zanonimizowaną nazwę
+      firmy/adres. Naprawione zanim to się mogło zdarzyć — plik JSON
+      zapamiętuje teraz dokładny, zamrożony zestaw danych z momentu
+      pierwszej anonimizacji, nie samą nazwę kategorii. Nie ma tu nic
+      konkretnego do klikania — samo pilnowanie, żeby ręczna edycja
+      starszego dokumentu w oknie porównania nigdy nie odsłaniała
+      danych, które wcześniej były ukryte, jest wystarczającym testem
+      na żywo.
 
 - [ ] **Uruchamianie bez widocznej konsoli (2026-09-17)** — `uruchom.vbs`
       zastępuje `uruchom.bat` do codziennego użytku: uruchamia apkę przez
@@ -118,6 +133,19 @@ przenoszę ją do „Potwierdzone" albo usuwam. Jeśli lista urośnie powyżej
       roboczymi i finalnymi powinien zniknąć z listy (ale nie z dysku)
       dopiero gdy nie zostanie w nim nic, co ta apka rozpoznaje jako swój
       plik.
+
+- [ ] **Status recenzji nie „pamięta” już starego odrzucenia po ponownym
+      przetworzeniu (2026-09-17)** — znalazłeś na żywo ze screenshotem:
+      odrzuciłeś plik, usunąłeś go, wgrałeś ten sam dokument źródłowy i
+      zanonimizowałeś ponownie — nowy plik (ta sama nazwa) dalej
+      pokazywał „odrzucony", mimo że nigdy go nie widziałeś. Przyczyna:
+      status recenzji zapisywany był po nazwie pliku, bez sprawdzania,
+      czy to ten sam plik czy nowy o tej samej nazwie. Naprawione w
+      `restrict_review_items_to_batch` — świeżo przetworzony plik zawsze
+      zaczyna od „wymaga przeglądu", nigdy nie dziedziczy starego
+      statusu. Sprawdź: powtórz dokładnie ten scenariusz (odrzuć,
+      usuń, wgraj to samo źródło, zanonimizuj) — nowy plik powinien
+      pokazać „wymaga przeglądu", nie „odrzucony".
 
 ## Potwierdzone
 

@@ -3307,6 +3307,12 @@ default, since a label left out of the checklist can only mean "always
 protected," never "silently exposed." The dictionary and `RECZNE`
 (magic-pen manual edits) stay outside this mechanism entirely, unchanged
 - both are the user's own explicit, separate choices already.
+**Revised 2026-09-17** - see the later "category checkboxes" narrative
+below: `NER_ORG`/`NER_LOCATION` moved out of this always-on list into
+`CATEGORY_COMPANY`/`CATEGORY_ADDRESS` after live testing showed
+"adres"/"dane firmy" not actually excluding AI-detected company/address
+text contradicted what those two checkboxes promise. Only
+`DOWOD_OSOBISTY`, `PERSON_NAME_TYPO`, `NER_MISC` remain always-on now.
 
 **Core mechanism:** `resolve_active_labels()` in `anonymizer.py` turns
 the category selection into the full set of internal detection labels
@@ -3696,6 +3702,71 @@ itself, and Etap 2's detection-caching speedup) and moved to
 "Potwierdzone"; a fourth item (auto-trimming old same-document
 generations) was reworded with a concrete example after the user said
 they didn't understand what it was asking.
+
+**Etap 4 category checkboxes widened to cover their AI-detected
+counterparts, and a real sidecar-versioning bug fixed alongside it -
+both from live testing feedback with screenshots.** The user deselected
+every category but PESEL and still saw company names and address
+fragments redacted. Root cause: "Dane firmy"/"Adres" only ever gated the
+regex-detected labels (NIP/REGON, ulica/miejscowość/kod pocztowy) -
+NER_ORG/NER_LOCATION (the same data detected by the AI model instead of
+a regex) were always-on regardless of selection, an Etap 4 design choice
+the user confirmed via `AskUserQuestion` they hadn't fully weighed until
+seeing it live ("nieświadomie do końca tę decyzję podjąłem"). Fixed by
+moving both into `CATEGORY_COMPANY`/`CATEGORY_ADDRESS` in
+`anonymizer.py`'s `CATEGORY_GROUPS` - every downstream consumer (regex
+matching, NER filtering, PDF visual redaction scope, audit
+leftover-scanning) derives from the same dict via `resolve_active_labels`,
+so this is a genuine single-source-of-truth change, not a special case.
+`DOWOD_OSOBISTY`/`PERSON_NAME_TYPO`/`NER_MISC` deliberately stay
+always-on (out of scope - not what was reported).
+
+A `code-review` pass (required - this touches `anonymizer.py`; 5 finder
+angles run via background agents, since this diff was small enough that
+running all 8 sequentially in one context was unnecessary) caught a real,
+more severe bug hiding behind this one: the category-selection sidecar
+(`category_selection_path`/`load_category_selection`) stored only
+category *names*, which the magic-pen "regenerate" path re-resolved
+*fresh* against whatever `CATEGORY_GROUPS` means at the moment of
+regeneration. Since this fix just changed what "Adres"/"Dane firmy" mean,
+any document anonymized *before* this fix with "Adres" unchecked, then
+resaved via an unrelated magic-pen edit *after* this fix ships, would
+have silently un-redacted its own address text - a real PII-exposure
+regression on resave, not merely a documentation gap. Fixed by freezing
+the *resolved label set* into the sidecar at save time instead of just
+category names (`save_category_selection`/`load_category_selection`'s
+new `active_labels` field), with `compute_pdf_redaction_spans` and the
+`manual_redaction.py` regenerate path preferring that frozen set over
+re-resolving names when both are available. An old-format sidecar
+(written before this field existed) has no `active_labels` key at all,
+and is treated exactly like a missing/corrupt one: `None`, meaning "no
+filtering" - the same safe-by-default direction this sidecar already
+took for those two cases, since there is no way to know what an old
+category name meant under a mapping that no longer exists.
+`gui_comparison_window.py`'s `self._original_active_categories` was
+renamed to `self._original_active_labels` (now holds the frozen label
+set, not category names) to make this distinction impossible to miss at
+every call site. The review's two other findings (a stale
+`anonymize_batch` docstring still claiming NER_ORG/LOCATION are always
+redacted, and this file's own Etap 4 narrative above) are fixed in
+place; a fourth, pre-existing and unrelated to this diff, was
+investigated and left alone - the "safe" PDF redaction scope's
+`original_redaction` output mode already caps NER redaction to
+NER_PERSON only regardless of category selection (see
+`PDF_DEFAULT_NER_REDACTION_LABELS`/`PDF_SAFE_SCOPE_NOTE`), so checking
+"Dane firmy" never added NER_ORG back for that one specific output path
+- true before this diff and still true after, out of scope for what was
+reported (the screenshots were from the default visual/word-coordinate
+PDF path, which was never affected).
+
+Also fixed in the same session: `restrict_review_items_to_batch`
+(`gui_helpers.py`) no longer lets a reprocessed file inherit a stale
+review status from a same-named file that existed before it was
+deleted and regenerated (see the "history cleanup" narrative above for
+the sibling ghost-folder fix from the same feedback round). 588 tests
+passing (46 new/changed across `test_category_selection.py`,
+`test_comparison_window_detection_cache.py`), lint at the established
+77-error baseline.
 
 ## Warning
 

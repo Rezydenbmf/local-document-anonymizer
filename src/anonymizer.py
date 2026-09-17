@@ -202,16 +202,31 @@ REPORT_CATEGORY_ORDER = (*SUPPORTED_LABELS, *NER_LABELS)
 
 # Etap 4: user-facing "pick what to anonymize this run" categories, each
 # grouping one or more internal detection labels the user thinks of as
-# one thing (e.g. "Adres" covers three separately-detected regex labels).
-# Deliberately only 8 - not every internal label - per the user's own
-# spec (2026-09-16 conversation): anything NOT covered by a group below
-# (DOWOD_OSOBISTY, PERSON_NAME_TYPO, NER_ORG, NER_LOCATION, NER_MISC) is
-# never user-toggleable and always gets redacted regardless of selection
-# - the safe default, since leaving something *out* of the checklist can
-# only mean "always protected", never "silently exposed". The dictionary
-# (sensitive_terms.py) and RECZNE (magic-pen manual edits) are likewise
-# always-on and outside this mechanism entirely - both are the user's
-# own explicit, separate choices already.
+# one thing (e.g. "Adres" covers both the regex-detected street/city/
+# postal-code labels and the AI-detected NER_LOCATION spans - a user
+# unchecking "Adres" expects *no* address-shaped text left, not just
+# the subset a regex happened to catch). Deliberately only 8 - not every
+# internal label - per the user's own spec (2026-09-16 conversation,
+# revised 2026-09-17 after live testing showed the original NER_ORG/
+# NER_LOCATION-always-on split didn't match what a "Dane firmy"/"Adres"
+# checkbox actually promises: deselecting everything but PESEL still
+# left company names and address fragments redacted). What's left
+# uncovered by any group (DOWOD_OSOBISTY, PERSON_NAME_TYPO, NER_MISC) is
+# still never user-toggleable and always gets redacted regardless of
+# selection - the safe default for anything with no checkbox to attach
+# it to, since leaving something *out* of the checklist can only mean
+# "always protected", never "silently exposed". DOWOD_OSOBISTY
+# specifically must stay always-on even though it looks NIP/REGON-
+# adjacent: the audit leftover-scanner's ID_LIKE_NUMBER pattern matches
+# NIP/REGON *and* DOWOD_OSOBISTY/PASZPORT-shaped text under one label,
+# so folding it into "Dane firmy" would risk hiding a real leftover
+# ID-card/passport number alongside the NIP/REGON the user meant to
+# exempt (see _AUDIT_ONLY_ADDRESS_LABELS below for the same reasoning
+# applied to ULICA/MIEJSCOWOSC/POSTAL_CODE/NER_LOCATION's own
+# audit-only counterparts). The dictionary (sensitive_terms.py) and
+# RECZNE (magic-pen manual edits) are likewise always-on and outside
+# this mechanism entirely - both are the user's own explicit, separate
+# choices already.
 CATEGORY_PESEL = "pesel"
 CATEGORY_PERSON = "person"
 CATEGORY_PHONE = "phone"
@@ -226,8 +241,8 @@ CATEGORY_GROUPS: dict[str, tuple[str, ...]] = {
     CATEGORY_PHONE: ("TELEFON",),
     CATEGORY_EMAIL: ("EMAIL",),
     CATEGORY_IBAN: ("IBAN",),
-    CATEGORY_ADDRESS: ("ULICA", "MIEJSCOWOSC", "POSTAL_CODE"),
-    CATEGORY_COMPANY: ("NIP", "REGON"),
+    CATEGORY_ADDRESS: ("ULICA", "MIEJSCOWOSC", "POSTAL_CODE", "NER_LOCATION"),
+    CATEGORY_COMPANY: ("NIP", "REGON", "NER_ORG"),
     CATEGORY_DATE: ("DATA",),
 }
 ALL_CATEGORIES = tuple(CATEGORY_GROUPS.keys())
@@ -291,13 +306,31 @@ def category_selection_path(output_pdf_path: str | Path) -> Path:
     )
 
 
-def load_category_selection(path: str | Path) -> tuple[str, ...] | None:
-    """Load the category selection recorded at that path, or ``None`` if
-    missing/corrupt/never written - which resolve_active_labels()
-    treats as "no filtering", the same behavior a document anonymized
-    before this feature existed always had. That is the safe direction
-    for a missing/unreadable sidecar: redact everything rather than
-    silently redact less than intended.
+def load_category_selection(path: str | Path) -> frozenset[str] | None:
+    """Load the *frozen* set of detection labels that were actually
+    active when this visual PDF/image output was first produced, or
+    ``None`` if missing/corrupt/never written/written by an older
+    version of this app.
+
+    Deliberately not the category *names* the user picked - those are
+    only meaningful through CATEGORY_GROUPS's *current* mapping, which
+    can itself change between app versions (confirmed: NER_ORG/
+    NER_LOCATION moved from always-on into CATEGORY_COMPANY/
+    CATEGORY_ADDRESS on 2026-09-17). Re-resolving old category names
+    against a *later* mapping would silently change what a magic-pen
+    resave of an already-anonymized document redacts, even though the
+    user never touched that document's category selection - exactly
+    the kind of silent behavior change this sidecar exists to prevent.
+    Freezing the resolved label set at save time makes a later mapping
+    change never retroactively alter an existing document.
+
+    A sidecar written before this field existed has no ``active_labels``
+    key at all, and is treated the same as missing/corrupt: ``None``,
+    which resolve_active_labels() treats as "no filtering" - the safe
+    direction, since it's not possible to know what an old category
+    name meant under a mapping that no longer exists, and redacting
+    everything is safer than guessing and redacting less than the
+    original output had.
     """
     try:
         raw_text = Path(path).read_text(encoding="utf-8")
@@ -306,14 +339,14 @@ def load_category_selection(path: str | Path) -> tuple[str, ...] | None:
         return None
     if not isinstance(data, dict):
         return None
-    categories = data.get("active_categories")
-    if categories is None:
+    labels = data.get("active_labels")
+    if not labels:
         return None
-    if not isinstance(categories, list) or not all(
-        isinstance(item, str) for item in categories
+    if not isinstance(labels, list) or not all(
+        isinstance(item, str) for item in labels
     ):
         return None
-    return tuple(categories)
+    return frozenset(labels)
 
 
 def save_category_selection(
@@ -324,11 +357,23 @@ def save_category_selection(
     of the 8 categories deselected. Never raises on a write failure
     (e.g. a read-only folder) - a cosmetic-adjacent app-state file, not
     worth failing the whole anonymization run over; the caller decides
-    whether to log/ignore."""
+    whether to log/ignore.
+
+    Stores both the category *names* (kept for a possible future "what
+    did I pick last time" display - never read back by this app today)
+    and the *resolved* label set active right now, at save time - see
+    load_category_selection for why the resolved set, not the names, is
+    what a later regenerate actually needs.
+    """
     destination = Path(path)
+    active_categories = (
+        list(active_categories) if active_categories is not None else None
+    )
+    active_labels = resolve_active_labels(active_categories)
     payload = {
-        "active_categories": (
-            list(active_categories) if active_categories is not None else None
+        "active_categories": active_categories,
+        "active_labels": (
+            sorted(active_labels) if active_labels is not None else None
         ),
     }
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -1067,6 +1112,7 @@ def compute_pdf_redaction_spans(
     use_ner: bool = False,
     ner_model_name: str = DEFAULT_NER_MODEL,
     active_categories: Iterable[str] | None = None,
+    active_labels: frozenset[str] | None = None,
 ) -> tuple[list, list[PdfRedactionSpan]]:
     """Recompute word pages and detection spans for a source document.
 
@@ -1075,17 +1121,25 @@ def compute_pdf_redaction_spans(
     true-redacted visual PDF (for example after manual "magic pen" edits)
     without re-running the full ``anonymize_batch`` pipeline.
 
-    ``active_categories`` should be the same Etap 4 category selection
-    the document was originally anonymized with, so a magic-pen edit's
-    regeneration doesn't silently redact categories the user chose to
-    leave unredacted. ``None`` (the default) redacts everything, exactly
-    as before this parameter existed.
+    ``active_labels`` - an already-resolved label set - takes precedence
+    when given: this is what the magic-pen "regenerate" path should pass,
+    loaded from the document's own category-selection sidecar (see
+    category_selection_path/load_category_selection), frozen to the
+    label set active when that document was first produced rather than
+    resolved fresh against whatever CATEGORY_GROUPS means *today* - a
+    later app update can change what a category covers without
+    retroactively changing what regenerating an *existing* document
+    does. ``active_categories`` (raw category names, resolved fresh via
+    resolve_active_labels) is for a live/current selection with no
+    prior sidecar to freeze from. ``None`` for both (the default)
+    redacts everything, exactly as before either parameter existed.
     """
     terms, _dictionary_status = _prepare_workflow_dictionary(
         sensitive_terms, sensitive_terms_path
     )
     ner_context = prepare_ner_context(enabled=use_ner, model_name=ner_model_name)
-    active_labels = resolve_active_labels(active_categories)
+    if active_labels is None:
+        active_labels = resolve_active_labels(active_categories)
     word_pages = word_pages_for_redaction_geometry(source_path)
     spans = _pdf_detection_spans_for_word_pages(
         word_pages,
@@ -2523,10 +2577,13 @@ def anonymize_batch(
 
     ``active_categories`` (Etap 4) restricts redaction, for every file in
     this batch, to the given user-facing categories (see
-    ``CATEGORY_GROUPS``) plus everything never under the user's control
-    (``ALWAYS_ON_LABELS``) - the dictionary and NER_ORG/LOCATION/MISC are
-    always redacted regardless. ``None`` (the default) redacts
-    everything, exactly as before this parameter existed.
+    ``CATEGORY_GROUPS`` - "Adres"/"Dane firmy" each cover both their
+    regex-detected fields and their AI-detected NER_LOCATION/NER_ORG
+    counterpart) plus everything never under the user's control
+    (``ALWAYS_ON_LABELS``: the dictionary, DOWOD_OSOBISTY,
+    PERSON_NAME_TYPO, NER_MISC) - those are always redacted regardless.
+    ``None`` (the default) redacts everything, exactly as before this
+    parameter existed.
     """
     if sensitive_terms is not None and sensitive_terms_path is not None:
         raise ValueError(
