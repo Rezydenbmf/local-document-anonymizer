@@ -12,35 +12,19 @@ przenoszę ją do „Potwierdzone" albo usuwam. Jeśli lista urośnie powyżej
 
 ## Do sprawdzenia
 
-- [ ] **Przycisk „Zakończ edycję" po zaakceptowaniu zmian w oknie
-      porównania** (commit `b124ecd`, 2026-09-12) — zweryfikowane
-      programowo (wszystkie 5 przejść stanu panelu), ale nie klikane
-      ręcznie w realnej aplikacji. *Częściowo potwierdzone (Twój
-      feedback 2026-09-17: „przycisk zakończ edycję widoczny") — samą
-      widoczność przycisku uznaję za sprawdzoną.* Zostaje do sprawdzenia:
-      czy panel w prawym dolnym rogu faktycznie pokazuje „✓ Zmiany
-      zapisane" zamiast po prostu znikać, i czy kliknięcie przycisku
-      faktycznie zamyka okno porównania.
-
-- [ ] **„Wyczyść historię" — dwuetapowy przepływ kasowania plików**
-      (2026-09-15) — jeden przycisk zamiast osobnego per folder, kasuje
-      pliki robocze od razu, o finalne wyniki pyta osobno. *Częściowo
-      potwierdzone (Twój feedback 2026-09-17: „1 przycisk wyczyść -
-      działa") — sam mechanizm „jeden przycisk zamiast wielu" uznaję za
-      sprawdzony.* Zostaje do sprawdzenia: czy treść i kolejność pytań ma
-      sens, czy próg 30 dni dla przypomnienia w Historii jest dla Ciebie
-      trafny, i czy zachowanie przy odmowie (nic się nie kasuje, licznik
-      przypomnienia NIE resetuje się) jest zgodne z tym, czego
-      oczekiwałeś.
-- [ ] **Utracona możliwość przycinania starych generacji finalnych
-      wyników** (2026-09-15, świadoma decyzja do potwierdzenia, nie
-      błąd) — stara wersja „Wyczyść stare" usuwała nieaktualne generacje
-      również wśród plików finalnych (zostawiała tylko najnowszy
-      umowa_ANON_VISUAL_3.pdf, kasując _1/_2). Nowe „Wyczyść historię"
-      tego nie robi — finalne wyniki albo zostają wszystkie, albo
-      usuwasz je wszystkie naraz. Czy to Ci odpowiada, czy chcesz z
-      powrotem możliwość „zostaw tylko najnowszy" dla finalnych wyników
-      jako osobną opcję?
+- [ ] **Czy chcesz automatyczne kasowanie starych wersji tego samego
+      pliku?** (2026-09-15, pytanie o funkcję, nie błąd) — konkretny
+      przykład: anonimizujesz tę samą umowę trzy razy, więc w folderze
+      masz `umowa_ANON_VISUAL.pdf`, `umowa_ANON_VISUAL_2.pdf` i
+      `umowa_ANON_VISUAL_3.pdf` (trzy wersje, bo za każdym razem
+      program dopisuje kolejny numer zamiast nadpisywać). Stara wersja
+      przycisku „Wyczyść stare" umiała same to posprzątać: zostawiała
+      tylko najnowszą (`_3`), kasując automatycznie `_1` i `_2`. Obecny
+      „Wyczyść historię” tego nie robi — albo zostają wszystkie trzy
+      wersje, albo kasujesz je wszystkie naraz ręcznie. Pytanie: chcesz,
+      żebym przywrócił automatyczne „zostaw tylko najnowszą wersję" jako
+      osobną opcję, czy obecne zachowanie (Ty decydujesz ręcznie, nic
+      nie znika samo) Ci odpowiada?
 - [ ] **Magic pen — nowy system trybów interakcji myszy (Etap 3,
       2026-09-16)** — trzy tryby: „Domyślny" (LPM=zaznacz, PPM=przesuń
       widok, środkowy=przytrzymaj i kliknij/przeciągnij żeby odznaczyć),
@@ -57,16 +41,6 @@ przenoszę ją do „Potwierdzone" albo usuwam. Jeśli lista urośnie powyżej
       sesjami, i czy podpowiedź przy pierwszym otwarciu dokumentu
       (dialog „Co możesz zrobić z tym dokumentem?") poprawnie opisuje
       wybrany tryb.
-- [ ] **Cache'owanie detekcji w oknie porównania (Etap 2, 2026-09-16)**
-      — zapis po ręcznej edycji magic penem na skanie powinien być teraz
-      wyraźnie szybszy (zmierzone: ~14s → ~1s na syntetycznym 6-stronicowym
-      skanie) zamiast robić OCR od nowa za każdym razem. Sprawdź na
-      prawdziwym, wielostronicowym skanie: czy zapis w oknie porównania
-      faktycznie odczuwalnie przyspieszył, i czy edycja słownika wrażliwych
-      terminów w trakcie otwartego okna porównania (ten sam plik, nowa
-      zawartość) nadal poprawnie wpływa na kolejny zapis — to naprawiony w
-      tej samej sesji błąd (code-review złapał go przed mergem), warto
-      potwierdzić na żywo.
 - [ ] **Wybór kategorii do anonimizacji per zadanie (Etap 4, 2026-09-16)**
       — 8 checkboxów w „Szybkie akcje" (PESEL, imię i nazwisko/AI,
       telefon, e-mail, IBAN, adres, dane firmy, data), wszystkie
@@ -124,16 +98,26 @@ przenoszę ją do „Potwierdzone" albo usuwam. Jeśli lista urośnie powyżej
       czy legenda kolorów w oknie porównania nie ucina się już przy
       zmniejszaniu okna.
 
-- [ ] **„Wyczyść historię" usuwa też wpis z listy (2026-09-17)** —
-      odpowiedź na „foldery zostają, po co tam cała lista". Wybrane
-      zachowanie (potwierdzone przez Ciebie): folder znika z listy
-      Historia, gdy nie zostaje w nim już nic, co ta apka rozpoznaje
-      jako swój plik — sam folder na dysku zostaje nietknięty. Sprawdź:
-      wyczyść historię dla folderu z plikami roboczymi i finalnymi —
-      powinien zniknąć z listy Historia (ale nie z dysku); jeśli w
-      folderze zostały jakieś inne, nierozpoznane pliki użytkownika,
-      wpis też powinien zniknąć (liczy się tylko obecność plików *tej
-      apki*, nie folderu jako takiego).
+- [ ] **„Wyczyść historię" usuwa też wpis z listy (2026-09-17, zaktualizowane
+      po Twoim teście z 2026-09-17)** — odpowiedź na „foldery zostają, po co
+      tam cała lista". Wybrane zachowanie (potwierdzone przez Ciebie): folder
+      znika z listy Historia, gdy nie zostaje w nim już nic, co ta apka
+      rozpoznaje jako swój plik — sam folder na dysku zostaje nietknięty.
+      **Doszedł drugi, powiązany błąd, który złapałeś na żywo ze
+      screenshotem** — dwa stare foldery („Anonimizer - wyniki",
+      „070926") pokazywały „folder nie istnieje" i nie znikały z listy
+      mimo klikania „Wyczyść historię". Przyczyna: te foldery zostały
+      skasowane spoza apki (np. przez Eksplorator) — stary kod w ogóle
+      pomijał foldery, które już nie istnieją na dysku, więc nigdy nie
+      miały szansy zniknąć z listy. Naprawione w `src/gui_app.py`
+      (`clean_history`): taki wpis znika z listy Historia teraz zawsze,
+      przy każdym kliknięciu „Wyczyść historię", niezależnie od tego, czy
+      coś innego zostało tego dnia skasowane. Sprawdź na żywo: czy oba
+      foldery ze screenshota faktycznie znikają z listy po kliknięciu
+      „Wyczyść historię"; i normalny przypadek — folder z plikami
+      roboczymi i finalnymi powinien zniknąć z listy (ale nie z dysku)
+      dopiero gdy nie zostanie w nim nic, co ta apka rozpoznaje jako swój
+      plik.
 
 ## Potwierdzone
 
@@ -144,3 +128,15 @@ przenoszę ją do „Potwierdzone" albo usuwam. Jeśli lista urośnie powyżej
       startowego folderu ani o zachowaniu po Anuluj, więc jeśli coś z
       tych dwóch szczegółów Ci przeszkadza, daj znać, wrócę do tego
       punktu.
+- [x] **Przycisk „Zakończ edycję" po zaakceptowaniu zmian w oknie
+      porównania** (commit `b124ecd`, 2026-09-12, potwierdzone
+      2026-09-17) — Twój feedback: „działa".
+- [x] **„Wyczyść historię" — dwuetapowy przepływ kasowania plików**
+      (2026-09-15, potwierdzone 2026-09-17) — Twój feedback: treść i
+      kolejność pytań, próg 30 dni i zachowanie przy odmowie „działa z
+      wyjątkiem starych folderów" — wyjątek, na który trafiłeś (foldery
+      pokazujące „folder nie istnieje"), to osobny błąd, opisany i
+      naprawiony w pozycji „Wyczyść historię usuwa też wpis z listy"
+      poniżej.
+- [x] **Cache'owanie detekcji w oknie porównania (Etap 2, 2026-09-16)**
+      (potwierdzone 2026-09-17) — Twój feedback: „tak potwierdzam".

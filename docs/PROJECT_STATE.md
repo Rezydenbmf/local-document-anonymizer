@@ -3669,6 +3669,34 @@ batch is a visual/discoverability fix the user still needs to confirm
 live against their own judgment of "does this actually read as visible
 now" - tracked in `docs/DO_ZWERYFIKOWANIA.md`, not re-litigated here.
 
+Going through `docs/DO_ZWERYFIKOWANIA.md` against the user's actual
+feedback surfaced a second, related bug in the same "Wyczyść historię"
+area, caught live with a screenshot: two old history entries showed
+"folder nie istnieje" and never disappeared no matter how many times
+"Wyczyść historię" was clicked. Root cause: `clean_history()`'s folder
+list (`src/gui_app.py`) was built by filtering to `Path(path).is_dir()`
+from the start, so a folder deleted entirely from outside the app (e.g.
+via Explorer) was silently excluded from every later step, including the
+"forget this from history" logic added earlier the same day - it only
+ever considered folders that still exist, so a fully-missing one never
+had a chance to be dropped. Fixed by computing the missing paths
+separately and always forgetting them, in every branch of the method
+(including both early-return paths), regardless of whether anything else
+was deleted that run. Extracted into a small shared
+`_forget_missing_history_entries` helper, covered by a new,
+narrowly-scoped test file
+(`tests/test_gui_app_history_cleanup.py`, 3 tests) exercising that
+helper directly via a bare `AnonymizerApp.__new__` instance - the full
+`clean_history()` flow needs a real Tk root and live `messagebox`
+dialogs, so wasn't a reasonable unit-test target itself. 582 tests
+passing, lint still at the 77-error baseline. Also: three prior
+`docs/DO_ZWERYFIKOWANIA.md` items got explicit user confirmation in the
+same round ("Zakończ edycję" button, the two-step history cleanup flow
+itself, and Etap 2's detection-caching speedup) and moved to
+"Potwierdzone"; a fourth item (auto-trimming old same-document
+generations) was reworded with a concrete example after the user said
+they didn't understand what it was asking.
+
 ## Warning
 
 This repository is still an early-stage portfolio MVP. Do not use it to

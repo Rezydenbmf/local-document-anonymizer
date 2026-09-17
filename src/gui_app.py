@@ -2038,16 +2038,28 @@ class AnonymizerApp:
         Only ever considers files this app itself wrote (see
         output_cleanup) - pointing the output at the folder the source
         documents live in is normal, and those must stay untouchable.
+
+        A folder whose entry survives in the history config but is gone
+        from disk entirely (deleted outside the app, e.g. via Explorer)
+        is always forgotten here too, regardless of anything else this
+        run does - a real bug reported live: these showed "folder nie
+        istnieje" forever, since the old filtering below only ever
+        considered folders that still exist, so a fully-missing one
+        never got a chance to be dropped. Nothing destructive about
+        forgetting it: there is by definition no file left in it for
+        this app to lose track of.
         """
-        folders = [
-            entry.get("path", "")
-            for entry in self.recent_folders
-            if Path(entry.get("path", "")).is_dir()
-        ]
+        all_paths = [entry.get("path", "") for entry in self.recent_folders]
+        folders = [path for path in all_paths if Path(path).is_dir()]
+        missing_paths = {path for path in all_paths if path and path not in folders}
+
         if not folders:
-            messagebox.showinfo(
-                "Wyczyść historię", "Brak folderów w historii.", parent=self.root
-            )
+            self._forget_missing_history_entries(missing_paths)
+            if not missing_paths:
+                messagebox.showinfo(
+                    "Wyczyść historię", "Brak folderów w historii.", parent=self.root
+                )
+            self.show_history_screen()
             return
 
         # One filesystem walk, two plans - see build_history_cleanup_plan's
@@ -2058,12 +2070,14 @@ class AnonymizerApp:
         working_plan, final_plan = build_history_cleanup_plan(folders)
 
         if working_plan.is_empty and final_plan.is_empty:
+            self._forget_missing_history_entries(missing_paths)
             messagebox.showinfo(
                 "Wyczyść historię",
                 "Brak plików do usunięcia w historii.",
                 parent=self.root,
             )
             self._record_cleanup_ran()
+            self.show_history_screen()
             return
 
         # Tracks whether anything was *actually* deleted this run, so the
@@ -2109,6 +2123,7 @@ class AnonymizerApp:
                     message += f" Nie udało się usunąć: {failed}."
                 messagebox.showinfo("Wyczyść historię", message, parent=self.root)
 
+        stale_paths = set(missing_paths)
         if anything_removed:
             self._record_cleanup_ran()
             # A folder cleanup emptied of every file this app tracks -
@@ -2117,19 +2132,34 @@ class AnonymizerApp:
             # its files are gone while a now-pointless card stays behind
             # forever. The folder itself is left alone on disk - only
             # the history *entry* (recent_folders) is forgotten.
-            still_has_output = {
-                folder for folder in folders if folder_has_any_tracked_output(folder)
+            stale_paths |= {
+                folder
+                for folder in folders
+                if not folder_has_any_tracked_output(folder)
             }
-            remaining = [
-                entry
-                for entry in self.recent_folders
-                if entry.get("path", "") not in folders
-                or entry.get("path", "") in still_has_output
-            ]
-            if len(remaining) != len(self.recent_folders):
-                self.recent_folders = remaining
-                save_recent_folders(self.history_config_path, self.recent_folders)
+        self._forget_missing_history_entries(stale_paths)
         self.show_history_screen()
+
+    def _forget_missing_history_entries(self, stale_paths: set[str]) -> bool:
+        """Drop every history entry whose path is in ``stale_paths`` -
+        shared by every early-return branch of clean_history() and its
+        main path, so a folder that is gone from disk (or already empty
+        of anything this app tracks) is forgotten from the list the same
+        way regardless of which branch got there. Returns whether
+        anything actually changed, so callers can decide whether a save
+        is even needed."""
+        if not stale_paths:
+            return False
+        remaining = [
+            entry
+            for entry in self.recent_folders
+            if entry.get("path", "") not in stale_paths
+        ]
+        if len(remaining) == len(self.recent_folders):
+            return False
+        self.recent_folders = remaining
+        save_recent_folders(self.history_config_path, self.recent_folders)
+        return True
 
     def _record_cleanup_ran(self) -> None:
         """Reset the "time to clean up" reminder's countdown - called only
