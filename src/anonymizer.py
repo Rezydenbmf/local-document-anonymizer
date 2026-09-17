@@ -550,11 +550,11 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
         "NIP",
         re.compile(
-            r"""
+            rf"""
             (?<!\w)
             NIP
-            \s*[:.-]?\s*
-            \d(?:[\s-]?\d){9}
+            {_INLINE_WS}*[:.-]?{_INLINE_WS}*
+            \d(?:[\s-]?\d){{9}}
             (?!\w)
             """,
             re.VERBOSE | re.IGNORECASE,
@@ -563,14 +563,14 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
         "REGON",
         re.compile(
-            r"""
+            rf"""
             (?<!\w)
             REGON
-            \s*[:.-]?\s*
+            {_INLINE_WS}*[:.-]?{_INLINE_WS}*
             (?:
-                \d(?:[\s-]?\d){13}
+                \d(?:[\s-]?\d){{13}}
                 |
-                \d(?:[\s-]?\d){8}
+                \d(?:[\s-]?\d){{8}}
             )
             (?!\w)
             """,
@@ -606,9 +606,9 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
                 |
                 (?:0[1-9]|[12]\d|3[01])/(?:0[1-9]|1[0-2])/\d{4}
                 |
-                (?:0?[1-9]|[12]\d|3[01])\s+(?:stycznia|lutego|marca|kwietnia|maja|
+                (?:0?[1-9]|[12]\d|3[01])[^\S\n]+(?:stycznia|lutego|marca|kwietnia|maja|
                 czerwca|lipca|sierpnia|wrze[śs]nia|pa[źz]dziernika|listopada|
-                grudnia)\s+\d{4}
+                grudnia)[^\S\n]+\d{4}
             )
             (?!\w)
             """,

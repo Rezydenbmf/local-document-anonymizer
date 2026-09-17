@@ -117,6 +117,19 @@ class PostAnonymizationAuditTests(unittest.TestCase):
         self.assertEqual(result["findings"]["PERSON_NAME_TYPO"], 1)
         self.assertNotIn(source_value, repr(result))
 
+    def test_person_name_typo_finding_does_not_cross_a_line_break(self) -> None:
+        """Regression test for a real bug found live: this module keeps
+        its own independent copy of PERSON_NAME_TYPO_PATTERN (it can't
+        import anonymizer.py's - anonymizer.py already imports from
+        audit.py, so the reverse would be circular), so fixing the main
+        redaction pass alone would leave this leftover-risk scanner
+        still able to bridge a "\\n" table-row boundary and flag a
+        finding for text the main pass no longer even considers a name.
+        """
+        result = audit_text("Nagy-Kowalski\nAdres zamieszkania: brak.")
+
+        self.assertEqual(result["findings"]["PERSON_NAME_TYPO"], 0)
+
     def test_risk_level_warning_for_low_risk_single_warning(self) -> None:
         result = audit_text("Reference ABC/123/2026 remains.")
 

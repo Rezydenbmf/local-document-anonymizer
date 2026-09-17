@@ -3804,6 +3804,67 @@ up:
   the user should weigh explicitly before this is built, not something to
   default into.
 
+**Table-row regex bleed: a static field label ("Adres") silently vanishing
+from a redacted table-layout document, root-caused and fixed the same
+session it was found.** Investigating a screenshot artifact from the same
+live-testing round (the "Adres" field label disappearing from a table's
+"Imię i nazwisko" / "Adres zamieszkania" rows) led to reproducing it
+directly against the actual test document (`_manual_test/pliki do
+testow/3_pismo_urzedowe.pdf`, its real output folder pointed to by the
+user). Root cause: `PERSON_NAME_TYPO_PATTERN`, and the `ULICA`/
+`MIEJSCOWOSC` entries in `anonymizer.py`'s `_PATTERNS`, join multiple
+independent word tokens with plain `\s`, which matches a newline exactly
+as happily as a space - and `word_pages_for_redaction_geometry` joins
+each extracted PDF line/table row with a single `"\n"`. A hyphenated
+surname at the end of one table row ("Nagy-Kowalski") could complete
+`PERSON_NAME_TYPO_PATTERN`'s required 3-token typo shape using the
+*next* row's unrelated first word ("Adres") as if it were a name
+continuation - over-redacting (safe direction, never exposes more PII)
+but silently deleting a non-PII word from the output, which is exactly
+what looked like a coordinate/rendering bug from the screenshot alone.
+Confirmed this is architecturally distinct from and unrelated to the
+Etap 4 category-scope fix above (reproduced with the current, already-
+fixed category engine). Fixed by introducing `_INLINE_WS = r"[^\S\n]"`
+- whitespace that separates two words on the same line but never
+crosses a newline - and using it everywhere these patterns join
+independent word tokens.
+
+`code-review` (required - touches `anonymizer.py`; 5 finder angles run
+via background agents) caught that the initial fix was incomplete at
+the codebase level in two ways it would have been easy to ship blind:
+`pdf_redaction.py` maintains its own **independent, byte-for-byte
+duplicate** of `PERSON_NAME_TYPO_PATTERN`/`ULICA`/`MIEJSCOWOSC` (it
+can't import `anonymizer.py`'s copy - the import direction already
+runs the other way, `anonymizer.py` imports from `pdf_redaction.py`,
+so the reverse would be circular), used by `save_redacted_pdf_copy`
+(the "original_redaction"/original-layout PDF output mode) - confirmed
+live, the exact same bug was still fully reproducible through that
+path. Same story for `audit.py`'s own duplicate copy, used by the
+post-hoc leftover-risk scanner - left unpatched, it could flag a false
+"PERSON_NAME_TYPO" risk finding on text the main (fixed) redaction pass
+no longer even considers a match. Both got the identical `_INLINE_WS`
+fix independently, with a comment at each site explaining the circular-
+import constraint that causes the duplication in the first place, so a
+future contributor knows to check both/all three copies. The review
+also flagged that `NIP`/`REGON` (label-then-value) and `DATA`'s long-
+form Polish-month alternative (day-then-month-word-then-year) have the
+exact same multi-token-join shape and were confirmed live to have the
+identical bug - fixed in both `anonymizer.py` and its `pdf_redaction.py`
+duplicate too, for consistency and because the fix technique was by
+then already proven safe. Deliberately left alone: `IBAN`/`TELEFON`'s
+internal digit-grouping separators (`[\s-]?` between digits of one
+number, not two independent words - a narrower, lower-risk, not-
+live-confirmed instance of the same class); and `ner.py`'s own
+deliberate NER_PERSON line-break bridging (a documented, intentional
+design choice letting a name wrapped across a PDF line still be
+detected as one entity - the same visual symptom on the AI-detected
+path, but a different, already-reasoned-through trade-off that needs
+its own dedicated investigation, not a quick fix bundled in here).
+
+598 tests passing (7 new beyond the first pass's 3, covering
+`pdf_redaction.py`'s and `audit.py`'s independent copies directly),
+lint at the 77-error baseline.
+
 ## Warning
 
 This repository is still an early-stage portfolio MVP. Do not use it to

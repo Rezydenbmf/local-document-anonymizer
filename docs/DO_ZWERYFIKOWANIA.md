@@ -147,6 +147,21 @@ przenoszę ją do „Potwierdzone" albo usuwam. Jeśli lista urośnie powyżej
       usuń, wgraj to samo źródło, zanonimizuj) — nowy plik powinien
       pokazać „wymaga przeglądu", nie „odrzucony".
 
+- [ ] **Etykieta pola (np. „Adres”) już nie znika z tabelarycznych
+      dokumentów (2026-09-17)** — to była przyczyna tego dziwnego
+      zamalowania, które zauważyłeś na screenshocie z pisma urzędowego.
+      Nie był to błąd współrzędnych/rysowania — wzorzec wykrywający
+      nietypowe nazwiska (i podobne dla ulicy/miejscowości) „połykał”
+      pierwsze słowo z następnego wiersza tabeli, traktując je jakby
+      było częścią nazwiska w wierszu poprzednim. Naprawione w 3
+      miejscach na raz (kod miał osobne kopie tych samych wzorców):
+      `src/anonymizer.py`, `src/pdf_redaction.py` (tryb PDF
+      „oryginalny układ”) i `src/audit.py` (skaner pozostałości).
+      Sprawdź na żywo: zanonimizuj ponownie `3_pismo_urzedowe.pdf`
+      (albo inny dokument z tabelą, gdzie etykieta pola sąsiaduje z
+      nazwiskiem z myślnikiem albo z miejscowością) — etykiety pól
+      („Adres”, „Numer” itp.) powinny zostać na miejscu, nie znikać.
+
 ## Potwierdzone
 
 - [x] **Eksport zatwierdzonych plików z wyborem lokalizacji** (2026-09-15,

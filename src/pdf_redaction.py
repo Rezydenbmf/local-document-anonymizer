@@ -72,6 +72,23 @@ _UPPER_LETTERS = "A-ZĄĆĘŁŃÓŚŹŻ"
 _LOWER_LETTERS = "A-Za-zĄĆĘŁŃÓŚŹŻąćęłńóśźż"
 _NAME_TOKEN = rf"[{_UPPER_LETTERS}][{_LOWER_LETTERS}]{{2,}}"
 _NAME_HYPHEN = r"[-\u00ad\u2010\u2011\u2012\u2013\u2014]"
+# Whitespace that can separate two words *within the same line* (space,
+# tab) but never a newline. get_text("text")/word-coordinate extraction
+# in this module joins separate PDF lines/table rows with a single "\n",
+# so this is exactly the row/line boundary in this pipeline's own text.
+# A plain \s here would happily match that "\n" too, letting a pattern
+# built from multiple independent word tokens (a name plus its surname,
+# a label plus its value) silently absorb the *next* line's unrelated
+# first word - confirmed live on a table document: "Nagy-Kowalski" (a
+# person's surname in one table row) matched all the way through to
+# "Adres" (the *next* row's field label), redacting a word that was
+# never a name at all. Kept as its own copy, in sync with
+# anonymizer.py's identical _INLINE_WS: anonymizer.py already imports
+# from this module (see build_pdf_redaction_metadata et al.), so this
+# module importing back from anonymizer.py would be circular - see this
+# file's own docstring/the surrounding duplicated pattern set below,
+# which predates this constant and has the same constraint.
+_INLINE_WS = r"[^\S\n]"
 _SURNAME_LIKE_TOKEN = (
     rf"[{_UPPER_LETTERS}][{_LOWER_LETTERS}]{{2,}}"
     r"(?:ski|ska|cki|cka|dzki|dzka|ak|ek|ik|yk|uk|cz|icz|wicz|owicz|ewicz)"
@@ -80,16 +97,16 @@ PERSON_NAME_TYPO_PATTERN = re.compile(
     rf"""
     (?<![\w\-\u00ad\u2010\u2011\u2012\u2013\u2014])
     {_NAME_TOKEN}
-    \s*
+    {_INLINE_WS}*
     {_NAME_HYPHEN}
-    \s*
+    {_INLINE_WS}*
     (?:
         {_SURNAME_LIKE_TOKEN}
-        \s+
+        {_INLINE_WS}+
         {_NAME_TOKEN}
         |
         {_NAME_TOKEN}
-        \s+
+        {_INLINE_WS}+
         {_SURNAME_LIKE_TOKEN}
     )
     (?![\w\-\u00ad\u2010\u2011\u2012\u2013\u2014])
@@ -162,11 +179,11 @@ PDF_REDACTION_PATTERNS: tuple[PdfRedactionPattern, ...] = (
     PdfRedactionPattern(
         "NIP",
         re.compile(
-            r"""
+            rf"""
             (?<!\w)
             NIP
-            \s*[:.-]?\s*
-            \d(?:[\s-]?\d){9}
+            {_INLINE_WS}*[:.-]?{_INLINE_WS}*
+            \d(?:[\s-]?\d){{9}}
             (?!\w)
             """,
             re.VERBOSE | re.IGNORECASE,
@@ -175,14 +192,14 @@ PDF_REDACTION_PATTERNS: tuple[PdfRedactionPattern, ...] = (
     PdfRedactionPattern(
         "REGON",
         re.compile(
-            r"""
+            rf"""
             (?<!\w)
             REGON
-            \s*[:.-]?\s*
+            {_INLINE_WS}*[:.-]?{_INLINE_WS}*
             (?:
-                \d(?:[\s-]?\d){13}
+                \d(?:[\s-]?\d){{13}}
                 |
-                \d(?:[\s-]?\d){8}
+                \d(?:[\s-]?\d){{8}}
             )
             (?!\w)
             """,
@@ -218,9 +235,9 @@ PDF_REDACTION_PATTERNS: tuple[PdfRedactionPattern, ...] = (
                 |
                 (?:0[1-9]|[12]\d|3[01])/(?:0[1-9]|1[0-2])/\d{4}
                 |
-                (?:0?[1-9]|[12]\d|3[01])\s+(?:stycznia|lutego|marca|kwietnia|maja|
+                (?:0?[1-9]|[12]\d|3[01])[^\S\n]+(?:stycznia|lutego|marca|kwietnia|maja|
                 czerwca|lipca|sierpnia|wrze[śs]nia|pa[źz]dziernika|listopada|
-                grudnia)\s+\d{4}
+                grudnia)[^\S\n]+\d{4}
             )
             (?!\w)
             """,
@@ -232,10 +249,10 @@ PDF_REDACTION_PATTERNS: tuple[PdfRedactionPattern, ...] = (
         re.compile(
             rf"""
             (?<!\w)
-            (?i:ul\.?|al\.?|pl\.?|ulic[ayę]|aleja|alei|aleję|plac(?:u)?)\s+
+            (?i:ul\.?|al\.?|pl\.?|ulic[ayę]|aleja|alei|aleję|plac(?:u)?){_INLINE_WS}+
             {_NAME_TOKEN}
-            (?:\s+{_NAME_TOKEN}){{0,2}}
-            (?:\s+\d+[A-Za-z]?(?:/\d+)?)?
+            (?:{_INLINE_WS}+{_NAME_TOKEN}){{0,2}}
+            (?:{_INLINE_WS}+\d+[A-Za-z]?(?:/\d+)?)?
             (?!\w)
             """,
             re.VERBOSE,
@@ -245,10 +262,10 @@ PDF_REDACTION_PATTERNS: tuple[PdfRedactionPattern, ...] = (
         "MIEJSCOWOSC",
         re.compile(
             rf"""
-            (?<=\d{{2}}-\d{{3}}\s)
+            (?<=\d{{2}}-\d{{3}}{_INLINE_WS})
             {_NAME_TOKEN}
             (?:{_NAME_HYPHEN}{_NAME_TOKEN})?
-            (?:\s{_NAME_TOKEN})?
+            (?:{_INLINE_WS}{_NAME_TOKEN})?
             """,
             re.VERBOSE,
         ),
