@@ -90,6 +90,7 @@ try:
         DnDCTk,
         IconTooltip,
         apply_subtle_scrollbar,
+        category_selection_detail_pl,
         category_selection_label_pl,
         cleanup_reminder_config_path,
         default_output_directory,
@@ -224,6 +225,7 @@ except ImportError:
         DnDCTk,
         IconTooltip,
         apply_subtle_scrollbar,
+        category_selection_detail_pl,
         category_selection_label_pl,
         cleanup_reminder_config_path,
         default_output_directory,
@@ -1156,10 +1158,12 @@ class AnonymizerApp:
         category_inner.pack(fill="x", padx=14, pady=12)
         ctk.CTkLabel(
             category_inner,
-            text="🏷 Kategorie do anonimizacji (to zadanie)",
+            text="🏷 Kategorie do anonimizacji",
             font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
             text_color=COLOR_TEXT,
             anchor="w",
+            wraplength=QUICK_SETTINGS_PANEL_WIDTH - 40,
+            justify="left",
         ).pack(fill="x", pady=(0, 2))
         ctk.CTkLabel(
             category_inner,
@@ -1184,7 +1188,7 @@ class AnonymizerApp:
                 else:
                     self.active_categories.discard(cat)
 
-            ctk.CTkCheckBox(
+            category_checkbox = ctk.CTkCheckBox(
                 category_inner,
                 text=category_selection_label_pl(category),
                 variable=category_var,
@@ -1193,7 +1197,16 @@ class AnonymizerApp:
                 text_color=COLOR_TEXT,
                 fg_color=COLOR_ACCENT,
                 hover_color=COLOR_ACCENT_HOVER,
-            ).pack(anchor="w", pady=(0, 4))
+            )
+            category_checkbox.pack(anchor="w", pady=(0, 4))
+            # CTkCheckBox has no wraplength support at all - a label
+            # long enough to explain itself inline would just overflow
+            # this narrow sidebar and get visually clipped instead of
+            # wrapping (a real bug reported live). The short label above
+            # is deliberately terse; the detail lives here instead.
+            detail = category_selection_detail_pl(category)
+            if detail:
+                IconTooltip(category_checkbox, detail)
 
         env_status = environment_status_lookup(self.environment_items)
 

@@ -23,6 +23,7 @@ from anonymizer import (
 from environment_check import EnvironmentCheckItem
 from gui import (
     APPROVAL_LOCK_HINT_ID,
+    CATEGORY_SELECTION_ORDER,
     FLOATING_ACTIONS_EDIT,
     FLOATING_ACTIONS_HIDDEN,
     FLOATING_ACTIONS_SAVED,
@@ -44,6 +45,8 @@ from gui import (
     batch_error_label_pl,
     canvas_point_to_pdf_point,
     category_label_pl,
+    category_selection_detail_pl,
+    category_selection_label_pl,
     clamp_zoom_level,
     cleanup_reminder_config_path,
     ctk_widget_scaling_factor,
@@ -708,6 +711,28 @@ class GuiWorkflowTests(unittest.TestCase):
         self.assertEqual(category_label_pl("PESEL"), "PESEL")
         self.assertEqual(category_label_pl("EMAIL"), "E-mail")
         self.assertEqual(category_label_pl("UNKNOWN_FUTURE_LABEL"), "UNKNOWN_FUTURE_LABEL")
+
+    def test_category_selection_labels_are_short_enough_for_the_checkbox_panel(
+        self,
+    ) -> None:
+        """Regression guard for a real bug reported live: CTkCheckBox has
+        no wraplength support at all, so a label long enough to explain
+        itself inline just overflows the narrow "Szybkie akcje" sidebar
+        and gets visually clipped instead of wrapping. The detail lives
+        in category_selection_detail_pl's tooltip text instead - this
+        just keeps the checkbox label itself short."""
+        for category in CATEGORY_SELECTION_ORDER:
+            label = category_selection_label_pl(category)
+            with self.subTest(category=category):
+                self.assertLessEqual(len(label), 22)
+
+    def test_every_category_has_a_non_empty_detail(self) -> None:
+        for category in CATEGORY_SELECTION_ORDER:
+            with self.subTest(category=category):
+                self.assertTrue(category_selection_detail_pl(category))
+
+    def test_unknown_category_detail_is_empty_not_an_error(self) -> None:
+        self.assertEqual(category_selection_detail_pl("not_a_real_category"), "")
 
     def test_gui_parses_report_summary_categories_and_risk(self) -> None:
         report_text = (

@@ -41,24 +41,6 @@ przenoszę ją do „Potwierdzone" albo usuwam. Jeśli lista urośnie powyżej
       sesjami, i czy podpowiedź przy pierwszym otwarciu dokumentu
       (dialog „Co możesz zrobić z tym dokumentem?") poprawnie opisuje
       wybrany tryb.
-- [ ] **Wybór kategorii do anonimizacji per zadanie (Etap 4, 2026-09-16,
-      zaktualizowane 2026-09-17 po Twoim teście)** — 8 checkboxów w
-      „Szybkie akcje" (PESEL, imię i nazwisko/AI, telefon, e-mail, IBAN,
-      adres, dane firmy, data), wszystkie domyślnie zaznaczone.
-      **Znaleziony realny błąd, na żywo, ze screenshotami:** odznaczyłeś
-      wszystko poza PESEL, a program dalej anonimizował nazwę firmy i
-      fragmenty adresu. Przyczyna: „Adres"/„Dane firmy" kontrolowały
-      tylko pola wykryte regexem (NIP/REGON, ulica/miejscowość/kod
-      pocztowy) — nazwy firm i lokalizacje wykryte przez AI były zawsze
-      włączone, niezależnie od checkboxów. Naprawione: „Adres" i „Dane
-      firmy" teraz wyłączają też odpowiadające im dane wykryte przez AI.
-      Reszta (dowód osobisty, nietypowe nazwiska, pozostałe dane
-      wykryte przez AI, własny słownik, ręczne magic-pen) nadal zawsze
-      się anonimizuje. **Sprawdź dokładnie ten sam scenariusz co
-      ostatnio**: odznacz wszystko poza PESEL na dokumencie z nazwą
-      firmy i adresem (np. faktura VAT) — nazwa firmy i adres powinny
-      teraz zostać widoczne, tylko PESEL zanonimizowany.
-
 - [ ] **Wersjonowanie wyboru kategorii w pliku JSON (2026-09-17,
       techniczna poprawka, trudna do bezpośredniego sprawdzenia)** —
       przy okazji poprzedniego punktu code-review znalazł powiązany,
@@ -76,76 +58,40 @@ przenoszę ją do „Potwierdzone" albo usuwam. Jeśli lista urośnie powyżej
       danych, które wcześniej były ukryte, jest wystarczającym testem
       na żywo.
 
-- [ ] **Uruchamianie bez widocznej konsoli (2026-09-17)** — `uruchom.vbs`
-      zastępuje `uruchom.bat` do codziennego użytku: uruchamia apkę przez
-      `pythonw.exe` bez żadnego okienka terminala w tle. `uruchom.bat`
-      zostaje, ale tylko do debugowania (pokazuje konsolę). Sprawdź: czy
-      dwuklik na `uruchom.vbs` faktycznie pokazuje tylko interfejs apki,
-      bez żadnego mignięcia czarnego okna; i (trudniejsze do
-      zasymulowania) czy w razie realnego błędu startowego plik
-      `%USERPROFILE%\.anonimizer\ostatni_blad.log` faktycznie się pojawia
-      z sensowną treścią zamiast apka po prostu nie startowała bez śladu.
-
-- [ ] **Magic pen — czytelność trybu interakcji myszy (2026-09-17)** —
+- [ ] **Magic pen — czytelność trybu interakcji myszy (2026-09-17,
+      zaktualizowane po Twoim teście — realne błędy znalezione)** —
       odpowiedź na feedback „graficznie nie widać co się robi": 3 kolorowe
       plakietki z ikonką zamiast jednego szarego napisu (LPM/PPM/ŚPM +
       ikonka akcji), strzałki Cofnij/Ponów teraz kolorują się na
-      niebiesko gdy faktycznie klikalne (wcześniej zawsze wyglądały tak
-      samo szaro), kursor nad dokumentem odzwierciedla co zrobi LPM w
-      spoczynku i zmienia się na żywo w trakcie trzymania innego
-      przycisku, nowa ikonka ⚙ w oknie porównania otwiera Ustawienia >
-      Ogólne bez zamykania podglądu, a sekcja trybu w Ustawieniach ma
-      teraz wyróżnioną ramkę + ikonkę 🖱, żeby nie zlewała się z resztą.
-      Sprawdź na żywo: czy plakietki i kolor strzałek faktycznie rzucają
-      się w oczy bez tłumaczenia, czy zmiana trybu przez nową ikonkę ⚙ w
-      oknie porównania działa i od razu widać efekt bez zamykania okna,
-      i czy kursor nad dokumentem faktycznie wygląda inaczej dla
-      zaznaczania/odznaczania/przesuwania.
+      niebiesko gdy faktycznie klikalne, kursor nad dokumentem miał
+      odzwierciedlać co zrobi dany przycisk, nowa ikonka ⚙ w oknie
+      porównania otwiera Ustawienia > Ogólne. **Twój feedback (ze
+      screenshotem plakietek):** „ppm zmienia się w kółko a na ikonce
+      jest inny symbol, a lpm zostaje jakiś celownik a nie taka ikonka
+      jak na indykatorach, spm też nie zgadza się z indykatorem i kolor
+      się też w żadnym nie zmienia" — czyli kursor nad dokumentem nie
+      odpowiada wizualnie plakietkom (inny symbol niż na plakietce), a
+      kolor kursora/wskaźnika nie zmienia się tak jak powinien. To
+      wymaga doprecyzowania ode mnie w czacie, zanim to naprawię —
+      pytania czekają w rozmowie.
 
-- [ ] **Kategorie do anonimizacji — przeniesione na górę panelu
-      (2026-09-17)** — odpowiedź na „nie wiem jak mam zaznaczać
-      odznaczać w GUI to": 8 checkboxów z Etapu 4 przeniesione z dołu
-      panelu „Szybkie akcje" na sam początek, zaraz pod nagłówkiem, w
-      wyróżnionej ramce. Przy okazji naprawione: legenda kolorów w
-      oknie porównania mogła się ucinać przy zmniejszeniu okna (teraz
-      przewijalna). Sprawdź: czy checkboxy kategorii faktycznie rzucają
-      się w oczy od razu po otwarciu panelu, bez przewijania w dół; i
-      czy legenda kolorów w oknie porównania nie ucina się już przy
-      zmniejszaniu okna.
-
-- [ ] **„Wyczyść historię" usuwa też wpis z listy (2026-09-17, zaktualizowane
-      po Twoim teście z 2026-09-17)** — odpowiedź na „foldery zostają, po co
-      tam cała lista". Wybrane zachowanie (potwierdzone przez Ciebie): folder
-      znika z listy Historia, gdy nie zostaje w nim już nic, co ta apka
-      rozpoznaje jako swój plik — sam folder na dysku zostaje nietknięty.
-      **Doszedł drugi, powiązany błąd, który złapałeś na żywo ze
-      screenshotem** — dwa stare foldery („Anonimizer - wyniki",
-      „070926") pokazywały „folder nie istnieje" i nie znikały z listy
-      mimo klikania „Wyczyść historię". Przyczyna: te foldery zostały
-      skasowane spoza apki (np. przez Eksplorator) — stary kod w ogóle
-      pomijał foldery, które już nie istnieją na dysku, więc nigdy nie
-      miały szansy zniknąć z listy. Naprawione w `src/gui_app.py`
-      (`clean_history`): taki wpis znika z listy Historia teraz zawsze,
-      przy każdym kliknięciu „Wyczyść historię", niezależnie od tego, czy
-      coś innego zostało tego dnia skasowane. Sprawdź na żywo: czy oba
-      foldery ze screenshota faktycznie znikają z listy po kliknięciu
-      „Wyczyść historię"; i normalny przypadek — folder z plikami
-      roboczymi i finalnymi powinien zniknąć z listy (ale nie z dysku)
-      dopiero gdy nie zostanie w nim nic, co ta apka rozpoznaje jako swój
-      plik.
-
-- [ ] **Status recenzji nie „pamięta” już starego odrzucenia po ponownym
-      przetworzeniu (2026-09-17)** — znalazłeś na żywo ze screenshotem:
-      odrzuciłeś plik, usunąłeś go, wgrałeś ten sam dokument źródłowy i
-      zanonimizowałeś ponownie — nowy plik (ta sama nazwa) dalej
-      pokazywał „odrzucony", mimo że nigdy go nie widziałeś. Przyczyna:
-      status recenzji zapisywany był po nazwie pliku, bez sprawdzania,
-      czy to ten sam plik czy nowy o tej samej nazwie. Naprawione w
-      `restrict_review_items_to_batch` — świeżo przetworzony plik zawsze
-      zaczyna od „wymaga przeglądu", nigdy nie dziedziczy starego
-      statusu. Sprawdź: powtórz dokładnie ten scenariusz (odrzuć,
-      usuń, wgraj to samo źródło, zanonimizuj) — nowy plik powinien
-      pokazać „wymaga przeglądu", nie „odrzucony".
+- [ ] **Kategorie do anonimizacji — czytelność etykiet checkboxów
+      (2026-09-17, zaktualizowane po Twoim teście — realny błąd
+      znaleziony i naprawiony)** — poprzednia poprawka (przeniesienie
+      na górę panelu) działa, ale **Twój feedback ze screenshotem**:
+      dłuższe etykiety („Kategorie do anonimizacj[i]", „Numer konta
+      bankowego (I...)", „Adres (ulica, miejscowość, k...)", „Dane
+      firmy (nazwa, NIP, REG...)") były ucinane, nie zawijały się.
+      Przyczyna: CTkCheckBox (widget checkboxa) w ogóle nie obsługuje
+      zawijania tekstu — długa etykieta po prostu wychodziła poza wąski
+      panel „Szybkie akcje" i była wizualnie ucinana. Naprawione:
+      etykiety skrócone do samej nazwy kategorii („Dane firmy", „Adres",
+      „IBAN"...), a pełny opis (co dokładnie kryje się pod daną
+      kategorią) przeniesiony do dymka po najechaniu myszką na
+      checkbox. Też skrócony i zawijany tytuł karty. Sprawdź na żywo:
+      czy wszystkie 8 etykiet mieści się teraz w całości bez ucinania,
+      i czy najechanie myszką na checkbox pokazuje dymek z pełnym
+      opisem.
 
 - [ ] **Etykieta pola (np. „Adres”) już nie znika z tabelarycznych
       dokumentów (2026-09-17)** — to była przyczyna tego dziwnego
@@ -178,8 +124,25 @@ przenoszę ją do „Potwierdzone" albo usuwam. Jeśli lista urośnie powyżej
       (2026-09-15, potwierdzone 2026-09-17) — Twój feedback: treść i
       kolejność pytań, próg 30 dni i zachowanie przy odmowie „działa z
       wyjątkiem starych folderów" — wyjątek, na który trafiłeś (foldery
-      pokazujące „folder nie istnieje"), to osobny błąd, opisany i
-      naprawiony w pozycji „Wyczyść historię usuwa też wpis z listy"
-      poniżej.
+      pokazujące „folder nie istnieje"), to osobny błąd, opisany niżej.
+- [x] **„Wyczyść historię" usuwa też wpis z listy, w tym „foldery-duchy"
+      spoza dysku** (2026-09-17, potwierdzone 2026-09-17) — Twój
+      feedback: „ad5 - zatwierdzam". Dwa stare foldery pokazujące
+      „folder nie istnieje" (bo skasowane spoza apki) teraz też znikają
+      z listy Historia po kliknięciu „Wyczyść historię", tak jak
+      normalne, opróżnione z plików tej apki foldery.
+- [x] **Status recenzji nie „pamięta” już starego odrzucenia po
+      ponownym przetworzeniu** (2026-09-17, potwierdzone 2026-09-17) —
+      Twój feedback: „ad4 - zatwierdzam".
+- [x] **Uruchamianie bez widocznej konsoli** (2026-09-17, potwierdzone
+      2026-09-17) — Twój feedback: „ad6 zatwierdzam".
 - [x] **Cache'owanie detekcji w oknie porównania (Etap 2, 2026-09-16)**
       (potwierdzone 2026-09-17) — Twój feedback: „tak potwierdzam".
+- [x] **Wybór kategorii do anonimizacji — mechanizm poszerzonego zakresu
+      (Etap 4, 2026-09-17)** — Twój feedback: „ad1 - zatwierdzam". Sam
+      mechanizm (odznaczenie „Adres"/„Dane firmy" faktycznie zostawia
+      te dane widoczne, łącznie z tym co wykrywa AI) działa. Osobna
+      uwaga z tego samego testu — jakość/precyzja wykrywania „Dane
+      firmy" ("działało gorzej" niż PESEL/e-mail) — przeniesiona z tej
+      listy do `docs/PROJECT_STATE.md` jako zadanie do głębszych testów,
+      nie błąd do jednorazowego potwierdzenia.

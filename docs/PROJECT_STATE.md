@@ -3865,6 +3865,41 @@ its own dedicated investigation, not a quick fix bundled in here).
 `pdf_redaction.py`'s and `audit.py`'s independent copies directly),
 lint at the 77-error baseline.
 
+**Checkbox-panel text truncation, found live from the very widening this
+file's narrative above describes.** Longer category labels (added to
+spell out that "Adres"/"Dane firmy" now also cover their AI-detected
+counterpart) overflowed the narrow "Szybkie akcje" sidebar
+(`QUICK_SETTINGS_PANEL_WIDTH = 240`) and got visually clipped rather
+than wrapped - `customtkinter.CTkCheckBox` has no `wraplength` support
+at all (confirmed via its constructor signature), so a label longer
+than the widget's available width simply overflows and gets cut off by
+the fixed-width panel around it; the card's own title label had no
+`wraplength` set either. Fixed by splitting each category's text into a
+short label (`CATEGORY_SELECTION_LABELS_PL` in `gui_helpers.py`, now
+≤20 characters, e.g. "Dane firmy" instead of "Dane firmy (nazwa, NIP,
+REGON)") plus a longer explanation shown as an `IconTooltip` on hover
+(`CATEGORY_SELECTION_DETAIL_PL`/`category_selection_detail_pl`, new);
+the card title also now wraps. Re-exported through `gui.py`'s facade
+the same way `category_selection_label_pl` already was. 601 tests
+passing (3 new), lint unchanged - UI-only, no `code-review` needed.
+
+**Backlog, not a bug: "Dane firmy" (company) detection quality needs
+deeper testing.** From the same live-testing round that found the
+category-checkbox-scope bug above: PESEL and e-mail detection tested
+"super" (user's word), but company-data detection ("Dane firmy")
+tested noticeably worse - some real company names/NIP-adjacent text
+apparently missed or mishandled, per the user's own hands-on testing,
+though not yet pinned down to a specific reproducible case. Explicitly
+separated from the category-*scope* bug (which is fixed and confirmed
+working - unchecking "Dane firmy" now correctly leaves company data
+alone) - this is about how *well* the underlying NER_ORG/NIP/REGON
+detectors themselves catch company data in the first place, a
+detection-quality question, not a category-filtering bug. Needs its
+own dedicated testing pass with real-shaped company data (varied legal
+forms - Sp. z o.o., S.A., jednoosobowa działalność gospodarcza - and
+NIP/REGON formatting variations) before any fix can be scoped; nothing
+implemented yet.
+
 ## Warning
 
 This repository is still an early-stage portfolio MVP. Do not use it to

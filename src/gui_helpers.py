@@ -1502,15 +1502,34 @@ CATEGORY_LABELS_PL = {
 # nazwiska, pozostałe dane wykryte przez AI) is never shown here - it
 # stays always-on, never a checkbox, since leaving it off this list can
 # only mean "zawsze chronione", never "ukryte przed użytkownikiem".
+# Short enough to render in full inside a CTkCheckBox in the narrow
+# "Szybkie akcje" sidebar (QUICK_SETTINGS_PANEL_WIDTH) - CTkCheckBox has
+# no wraplength support at all, so a label that doesn't fit on one line
+# just overflows the panel and gets visually clipped, not wrapped (a
+# real bug reported live once these labels grew to spell out what each
+# category now also covers - see CATEGORY_SELECTION_DETAIL_PL below for
+# where that detail moved instead).
 CATEGORY_SELECTION_LABELS_PL = {
     CATEGORY_PESEL: "PESEL",
-    CATEGORY_PERSON: "Imię i nazwisko (AI, mniejsza pewność)",
+    CATEGORY_PERSON: "Imię i nazwisko (AI)",
     CATEGORY_PHONE: "Numer telefonu",
     CATEGORY_EMAIL: "Adres e-mail",
-    CATEGORY_IBAN: "Numer konta bankowego (IBAN)",
-    CATEGORY_ADDRESS: "Adres (ulica, miejscowość, kod pocztowy, AI)",
-    CATEGORY_COMPANY: "Dane firmy (nazwa, NIP, REGON)",
+    CATEGORY_IBAN: "IBAN",
+    CATEGORY_ADDRESS: "Adres",
+    CATEGORY_COMPANY: "Dane firmy",
     CATEGORY_DATE: "Data",
+}
+# Longer explanation for each category, shown as a hover tooltip next to
+# its checkbox instead of crammed into the label text itself.
+CATEGORY_SELECTION_DETAIL_PL = {
+    CATEGORY_PESEL: "Numer PESEL.",
+    CATEGORY_PERSON: "Imię i nazwisko wykryte przez AI - mniejsza pewność niż inne kategorie.",
+    CATEGORY_PHONE: "Numer telefonu.",
+    CATEGORY_EMAIL: "Adres e-mail.",
+    CATEGORY_IBAN: "Numer konta bankowego (IBAN).",
+    CATEGORY_ADDRESS: "Ulica, miejscowość, kod pocztowy - wykryte wzorcem oraz przez AI.",
+    CATEGORY_COMPANY: "Nazwa firmy (AI), NIP, REGON.",
+    CATEGORY_DATE: "Data.",
 }
 CATEGORY_SELECTION_ORDER = ALL_CATEGORIES
 
@@ -1518,6 +1537,12 @@ CATEGORY_SELECTION_ORDER = ALL_CATEGORIES
 def category_selection_label_pl(category: str) -> str:
     """Polish display label for one of the 8 Etap 4 categories."""
     return CATEGORY_SELECTION_LABELS_PL.get(category, category)
+
+
+def category_selection_detail_pl(category: str) -> str:
+    """Longer Polish explanation for one of the 8 Etap 4 categories,
+    meant for a tooltip next to its (short) checkbox label."""
+    return CATEGORY_SELECTION_DETAIL_PL.get(category, "")
 
 
 RISK_SUMMARY_TEXT_PL = {
