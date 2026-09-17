@@ -3586,6 +3586,89 @@ AI/API integration, broader LLM features, databases, broad NLP/entity
 detection, packaging, release automation, embedding retrieval with
 `bge-m3`, or a general town/city name database.
 
+**Pilot feedback round 4 (UI/UX fixes), from direct testing feedback after
+Etap 4 shipped:** the user reported 5 numbered issues from actually using
+the built app. Fixed:
+
+1. The dev-mode launch always showed a raw console/terminal window behind
+   the GUI. Root cause: `uruchom.bat` runs `python.exe` (console subsystem),
+   and even switching it to `pythonw.exe` wouldn't help - double-clicking a
+   `.bat` always spawns a `cmd.exe` host first. Added `uruchom.vbs`
+   (`WScript.Shell.Run(..., 0, False)`) as the silent daily-use launcher;
+   `uruchom.bat` stays for debugging (visible console, existing error-pause
+   fallback). Since a windowed launch has no console to show a startup
+   crash on, `src/main.py` now catches any uncaught exception from
+   `start_gui()` and logs it to `~/.anonimizer/ostatni_blad.log` before
+   re-raising, so a silent launch failure still leaves a diagnosable trail.
+   This is the dev-mode half of the "packaged build must run windowed"
+   item noted earlier in this file - the packaged `.exe` side
+   (`DocShield.spec`'s `console=False`) was already in place.
+2. Magic pen mode was invisible/undiscoverable in several ways - all from
+   the same root cause, that nothing about the interaction mode had any
+   real visual weight. Fixed: the mode-indicator went from one 11px grey
+   label to 3 small colored icon badges (one per mouse button, showing its
+   current action's icon/color - accent blue for zaznaczanie, red for
+   odznaczanie, orange for przesuwanie widoku); Undo/Redo buttons now
+   recolor to the accent color when actually clickable instead of always
+   looking like the same muted ghost button regardless of state; the
+   magic-pen document canvas's cursor now reflects what LPM currently does
+   at rest and switches live to whichever action is actually held during a
+   press/drag/release, instead of a single fixed crosshair regardless of
+   mode; a new gear-icon button in the comparison window's title bar opens
+   Ustawienia > Ogólne directly (there was previously no way back to
+   Ustawienia from that window at all) and refreshes the badges/cursor in
+   place once it closes; and the Ustawienia dialog's own magic-pen mode
+   section got the same accent-card treatment as the category picker
+   below, plus a 🖱 icon, so it no longer blends into the plain on/off
+   toggle rows around it. Separately, the Ustawienia window could clip its
+   own "Zapisz i zamknij" button off-screen on a short window - fixed with
+   a `minsize` floor and by packing that button before the tabview,
+   `side="bottom"`, the same protected-footer pattern already used
+   elsewhere in this app.
+3. The category checkboxes added in Etap 4 existed but were not
+   discoverable at all ("nie wiem jak mam zaznaczać odznaczać w GUI to").
+   Root cause: the section sat near the bottom of the quick-settings panel,
+   past a fold-worthy amount of other content, with no visual distinction
+   from anything else. Moved to the top of the panel (right after the
+   collapse header, before "Wykrywanie podstawowe") and given the same
+   accent-card highlight treatment as the magic-pen mode section above.
+   Also fixed in the same batch: the comparison window's color-legend
+   sidebar could get clipped vertically on a short window - the sidebar's
+   inner content frame is now a `CTkScrollableFrame` instead of a plain
+   frame, the same fix already proven for the "Szybkie akcje" panel.
+4. "Wyczyść historię" deleted a folder's files but left its card in the
+   Historia list forever, now pointing at nothing. Confirmed via
+   `AskUserQuestion` that the wanted behavior is: the history *entry*
+   disappears once nothing this app tracks remains in that folder, but the
+   (now presumably empty or user-owned-leftovers) folder itself stays on
+   disk untouched - `folder_has_any_tracked_output` in
+   `src/output_cleanup.py` and the filtering step added to
+   `clean_history()` in `src/gui_app.py` implement exactly that.
+5. Export and opening the finished PDF were confirmed working - no action
+   needed.
+
+Also prepared in the same working session (before this feedback arrived):
+4 realistic Polish office-document test fixtures (umowa najmu, faktura
+VAT, pismo urzędowe, wniosek do druku/skanu) as `.docx`, spanning
+easy-baseline to hard/OCR-oriented difficulty, meant to probe realistic
+office-document formatting quirks rather than deliberately-hidden text
+tricks. Handed to the user as `.docx`; PDF conversion and any
+print-and-rescan step for the OCR-oriented fixture is the user's own task
+(a Word COM automation attempt to do this from the agent side proved
+unreliable - hung twice, was abandoned per direct feedback: "to wyłącz
+tych agentów, ja sam sobie na pdf przerobię").
+
+This batch touches only GUI files (`gui_app.py`, `gui_comparison_window.py`,
+`gui_settings_dialog.py`) plus `main.py` and `output_cleanup.py` - no
+`code-review` pass required per `CLAUDE.md` (that gate is for
+`anonymizer.py`/`pdf_redaction.py`/`manual_redaction.py`/`ocr.py`). Full
+suite: 579 tests (22 new - 3 for the crash-logging fallback, 5 for
+`folder_has_any_tracked_output`, 14 for the magic-pen visual-indicator
+behavior). Lint at the established 77-error baseline. Everything in this
+batch is a visual/discoverability fix the user still needs to confirm
+live against their own judgment of "does this actually read as visible
+now" - tracked in `docs/DO_ZWERYFIKOWANIA.md`, not re-litigated here.
+
 ## Warning
 
 This repository is still an early-stage portfolio MVP. Do not use it to

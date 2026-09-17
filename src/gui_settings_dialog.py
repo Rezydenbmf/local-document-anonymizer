@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import threading
 import tkinter as tk
+from collections.abc import Callable
 from pathlib import Path
 from tkinter import filedialog, messagebox
 
@@ -20,6 +21,7 @@ try:
         APPROVAL_LOCK_HINT_ID,
         COLOR_ACCENT,
         COLOR_ACCENT_HOVER,
+        COLOR_ACCENT_SOFT,
         COLOR_BG,
         COLOR_BORDER,
         COLOR_CARD,
@@ -65,6 +67,7 @@ except ImportError:
         APPROVAL_LOCK_HINT_ID,
         COLOR_ACCENT,
         COLOR_ACCENT_HOVER,
+        COLOR_ACCENT_SOFT,
         COLOR_BG,
         COLOR_BORDER,
         COLOR_CARD,
@@ -108,11 +111,31 @@ if TYPE_CHECKING:
 class SettingsDialog:
     """Modal settings window for advanced anonymization options."""
 
-    def __init__(self, app: AnonymizerApp, initial_tab: str | None = None) -> None:
+    def __init__(
+        self,
+        app: AnonymizerApp,
+        initial_tab: str | None = None,
+        on_saved: Callable[[], None] | None = None,
+    ) -> None:
         self.app = app
+        # Lets a caller outside the main window (e.g. the comparison
+        # window's own gear-icon shortcut, see ComparisonWindow) react
+        # once a setting that affects it - the magic pen mode, right
+        # now - actually changed, without this dialog needing to know
+        # anything about who opened it.
+        self._on_saved = on_saved
         self.window = ctk.CTkToplevel(app.root)
         self.window.title("Ustawienia")
         center_window_over_parent(self.window, app.root, 560, 700)
+        # A real, reported bug: nothing stopped this window shrinking
+        # below the height its own content needs, and "Zapisz i
+        # zamknij" - packed last, sharing space with the expanding
+        # tabview instead of a protected footer - was the one thing
+        # that got squeezed off screen. minsize is a floor; the footer
+        # restructure below (packed before the tabview, side="bottom")
+        # is the real fix, matching this app's own established rule
+        # that whatever must always stay reachable gets packed first.
+        self.window.minsize(480, 520)
         self.window.configure(fg_color=COLOR_BG)
         self.window.transient(app.root)
         self.window.grab_set()
@@ -174,6 +197,21 @@ class SettingsDialog:
             command=self.window.destroy,
         ).pack(side="right")
 
+        # Packed before the tabview and pinned to the bottom, so it
+        # always claims its own space and can never be squeezed off a
+        # short window - the same "protected footer" pattern this app
+        # already uses for the main screen's "Anonimizuj" action bar.
+        ctk.CTkButton(
+            self.window,
+            text="Zapisz i zamknij",
+            height=42,
+            corner_radius=8,
+            fg_color=COLOR_ACCENT,
+            hover_color=COLOR_ACCENT_HOVER,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+            command=self._save_and_close,
+        ).pack(side="bottom", fill="x", padx=20, pady=16)
+
         tabview = ctk.CTkTabview(
             self.window,
             fg_color=COLOR_BG,
@@ -196,17 +234,6 @@ class SettingsDialog:
                 tabview.set(initial_tab)
             except ValueError:
                 pass
-
-        ctk.CTkButton(
-            self.window,
-            text="Zapisz i zamknij",
-            height=42,
-            corner_radius=8,
-            fg_color=COLOR_ACCENT,
-            hover_color=COLOR_ACCENT_HOVER,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
-            command=self._save_and_close,
-        ).pack(fill="x", padx=20, pady=16)
 
     def _build_detection_tab(self, tab: ctk.CTkFrame) -> None:
         self._build_static_info_row(
@@ -333,12 +360,25 @@ class SettingsDialog:
         themselves via the dropdowns _build_custom_bindings_rows reveals
         below the radio buttons.
         """
-        section = self._section_frame(parent)
+        # A highlighted card, not the plain _section_frame every toggle
+        # around it uses - per direct feedback this section "blended in
+        # too much" with simple on/off settings, even though it is a
+        # 3-way mode picker with its own sub-rows. Same accent-card
+        # treatment as the comparison window's category picker
+        # (gui_app.py's "Kategorie do anonimizacji").
+        section = ctk.CTkFrame(
+            parent,
+            corner_radius=10,
+            fg_color=COLOR_ACCENT_SOFT,
+            border_width=1,
+            border_color=COLOR_ACCENT,
+        )
+        section.pack(fill="x", pady=6)
         inner = ctk.CTkFrame(section, fg_color="transparent")
         inner.pack(fill="x", padx=14, pady=12)
         ctk.CTkLabel(
             inner,
-            text="Tryb interakcji magic pena",
+            text="🖱 Tryb interakcji magic pena",
             font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
             text_color=COLOR_TEXT,
             anchor="w",
@@ -849,5 +889,7 @@ class SettingsDialog:
             )
             self.app.llm_model_name = selected_model
         self.window.destroy()
+        if self._on_saved is not None:
+            self._on_saved()
 
 

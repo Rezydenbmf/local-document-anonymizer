@@ -5,6 +5,7 @@ import threading
 import time
 import tkinter as tk
 import webbrowser
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 from tkinter import filedialog, messagebox
@@ -132,6 +133,7 @@ try:
     from .output_cleanup import (
         apply_output_cleanup_plan,
         build_history_cleanup_plan,
+        folder_has_any_tracked_output,
         format_file_size,
         format_history_cleanup_summary,
     )
@@ -265,6 +267,7 @@ except ImportError:
     from output_cleanup import (
         apply_output_cleanup_plan,
         build_history_cleanup_plan,
+        folder_has_any_tracked_output,
         format_file_size,
         format_history_cleanup_summary,
     )
@@ -1132,6 +1135,66 @@ class AnonymizerApp:
         collapse_button.pack(side="right")
         IconTooltip(collapse_button, "Ukryj szybkie akcje")
 
+        # Per direct feedback: this is the setting a user actually
+        # touches for nearly every task, but it used to sit at the
+        # bottom of this narrow scrollable panel, below five other
+        # sections, with a scrollbar styled to stay almost invisible
+        # until hovered - effectively undiscoverable. Moved to the top,
+        # given its own highlighted card (the same accent-tinted style
+        # this screen already uses for the "wróć do przeglądu" banner)
+        # so it reads as a distinct, important control rather than
+        # blending into the plain toggle list below it.
+        category_card = ctk.CTkFrame(
+            inner,
+            corner_radius=10,
+            fg_color=COLOR_ACCENT_SOFT,
+            border_width=1,
+            border_color=COLOR_ACCENT,
+        )
+        category_card.pack(fill="x", pady=(0, 14))
+        category_inner = ctk.CTkFrame(category_card, fg_color="transparent")
+        category_inner.pack(fill="x", padx=14, pady=12)
+        ctk.CTkLabel(
+            category_inner,
+            text="🏷 Kategorie do anonimizacji (to zadanie)",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
+            text_color=COLOR_TEXT,
+            anchor="w",
+        ).pack(fill="x", pady=(0, 2))
+        ctk.CTkLabel(
+            category_inner,
+            text=(
+                "Odznacz, czego NIE anonimizować w tym zadaniu. Wszystko "
+                "inne (dowód osobisty, nietypowe nazwiska, dane wykryte "
+                "przez AI poza imieniem i nazwiskiem) jest anonimizowane "
+                "zawsze."
+            ),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+            text_color=COLOR_TEXT_MUTED,
+            anchor="w",
+            wraplength=QUICK_SETTINGS_PANEL_WIDTH - 40,
+            justify="left",
+        ).pack(fill="x", pady=(0, 8))
+        for category in CATEGORY_SELECTION_ORDER:
+            category_var = tk.BooleanVar(value=category in self.active_categories)
+
+            def _on_category_toggle(cat=category, var=category_var) -> None:
+                if var.get():
+                    self.active_categories.add(cat)
+                else:
+                    self.active_categories.discard(cat)
+
+            ctk.CTkCheckBox(
+                category_inner,
+                text=category_selection_label_pl(category),
+                variable=category_var,
+                command=_on_category_toggle,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                text_color=COLOR_TEXT,
+                fg_color=COLOR_ACCENT,
+                hover_color=COLOR_ACCENT_HOVER,
+            ).pack(anchor="w", pady=(0, 4))
+
         env_status = environment_status_lookup(self.environment_items)
 
         ctk.CTkLabel(
@@ -1287,47 +1350,6 @@ class AnonymizerApp:
             font=ctk.CTkFont(family=FONT_FAMILY, size=10),
             command=lambda: self.open_settings(initial_tab="Słownik"),
         ).pack(side="right")
-
-        ctk.CTkLabel(
-            inner,
-            text="Kategorie do anonimizacji (to zadanie)",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=11, weight="bold"),
-            text_color=COLOR_TEXT,
-            anchor="w",
-        ).pack(fill="x", pady=(0, 0))
-        ctk.CTkLabel(
-            inner,
-            text=(
-                "Odznacz, czego NIE anonimizować w tym zadaniu. Wszystko "
-                "inne (dowód osobisty, nietypowe nazwiska, dane wykryte "
-                "przez AI poza imieniem i nazwiskiem) jest anonimizowane "
-                "zawsze."
-            ),
-            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
-            text_color=COLOR_TEXT_MUTED,
-            anchor="w",
-            wraplength=QUICK_SETTINGS_PANEL_WIDTH - 40,
-            justify="left",
-        ).pack(fill="x", pady=(0, 6))
-        for category in CATEGORY_SELECTION_ORDER:
-            category_var = tk.BooleanVar(value=category in self.active_categories)
-
-            def _on_category_toggle(cat=category, var=category_var) -> None:
-                if var.get():
-                    self.active_categories.add(cat)
-                else:
-                    self.active_categories.discard(cat)
-
-            ctk.CTkCheckBox(
-                inner,
-                text=category_selection_label_pl(category),
-                variable=category_var,
-                command=_on_category_toggle,
-                font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-                text_color=COLOR_TEXT,
-                fg_color=COLOR_ACCENT,
-                hover_color=COLOR_ACCENT_HOVER,
-            ).pack(anchor="w", pady=(0, 4))
 
         ctk.CTkButton(
             inner,
@@ -2089,6 +2111,24 @@ class AnonymizerApp:
 
         if anything_removed:
             self._record_cleanup_ran()
+            # A folder cleanup emptied of every file this app tracks -
+            # per direct feedback, "wyczyść historię" should mean the
+            # entry itself disappears from this screen, not just that
+            # its files are gone while a now-pointless card stays behind
+            # forever. The folder itself is left alone on disk - only
+            # the history *entry* (recent_folders) is forgotten.
+            still_has_output = {
+                folder for folder in folders if folder_has_any_tracked_output(folder)
+            }
+            remaining = [
+                entry
+                for entry in self.recent_folders
+                if entry.get("path", "") not in folders
+                or entry.get("path", "") in still_has_output
+            ]
+            if len(remaining) != len(self.recent_folders):
+                self.recent_folders = remaining
+                save_recent_folders(self.history_config_path, self.recent_folders)
         self.show_history_screen()
 
     def _record_cleanup_ran(self) -> None:
@@ -2107,8 +2147,12 @@ class AnonymizerApp:
     # Settings modal
     # ------------------------------------------------------------------
 
-    def open_settings(self, initial_tab: str | None = None) -> None:
-        SettingsDialog(self, initial_tab=initial_tab)
+    def open_settings(
+        self,
+        initial_tab: str | None = None,
+        on_saved: Callable[[], None] | None = None,
+    ) -> None:
+        SettingsDialog(self, initial_tab=initial_tab, on_saved=on_saved)
 
     def open_about(self) -> None:
         AboutDialog(self)
