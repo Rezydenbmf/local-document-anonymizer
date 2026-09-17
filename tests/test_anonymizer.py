@@ -46,6 +46,71 @@ class AnonymizerEngineTests(unittest.TestCase):
         self.assertEqual(anonymized, text)
         self.assertEqual(report, {})
 
+    def test_pairs_table_separated_nip_and_regon_labels_with_their_values(
+        self,
+    ) -> None:
+        """Direct regression test for the exact scenario reported live on
+        a real invoice: NIP/REGON_PATTERN require the label and its
+        digits on the same line, but a common invoice-table layout
+        groups every field label in one block and every value in
+        another a few lines later - leaving both completely undetected
+        before this fallback existed.
+        """
+        text = "NIP\nREGON\n526-000-12-46\n012345678"
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(anonymized, "NIP\nREGON\n[NIP]\n[REGON]")
+        self.assertEqual(report, {"NIP": 1, "REGON": 1})
+
+    def test_table_separated_pairing_matches_multiple_labels_in_reading_order(
+        self,
+    ) -> None:
+        text = "NIP\nNIP\n1111111111\n2222222222"
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(anonymized, "NIP\nNIP\n[NIP]\n[NIP]")
+        self.assertEqual(report, {"NIP": 2})
+
+    def test_table_separated_pairing_does_not_reach_across_unrelated_pages(
+        self,
+    ) -> None:
+        """A label many lines away from any digits must not silently
+        grab an unrelated number much later in the document - bounded
+        to the same table/block, not the rest of a long document."""
+        filler = "linia wypelniajaca\n" * 12
+        text = f"NIP\n{filler}526-000-12-46"
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(anonymized, text)
+        self.assertEqual(report, {})
+
+    def test_table_separated_pairing_leaves_the_field_label_itself_untouched(
+        self,
+    ) -> None:
+        text = "NIP\n526-000-12-46"
+
+        anonymized, _report = anonymize_text(text)
+
+        self.assertIn("NIP", anonymized)
+        self.assertNotIn("526-000-12-46", anonymized)
+
+    def test_table_separated_pairing_does_not_claim_a_pesel_shaped_number(
+        self,
+    ) -> None:
+        """PESEL is 11 digits, NIP is exactly 10 - the two patterns
+        already run in an order where PESEL claims its match first, so
+        this fallback must never additionally treat an 11-digit PESEL
+        as a disconnected NIP value."""
+        text = "NIP\n00000000000"
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(anonymized, "NIP\n[PESEL]")
+        self.assertEqual(report, {"PESEL": 1})
+
     def test_replaces_dowod_osobisty_number(self) -> None:
         text = "Numer dowodu: ABC123456."
 

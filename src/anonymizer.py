@@ -1,10 +1,11 @@
 """Regex-based plain text anonymization engine."""
 
+import bisect
+import json
+import re
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
-import json
-import re
 
 try:
     from .checklist import (
@@ -451,6 +452,131 @@ PHONE_CONTEXT_PATTERN = re.compile(
     r"(?i)(?:tel\.?|telefon|kom\.?|mobile|fax|kontakt|numer telefonu|phone)\s*[:\-]?\s*$"
 )
 WEAK_GROUPED_PHONE_PATTERN = re.compile(r"(?<![\w+])\d{3}[-\s]\d{3}[-\s]\d{3}(?!\w)")
+# The direct "NIP"/"REGON" patterns in _PATTERNS require the label and
+# its digits to sit on the same line - confirmed live on a real invoice
+# fixture, a common table layout defeats that entirely: every field
+# label grouped in one column/block ("NIP", "REGON"), every value
+# grouped in another a few lines later ("526-000-12-46", "012345678"),
+# leaving both completely undetected despite "Dane firmy" being
+# selected. _replace_table_separated_nip_regon below is a fallback pass
+# for exactly that shape - see its own docstring for how it pairs a
+# label with a value without touching the label text itself (a field
+# label is never PII, same principle as _INLINE_WS's own fix earlier
+# the same session).
+_BARE_NIP_LABEL_PATTERN = re.compile(r"(?<!\w)NIP(?!\w)", re.IGNORECASE)
+_BARE_REGON_LABEL_PATTERN = re.compile(r"(?<!\w)REGON(?!\w)", re.IGNORECASE)
+_BARE_NIP_VALUE_PATTERN = re.compile(r"(?<!\w)\d(?:[\s-]?\d){9}(?!\w)")
+_BARE_REGON_VALUE_PATTERN = re.compile(
+    r"(?<!\w)(?:\d(?:[\s-]?\d){13}|\d(?:[\s-]?\d){8})(?!\w)"
+)
+# How many lines forward of an unmatched label a value can still be
+# paired with it - bounds the fallback to "the same table/block", not
+# an unrelated number anywhere later in a long document.
+_TABLE_LABEL_VALUE_MAX_LINES_AHEAD = 8
+
+
+def _table_separated_label_value_spans(
+    text: str,
+    label_pattern: re.Pattern[str],
+    value_pattern: re.Pattern[str],
+) -> list[tuple[int, int]]:
+    """Pair each bare ``label_pattern`` match with the nearest, not yet
+    claimed ``value_pattern`` match that starts after it, within
+    ``_TABLE_LABEL_VALUE_MAX_LINES_AHEAD`` lines - in reading order, so
+    a block of N labels pairs with the next N values in the same
+    relative order they were written in, the same way a person reading
+    the table would. Returns only the *value* spans; the caller never
+    touches the label text.
+    """
+    label_starts = [m.start() for m in label_pattern.finditer(text)]
+    if not label_starts:
+        return []
+    value_positions = [(m.start(), m.end()) for m in value_pattern.finditer(text)]
+    if not value_positions:
+        return []
+
+    line_starts = [0]
+    line_starts.extend(m.end() for m in re.finditer(r"\n", text))
+
+    def line_number(offset: int) -> int:
+        return bisect.bisect_right(line_starts, offset) - 1
+
+    claimed: set[int] = set()
+    spans: list[tuple[int, int]] = []
+    search_from = 0
+    for label_start in label_starts:
+        label_line = line_number(label_start)
+        while search_from < len(value_positions) and (
+            value_positions[search_from][0] < label_start
+            or search_from in claimed
+        ):
+            search_from += 1
+        for index in range(search_from, len(value_positions)):
+            if index in claimed:
+                continue
+            value_start, value_end = value_positions[index]
+            if line_number(value_start) - label_line > _TABLE_LABEL_VALUE_MAX_LINES_AHEAD:
+                break
+            claimed.add(index)
+            spans.append((value_start, value_end))
+            break
+    return spans
+
+
+def _replace_table_separated_nip_regon(
+    text: str, active_labels: frozenset[str] | None
+) -> tuple[str, dict[str, int]]:
+    """Fallback for the table layout _PATTERNS' direct NIP/REGON entries
+    can't handle - see the module comment above ``_BARE_NIP_LABEL_PATTERN``.
+    """
+    replacements: list[tuple[int, int, str]] = []
+    for label_name, label_pattern, value_pattern in (
+        ("NIP", _BARE_NIP_LABEL_PATTERN, _BARE_NIP_VALUE_PATTERN),
+        ("REGON", _BARE_REGON_LABEL_PATTERN, _BARE_REGON_VALUE_PATTERN),
+    ):
+        if active_labels is not None and label_name not in active_labels:
+            continue
+        for start, end in _table_separated_label_value_spans(
+            text, label_pattern, value_pattern
+        ):
+            replacements.append((start, end, label_name))
+
+    if not replacements:
+        return text, {}
+
+    replacements.sort()
+    counters: dict[str, int] = {}
+    parts: list[str] = []
+    cursor = 0
+    for start, end, label_name in replacements:
+        parts.append(text[cursor:start])
+        parts.append(f"[{label_name}]")
+        cursor = end
+        counters[label_name] = counters.get(label_name, 0) + 1
+    parts.append(text[cursor:])
+    return "".join(parts), counters
+
+
+def _table_separated_nip_regon_pdf_spans(
+    text: str, active_labels: frozenset[str] | None
+) -> list[tuple[str, int, int]]:
+    """PDF word-coordinate counterpart of
+    _replace_table_separated_nip_regon - same pairing, returning
+    ``(label, start, end)`` spans instead of doing a text substitution,
+    for callers that need to map a span back to a rectangle rather than
+    replace it in a linear string."""
+    results: list[tuple[str, int, int]] = []
+    for label_name, label_pattern, value_pattern in (
+        ("NIP", _BARE_NIP_LABEL_PATTERN, _BARE_NIP_VALUE_PATTERN),
+        ("REGON", _BARE_REGON_LABEL_PATTERN, _BARE_REGON_VALUE_PATTERN),
+    ):
+        if active_labels is not None and label_name not in active_labels:
+            continue
+        for start, end in _table_separated_label_value_spans(
+            text, label_pattern, value_pattern
+        ):
+            results.append((label_name, start, end))
+    return results
 _UPPER_LETTERS = "A-ZĄĆĘŁŃÓŚŹŻ"
 _LOWER_LETTERS = "A-Za-zĄĆĘŁŃÓŚŹŻąćęłńóśźż"
 _NAME_TOKEN = rf"[{_UPPER_LETTERS}][{_LOWER_LETTERS}]{{2,}}"
@@ -731,6 +857,29 @@ def _apply_dictionary_and_regex(
         anonymized, count = pattern.subn(f"[{label}]", anonymized)
         if count:
             counters[label] = counters.get(label, 0) + count
+        # Right after REGON's own direct (same-line) pattern gets its
+        # shot, and *before* TELEFON's turn a few iterations later:
+        # TELEFON's own bare "\d{9}" fallback (a deliberately permissive
+        # match for a plain Polish mobile number with no separators)
+        # would otherwise claim a disconnected 9-digit REGON value
+        # first, since REGON's short form is exactly 9 digits too. This
+        # only ever sees labels the direct NIP/REGON patterns above
+        # didn't already consume (a same-line "NIP: 123..." is long
+        # gone by now, untouched), so the existing adjacent-case
+        # behavior is unaffected - this purely adds the previously-
+        # impossible disconnected case, still ahead of TELEFON in the
+        # same "first claim wins" precedence every other _PATTERNS
+        # entry relies on.
+        if label == "REGON" and (
+            active_labels is None
+            or "NIP" in active_labels
+            or "REGON" in active_labels
+        ):
+            anonymized, table_counts = _replace_table_separated_nip_regon(
+                anonymized, active_labels
+            )
+            for table_label, table_count in table_counts.items():
+                counters[table_label] = counters.get(table_label, 0) + table_count
     if active_labels is None or "TELEFON" in active_labels:
         anonymized, weak_phone_count = _replace_contextual_weak_phone_numbers(
             anonymized
@@ -955,6 +1104,33 @@ def _regex_pdf_spans_for_page(
                 end=match.end(),
                 source="regex",
             )
+        # Right after REGON's own direct (same-line) pattern above, and
+        # before TELEFON's turn a few iterations later: see
+        # _apply_dictionary_and_regex's identical ordering note.
+        # _add_pdf_span's own occupied_ranges overlap check means this
+        # must run after the direct NIP/REGON patterns' own matches
+        # already reserved their ranges, exactly like the text-
+        # substitution path - otherwise this fallback would win a
+        # same-line "NIP: 123..." case it was never meant to handle,
+        # narrowing that redaction box to just the digits and silently
+        # blocking the direct pattern's own wider span.
+        if label == "REGON" and (
+            active_labels is None
+            or "NIP" in active_labels
+            or "REGON" in active_labels
+        ):
+            for table_label, start, end in _table_separated_nip_regon_pdf_spans(
+                page_text, active_labels
+            ):
+                _add_pdf_span(
+                    spans,
+                    occupied_ranges,
+                    label=table_label,
+                    page_number=page_number,
+                    start=start,
+                    end=end,
+                    source="regex",
+                )
     if active_labels is None or "TELEFON" in active_labels:
         for match in WEAK_GROUPED_PHONE_PATTERN.finditer(page_text):
             if not _has_phone_context(page_text, match.start()):
