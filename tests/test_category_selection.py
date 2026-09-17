@@ -10,6 +10,7 @@ RECZNE) stays always-on regardless of selection. See
 docs/PROJECT_STATE.md's Etap 4 narrative for the full design.
 """
 
+import json
 import sys
 import tempfile
 import unittest
@@ -170,8 +171,6 @@ class AnonymizeTextWithNerFilteringTests(unittest.TestCase):
     def test_allowed_labels_none_redacts_every_entity(self) -> None:
         context = NerContext(enabled=True, status="available", model_name="x")
         with patch("ner.detect_entities_with_details") as mock_detect:
-            from ner import NerEntity
-
             mock_detect.return_value = (
                 [NerEntity(start=0, end=10, label="NER_PERSON")],
                 {"NER_PERSON": 1},
@@ -197,8 +196,6 @@ class AnonymizeTextWithNerFilteringTests(unittest.TestCase):
         """
         context = NerContext(enabled=True, status="available", model_name="x")
         with patch("ner.detect_entities_with_details") as mock_detect:
-            from ner import NerEntity
-
             mock_detect.return_value = (
                 [NerEntity(start=0, end=12, label="NER_PERSON")],
                 {"NER_PERSON": 1},
@@ -224,8 +221,6 @@ class AnonymizeTextWithNerFilteringTests(unittest.TestCase):
         """
         context = NerContext(enabled=True, status="available", model_name="x")
         with patch("ner.detect_entities_with_details") as mock_detect:
-            from ner import NerEntity
-
             mock_detect.return_value = (
                 [NerEntity(start=0, end=13, label="NER_ORG")],
                 {"NER_ORG": 1},
@@ -503,7 +498,64 @@ class MagicPenRegenerateRespectsCategorySelectionTests(unittest.TestCase):
 
             save_category_selection(path, ["pesel", "email"])
 
-            self.assertEqual(load_category_selection(path), ("pesel", "email"))
+            loaded = load_category_selection(path)
+        self.assertEqual(loaded, resolve_active_labels(["pesel", "email"]))
+        self.assertIn("PESEL", loaded)
+        self.assertIn("EMAIL", loaded)
+        self.assertNotIn("TELEFON", loaded)
+
+    def test_sidecar_freezes_the_label_set_active_at_save_time(self) -> None:
+        """Regression test for a real bug found live (2026-09-17):
+        CATEGORY_GROUPS's mapping can itself change between app versions
+        (confirmed: NER_ORG/NER_LOCATION moved into CATEGORY_COMPANY/
+        CATEGORY_ADDRESS). A sidecar written under an *older* mapping
+        must keep meaning what it meant at save time, not silently
+        change meaning when a later regenerate reads it back under a
+        *newer* mapping - proven here by passing a fabricated
+        active_categories value that resolve_active_labels would treat
+        completely differently, and confirming compute_pdf_redaction_spans
+        used the frozen active_labels instead.
+        """
+        with workspace_temp_dir() as temp_dir:
+            output_path = Path(temp_dir) / "document_ANON_VISUAL.pdf"
+            path = category_selection_path(output_path)
+            save_category_selection(path, [CATEGORY_PESEL])
+            frozen_labels = load_category_selection(path)
+
+            source_path = Path(temp_dir) / "source.pdf"
+            write_fitz_text_pdf(
+                source_path, ["Contact tester@example.test about PESEL 00000000000."]
+            )
+            _word_pages, spans = compute_pdf_redaction_spans(
+                source_path,
+                # A category name resolve_active_labels would expand to
+                # *every* category - if the frozen active_labels weren't
+                # actually taking precedence, EMAIL would show up too.
+                active_categories=list(CATEGORY_GROUPS),
+                active_labels=frozen_labels,
+            )
+
+        labels_found = {s.label for s in spans}
+        self.assertIn("PESEL", labels_found)
+        self.assertNotIn("EMAIL", labels_found)
+
+    def test_old_format_sidecar_without_active_labels_loads_as_none(self) -> None:
+        """An old-format sidecar (from before active_labels existed)
+        only has active_categories - re-resolving those names against
+        today's CATEGORY_GROUPS could silently change what they meant
+        (see test_sidecar_freezes_the_label_set_active_at_save_time), so
+        this must fall back to None ("no filtering") rather than guess -
+        the same safe direction a missing/corrupt sidecar already took.
+        """
+        with workspace_temp_dir() as temp_dir:
+            output_path = Path(temp_dir) / "document_ANON_VISUAL.pdf"
+            path = category_selection_path(output_path)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                json.dumps({"active_categories": ["pesel"]}), encoding="utf-8"
+            )
+
+            self.assertIsNone(load_category_selection(path))
 
     def test_missing_sidecar_loads_as_none_meaning_unfiltered(self) -> None:
         with workspace_temp_dir() as temp_dir:
@@ -557,7 +609,7 @@ class MagicPenRegenerateRespectsCategorySelectionTests(unittest.TestCase):
             visual_pdf = output_dir / "document_ANON_VISUAL.pdf"
             self.assertTrue(visual_pdf.exists())
             recorded = load_category_selection(category_selection_path(visual_pdf))
-        self.assertEqual(recorded, (CATEGORY_PESEL,))
+        self.assertEqual(recorded, resolve_active_labels([CATEGORY_PESEL]))
 
 
 class AttachPdfCoverageMetadataCategoryAwarenessTests(unittest.TestCase):

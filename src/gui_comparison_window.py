@@ -467,15 +467,21 @@ class ComparisonWindow:
         self.source_path = original_path
         self.original_path = original_path
         self.result_path = result_path
-        # The Etap 4 category selection this document's visual output was
-        # originally produced with (see anonymizer.category_selection_path)
-        # - None if the sidecar is missing (a pre-Etap-4 output, or the
-        # visual redaction step itself failed) or corrupt, which
-        # resolve_active_labels() correctly treats as "no filtering".
-        # Threaded into every detection recompute this window triggers
-        # (see _cached_detection) so a manual edit's "regenerate" pass
-        # never silently redacts a category the user originally excluded.
-        self._original_active_categories: tuple[str, ...] | None = (
+        # The *resolved* Etap 4 detection-label set this document's visual
+        # output was originally produced with (see
+        # anonymizer.category_selection_path/load_category_selection) -
+        # None if the sidecar is missing (a pre-Etap-4 output, or the
+        # visual redaction step itself failed), corrupt, or written before
+        # this field existed, which resolve_active_labels() correctly
+        # treats as "no filtering". Frozen at save time rather than the
+        # category *names* re-resolved against today's CATEGORY_GROUPS -
+        # a later app update changing what a category covers must never
+        # retroactively change what regenerating an *existing* document
+        # does. Threaded into every detection recompute this window
+        # triggers (see _cached_detection) so a manual edit's "regenerate"
+        # pass never silently redacts a category the user originally
+        # excluded.
+        self._original_active_labels: frozenset[str] | None = (
             load_category_selection(category_selection_path(result_path))
         )
         self._images: list[ctk.CTkImage] = []
@@ -2037,7 +2043,7 @@ class ComparisonWindow:
                 self.source_path,
                 sensitive_terms_path=self.app.sensitive_terms_path,
                 use_ner=self.app.use_ner,
-                active_categories=self._original_active_categories,
+                active_labels=self._original_active_labels,
             )
             self._detection_cache_key = key
         return self._detection_cache
@@ -2055,7 +2061,7 @@ class ComparisonWindow:
                 use_ner=self.app.use_ner,
                 word_pages=word_pages,
                 spans=spans,
-                active_categories=self._original_active_categories,
+                active_labels=self._original_active_labels,
             )
         except (OSError, RuntimeError, ValueError):
             self.visible_rects = []
@@ -2596,7 +2602,7 @@ class ComparisonWindow:
                 use_ner=self.app.use_ner,
                 word_pages=word_pages,
                 spans=spans,
-                active_categories=self._original_active_categories,
+                active_labels=self._original_active_labels,
             )
             os.replace(staging_path, self.result_path)
             save_manual_edits(manual_edits_path(self.result_path), new_edits)
