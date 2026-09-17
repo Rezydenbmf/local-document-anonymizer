@@ -149,6 +149,21 @@ def _iter_output_files(output_dir: Path):
                 yield path
 
 
+def folder_has_any_tracked_output(output_dir: str | Path) -> bool:
+    """True if ``output_dir`` still contains at least one file this app's
+    own naming scheme recognizes (working or final) - used after a
+    history cleanup to decide whether a folder is now empty of
+    everything the app tracks and can be forgotten from the history
+    list, without needing to touch anything else in that folder."""
+    folder = Path(output_dir)
+    if not folder.is_dir():
+        return False
+    for path in _iter_output_files(folder):
+        if classify_output_file(path.name) is not None:
+            return True
+    return False
+
+
 def build_output_cleanup_plan(output_dir: str | Path) -> OutputCleanupPlan:
     """Plan removal of every superseded generation in ``output_dir``.
 

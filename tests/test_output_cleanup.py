@@ -21,6 +21,7 @@ from output_cleanup import (
     build_history_cleanup_plan,
     build_output_cleanup_plan,
     classify_output_file,
+    folder_has_any_tracked_output,
     format_cleanup_plan_summary,
     format_file_size,
     format_history_cleanup_summary,
@@ -338,6 +339,44 @@ class FormatHistoryCleanupSummaryTests(unittest.TestCase):
         )
         summary = format_history_cleanup_summary(plan, include_final_outputs=True)
         self.assertIn("finalnymi wynikami", summary)
+
+
+class FolderHasAnyTrackedOutputTests(unittest.TestCase):
+    """Used by gui_app.py's "Wyczyść historię" to decide whether a
+    folder can be forgotten from the history list after a cleanup - a
+    folder still holding anything this app's own naming scheme
+    recognizes must never be forgotten, even if some other cleanup step
+    already ran."""
+
+    def test_true_when_a_tracked_output_file_is_present(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            folder = Path(temp_dir)
+            (folder / "umowa_ANON.txt").write_text("x", encoding="utf-8")
+            self.assertTrue(folder_has_any_tracked_output(folder))
+
+    def test_false_for_an_empty_folder(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            self.assertFalse(folder_has_any_tracked_output(temp_dir))
+
+    def test_false_when_only_unrecognized_files_are_present(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            folder = Path(temp_dir)
+            (folder / "zrodlo.pdf").write_text("x", encoding="utf-8")
+            self.assertFalse(folder_has_any_tracked_output(folder))
+
+    def test_true_for_a_tracked_file_inside_the_internal_subfolder(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            folder = Path(temp_dir)
+            internal = folder / INTERNAL_ARTIFACTS_DIRNAME
+            internal.mkdir()
+            (internal / "umowa_RAPORT.txt").write_text("x", encoding="utf-8")
+            self.assertTrue(folder_has_any_tracked_output(folder))
+
+    def test_false_for_a_missing_folder(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            self.assertFalse(
+                folder_has_any_tracked_output(Path(temp_dir) / "does_not_exist")
+            )
 
 
 class FormatFileSizeTests(unittest.TestCase):

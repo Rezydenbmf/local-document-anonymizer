@@ -30,23 +30,30 @@ try:
         APP_ICON_PATH,
         COLOR_ACCENT,
         COLOR_ACCENT_HOVER,
+        COLOR_ACCENT_SOFT,
         COLOR_BG,
         COLOR_BORDER,
         COLOR_CARD,
         COLOR_HIGH_RISK,
+        COLOR_HIGH_RISK_SOFT,
         COLOR_ICON_IDLE,
         COLOR_TEXT,
         COLOR_TEXT_MUTED,
+        COLOR_WARNING,
+        COLOR_WARNING_SOFT,
         FLOATING_ACTIONS_HIDDEN,
         FLOATING_ACTIONS_SAVED,
         FONT_FAMILY,
         LEGEND_ITEMS,
         MAGIC_PEN_ACTION_ERASE,
+        MAGIC_PEN_ACTION_LABELS_PL,
         MAGIC_PEN_ACTION_MARK,
         MAGIC_PEN_ACTION_PAN,
+        MAGIC_PEN_BUTTON_LABELS_PL,
         MAGIC_PEN_BUTTON_LEFT,
         MAGIC_PEN_BUTTON_MIDDLE,
         MAGIC_PEN_BUTTON_RIGHT,
+        MAGIC_PEN_BUTTONS,
         MAGIC_PEN_HINT_ID,
         ZOOM_LINK_HINT_ID,
         IconTooltip,
@@ -98,23 +105,30 @@ except ImportError:
         APP_ICON_PATH,
         COLOR_ACCENT,
         COLOR_ACCENT_HOVER,
+        COLOR_ACCENT_SOFT,
         COLOR_BG,
         COLOR_BORDER,
         COLOR_CARD,
         COLOR_HIGH_RISK,
+        COLOR_HIGH_RISK_SOFT,
         COLOR_ICON_IDLE,
         COLOR_TEXT,
         COLOR_TEXT_MUTED,
+        COLOR_WARNING,
+        COLOR_WARNING_SOFT,
         FLOATING_ACTIONS_HIDDEN,
         FLOATING_ACTIONS_SAVED,
         FONT_FAMILY,
         LEGEND_ITEMS,
         MAGIC_PEN_ACTION_ERASE,
+        MAGIC_PEN_ACTION_LABELS_PL,
         MAGIC_PEN_ACTION_MARK,
         MAGIC_PEN_ACTION_PAN,
+        MAGIC_PEN_BUTTON_LABELS_PL,
         MAGIC_PEN_BUTTON_LEFT,
         MAGIC_PEN_BUTTON_MIDDLE,
         MAGIC_PEN_BUTTON_RIGHT,
+        MAGIC_PEN_BUTTONS,
         MAGIC_PEN_HINT_ID,
         ZOOM_LINK_HINT_ID,
         IconTooltip,
@@ -211,6 +225,36 @@ _TK_BUTTON_TO_NAME = {
     1: MAGIC_PEN_BUTTON_LEFT,
     2: MAGIC_PEN_BUTTON_MIDDLE,
     3: MAGIC_PEN_BUTTON_RIGHT,
+}
+
+# Short Polish abbreviations for the mode-indicator badges (see
+# _build_pen_tool_row) - MAGIC_PEN_BUTTON_LABELS_PL's "Lewy przycisk" etc.
+# are meant for the settings dialog's full-width rows, not a 3-letter
+# badge in a title bar.
+_MAGIC_PEN_BUTTON_SHORT_PL = {
+    MAGIC_PEN_BUTTON_LEFT: "LPM",
+    MAGIC_PEN_BUTTON_RIGHT: "PPM",
+    MAGIC_PEN_BUTTON_MIDDLE: "ŚPM",
+}
+
+# Icon + accent pair per action, so the mode-indicator badges and the
+# magic-pen document cursor both give the same at-a-glance signal for
+# what a button currently does - per direct feedback that neither one
+# was visible/discoverable enough before.
+_MAGIC_PEN_ACTION_ICON = {
+    MAGIC_PEN_ACTION_MARK: "✏",
+    MAGIC_PEN_ACTION_ERASE: "\U0001f9f9",
+    MAGIC_PEN_ACTION_PAN: "✋",
+}
+_MAGIC_PEN_ACTION_COLORS = {
+    MAGIC_PEN_ACTION_MARK: (COLOR_ACCENT, COLOR_ACCENT_SOFT),
+    MAGIC_PEN_ACTION_ERASE: (COLOR_HIGH_RISK, COLOR_HIGH_RISK_SOFT),
+    MAGIC_PEN_ACTION_PAN: (COLOR_WARNING, COLOR_WARNING_SOFT),
+}
+_MAGIC_PEN_CURSOR_BY_ACTION = {
+    MAGIC_PEN_ACTION_MARK: "tcross",
+    MAGIC_PEN_ACTION_ERASE: "circle",
+    MAGIC_PEN_ACTION_PAN: "fleur",
 }
 
 
@@ -485,7 +529,7 @@ class ComparisonWindow:
         # on and off repeatedly.
         self._active_gesture_action: str | None = None
         self._erased_this_gesture: set = set()
-        self.mode_indicator_label: ctk.CTkLabel | None = None
+        self.mode_indicator_frame: ctk.CTkFrame | None = None
         self.left_frame: ctk.CTkScrollableFrame | None = None
         self.right_frame: ctk.CTkScrollableFrame | None = None
         self.original_zoom = ZOOM_DEFAULT
@@ -587,6 +631,12 @@ class ComparisonWindow:
             font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"),
             text_color=COLOR_TEXT,
         ).pack(side="left", padx=(10, 0))
+        # Packed first among the side="right" widgets, so it lands at the
+        # window's outer right edge regardless of whether the magic pen
+        # tools also show up here - per direct feedback there was no way
+        # to reach Ustawienia from this window at all, e.g. to change
+        # mode mid-edit without closing the preview first.
+        self._build_settings_shortcut_button(title_row)
         if self.magic_pen_available and not self.locked:
             self._build_pen_tool_row(title_row)
 
@@ -867,6 +917,57 @@ class ComparisonWindow:
         home_button.pack(side="left")
         IconTooltip(home_button, "Wróć do okna głównego")
 
+    def _build_settings_shortcut_button(self, parent: ctk.CTkFrame) -> None:
+        """Gear icon that opens Ustawienia > Ogólne without leaving this
+        window - per direct feedback there was no way to reach Ustawienia
+        from the comparison/preview window at all, e.g. to switch magic
+        pen mode mid-edit. Shown even when the magic pen tools aren't
+        (locked file, non-PDF), since general settings are still
+        reachable regardless.
+        """
+        settings_button = ctk.CTkButton(
+            parent,
+            text="⚙",
+            width=30,
+            height=30,
+            corner_radius=8,
+            fg_color="transparent",
+            hover_color=COLOR_ICON_IDLE,
+            text_color=COLOR_TEXT_MUTED,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=15),
+            command=self._open_settings_from_here,
+        )
+        settings_button.pack(side="right")
+        IconTooltip(settings_button, "Ustawienia")
+
+    def _open_settings_from_here(self) -> None:
+        self.app.open_settings(
+            initial_tab="Ogólne", on_saved=self._refresh_magic_pen_mode
+        )
+
+    def _refresh_magic_pen_mode(self) -> None:
+        """Called after Ustawienia closes with unsaved-changes committed
+        (see SettingsDialog's on_saved) - the interaction mode may have
+        just changed, so the badges, tooltip and every open document
+        canvas's idle cursor need to catch up without the user having to
+        close and reopen this window.
+        """
+        if self.mode_indicator_frame is not None and self.mode_indicator_frame.winfo_exists():
+            self._populate_mode_indicator(self.mode_indicator_frame)
+        if not self.locked:
+            idle_cursor = self._idle_magic_pen_cursor()
+            for canvas in self._page_canvases.values():
+                try:
+                    canvas.configure(cursor=idle_cursor)
+                except tk.TclError:
+                    pass
+
+    def _idle_magic_pen_cursor(self) -> str:
+        if self.locked:
+            return "arrow"
+        action = self._button_action(MAGIC_PEN_BUTTON_LEFT)
+        return _MAGIC_PEN_CURSOR_BY_ACTION.get(action, "tcross")
+
     def _build_pen_tool_row(self, parent: ctk.CTkFrame) -> None:
         """The magic pen's own controls, in the title bar rather than a
         row at the bottom of the window - the space they used to take is
@@ -908,18 +1009,48 @@ class ComparisonWindow:
         )
         self.undo_button.pack(side="right", padx=(0, 10))
 
-        self.mode_indicator_label = ctk.CTkLabel(
-            parent,
-            text=self._current_bindings_description(),
-            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-            text_color=COLOR_TEXT_MUTED,
-        )
-        self.mode_indicator_label.pack(side="right", padx=(0, 10))
-        IconTooltip(
-            self.mode_indicator_label,
-            "Co robi każdy przycisk myszy w tym oknie. Zmień tryb w "
-            "Ustawienia > Ogólne.",
-        )
+        # 3 small colored icon badges (one per physical mouse button)
+        # instead of the old plain 11px grey text - per direct feedback
+        # that text was "practically invisible" ("gdybym sam nie
+        # projektował ich tam to pewnie bym ich nie zauważył"). Rebuilt
+        # in place by _populate_mode_indicator whenever the mode changes
+        # (custom bindings, or Ustawienia opened from this window's own
+        # gear button - see _refresh_magic_pen_mode).
+        self.mode_indicator_frame = ctk.CTkFrame(parent, fg_color="transparent")
+        self.mode_indicator_frame.pack(side="right", padx=(0, 10))
+        self._populate_mode_indicator(self.mode_indicator_frame)
+
+    def _populate_mode_indicator(self, frame: ctk.CTkFrame) -> None:
+        for child in frame.winfo_children():
+            child.destroy()
+        bindings = self._current_bindings()
+        for button in MAGIC_PEN_BUTTONS:
+            action = bindings.get(button, MAGIC_PEN_ACTION_MARK)
+            icon = _MAGIC_PEN_ACTION_ICON.get(action, "")
+            strong_color, soft_color = _MAGIC_PEN_ACTION_COLORS.get(
+                action, (COLOR_TEXT_MUTED, COLOR_ICON_IDLE)
+            )
+            badge = ctk.CTkFrame(
+                frame,
+                corner_radius=6,
+                fg_color=soft_color,
+                border_width=1,
+                border_color=strong_color,
+            )
+            badge.pack(side="left", padx=(4, 0))
+            badge_label = ctk.CTkLabel(
+                badge,
+                text=f"{_MAGIC_PEN_BUTTON_SHORT_PL[button]} {icon}",
+                font=ctk.CTkFont(family=FONT_FAMILY, size=11, weight="bold"),
+                text_color=strong_color,
+            )
+            badge_label.pack(padx=6, pady=2)
+            IconTooltip(
+                badge_label,
+                f"{MAGIC_PEN_BUTTON_LABELS_PL[button]}: "
+                f"{MAGIC_PEN_ACTION_LABELS_PL.get(action, action)}. "
+                "Zmień tryb w Ustawienia > Ogólne.",
+            )
 
     # -- zoom: independent or linked, like a dual-zone climate control ------
 
@@ -1700,8 +1831,15 @@ class ComparisonWindow:
             width=200,
         )
         sidebar.pack_propagate(False)
-        inner = ctk.CTkFrame(sidebar, fg_color="transparent")
+        # Scrollable, not a plain CTkFrame: pack_propagate(False) above
+        # protects this column's *width* on a narrow window (see the
+        # docstring), but says nothing about height - shrinking the
+        # window vertically used to just clip the legend with no way to
+        # reach the rest of it. Same fix already proven for the "Szybkie
+        # akcje" panel's own content (_build_quick_settings_panel).
+        inner = ctk.CTkScrollableFrame(sidebar, fg_color="transparent")
         inner.pack(fill="both", expand=True, padx=14, pady=14)
+        apply_subtle_scrollbar(inner)
 
         header_row = ctk.CTkFrame(inner, fg_color="transparent")
         header_row.pack(fill="x", pady=(0, 10))
@@ -1956,7 +2094,7 @@ class ComparisonWindow:
                         height=pix.height,
                         highlightthickness=0,
                         bg="#FFFFFF",
-                        cursor="arrow" if self.locked else "tcross",
+                        cursor=self._idle_magic_pen_cursor(),
                     )
                     canvas.pack(pady=6)
                     canvas.create_image(0, 0, anchor="nw", image=tk_image)
@@ -2049,6 +2187,19 @@ class ComparisonWindow:
         """
         action = self._button_action(button)
         self._active_gesture_action = action
+        canvas = self._page_canvases.get(page_number)
+        if canvas is not None:
+            # Reflect the button actually pressed, not just LPM's idle
+            # cursor - a PPM/MPM gesture under a mode where they do
+            # something else should look like that something else while
+            # held, per the same "graficznie widać co robi" feedback the
+            # idle cursor and badges above are for.
+            try:
+                canvas.configure(
+                    cursor=_MAGIC_PEN_CURSOR_BY_ACTION.get(action, "tcross")
+                )
+            except tk.TclError:
+                pass
         if action == MAGIC_PEN_ACTION_PAN:
             target = self._pan_target(self.right_frame)
             if target is not None:
@@ -2113,6 +2264,12 @@ class ComparisonWindow:
     ) -> None:
         action = self._active_gesture_action
         self._active_gesture_action = None
+        release_canvas = self._page_canvases.get(page_number)
+        if release_canvas is not None:
+            try:
+                release_canvas.configure(cursor=self._idle_magic_pen_cursor())
+            except tk.TclError:
+                pass
         if action == MAGIC_PEN_ACTION_ERASE:
             self._erased_this_gesture = set()
             return
@@ -2264,14 +2421,26 @@ class ComparisonWindow:
         self._restore_pending_edit_state(self._edit_redo_stack.pop())
 
     def _update_undo_redo_buttons(self) -> None:
+        # Per direct feedback, these were "practically invisible" even
+        # while enabled - .configure(state=...) alone never changed
+        # their color, so an active Undo looked identical to a disabled
+        # one (both the same muted ghost-button style). Recoloring to
+        # this app's own accent scheme when there is actually something
+        # to undo/redo gives them the same visual weight a clickable
+        # control gets everywhere else in this app.
         if self.undo_button is not None:
-            self.undo_button.configure(
-                state="normal" if self._edit_undo_stack else "disabled"
-            )
+            self._style_history_button(self.undo_button, bool(self._edit_undo_stack))
         if self.redo_button is not None:
-            self.redo_button.configure(
-                state="normal" if self._edit_redo_stack else "disabled"
-            )
+            self._style_history_button(self.redo_button, bool(self._edit_redo_stack))
+
+    @staticmethod
+    def _style_history_button(button: ctk.CTkButton, enabled: bool) -> None:
+        button.configure(
+            state="normal" if enabled else "disabled",
+            fg_color=COLOR_ACCENT_SOFT if enabled else COLOR_BG,
+            border_color=COLOR_ACCENT if enabled else COLOR_BORDER,
+            text_color=COLOR_ACCENT if enabled else COLOR_TEXT_MUTED,
+        )
 
     def _has_pending_changes(self) -> bool:
         return bool(self.pending_remove_keys) or bool(self.pending_add_rects)

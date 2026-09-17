@@ -89,6 +89,54 @@ przenoszę ją do „Potwierdzone" albo usuwam. Jeśli lista urośnie powyżej
       JSON zapisywany obok wizualnego PDF-a, ale warto potwierdzić na
       żywej aplikacji, nie tylko w testach.
 
+- [ ] **Uruchamianie bez widocznej konsoli (2026-09-17)** — `uruchom.vbs`
+      zastępuje `uruchom.bat` do codziennego użytku: uruchamia apkę przez
+      `pythonw.exe` bez żadnego okienka terminala w tle. `uruchom.bat`
+      zostaje, ale tylko do debugowania (pokazuje konsolę). Sprawdź: czy
+      dwuklik na `uruchom.vbs` faktycznie pokazuje tylko interfejs apki,
+      bez żadnego mignięcia czarnego okna; i (trudniejsze do
+      zasymulowania) czy w razie realnego błędu startowego plik
+      `%USERPROFILE%\.anonimizer\ostatni_blad.log` faktycznie się pojawia
+      z sensowną treścią zamiast apka po prostu nie startowała bez śladu.
+
+- [ ] **Magic pen — czytelność trybu interakcji myszy (2026-09-17)** —
+      odpowiedź na feedback „graficznie nie widać co się robi": 3 kolorowe
+      plakietki z ikonką zamiast jednego szarego napisu (LPM/PPM/ŚPM +
+      ikonka akcji), strzałki Cofnij/Ponów teraz kolorują się na
+      niebiesko gdy faktycznie klikalne (wcześniej zawsze wyglądały tak
+      samo szaro), kursor nad dokumentem odzwierciedla co zrobi LPM w
+      spoczynku i zmienia się na żywo w trakcie trzymania innego
+      przycisku, nowa ikonka ⚙ w oknie porównania otwiera Ustawienia >
+      Ogólne bez zamykania podglądu, a sekcja trybu w Ustawieniach ma
+      teraz wyróżnioną ramkę + ikonkę 🖱, żeby nie zlewała się z resztą.
+      Sprawdź na żywo: czy plakietki i kolor strzałek faktycznie rzucają
+      się w oczy bez tłumaczenia, czy zmiana trybu przez nową ikonkę ⚙ w
+      oknie porównania działa i od razu widać efekt bez zamykania okna,
+      i czy kursor nad dokumentem faktycznie wygląda inaczej dla
+      zaznaczania/odznaczania/przesuwania.
+
+- [ ] **Kategorie do anonimizacji — przeniesione na górę panelu
+      (2026-09-17)** — odpowiedź na „nie wiem jak mam zaznaczać
+      odznaczać w GUI to": 8 checkboxów z Etapu 4 przeniesione z dołu
+      panelu „Szybkie akcje" na sam początek, zaraz pod nagłówkiem, w
+      wyróżnionej ramce. Przy okazji naprawione: legenda kolorów w
+      oknie porównania mogła się ucinać przy zmniejszeniu okna (teraz
+      przewijalna). Sprawdź: czy checkboxy kategorii faktycznie rzucają
+      się w oczy od razu po otwarciu panelu, bez przewijania w dół; i
+      czy legenda kolorów w oknie porównania nie ucina się już przy
+      zmniejszaniu okna.
+
+- [ ] **„Wyczyść historię" usuwa też wpis z listy (2026-09-17)** —
+      odpowiedź na „foldery zostają, po co tam cała lista". Wybrane
+      zachowanie (potwierdzone przez Ciebie): folder znika z listy
+      Historia, gdy nie zostaje w nim już nic, co ta apka rozpoznaje
+      jako swój plik — sam folder na dysku zostaje nietknięty. Sprawdź:
+      wyczyść historię dla folderu z plikami roboczymi i finalnymi —
+      powinien zniknąć z listy Historia (ale nie z dysku); jeśli w
+      folderze zostały jakieś inne, nierozpoznane pliki użytkownika,
+      wpis też powinien zniknąć (liczy się tylko obecność plików *tej
+      apki*, nie folderu jako takiego).
+
 ## Potwierdzone
 
 *(pusto na razie)*
