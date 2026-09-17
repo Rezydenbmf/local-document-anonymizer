@@ -779,6 +779,29 @@ class GuiWorkflowTests(unittest.TestCase):
 
         self.assertEqual(result, [])
 
+    def test_restrict_review_items_to_batch_resets_a_stale_inherited_status(
+        self,
+    ) -> None:
+        # Regression test for a real bug reported live: reject a file,
+        # delete it, reprocess the same source so the output gets the
+        # exact same name again - _REVIEW_STATUS.json is keyed purely by
+        # filename with no staleness check, so load_review_workspace's
+        # merge (see gui_app.py's _load_review_folder) reattaches the old
+        # "odrzucony" decision to output the user has never actually
+        # reviewed. This function is the one place right after a fresh
+        # batch completes that can tell the two apart.
+        review_items = [
+            ReviewItem(output_name="new_ANON.txt", status=REVIEW_STATUS_REJECTED),
+        ]
+        batch_results = [
+            {"status": "success", "output_name": "new_ANON.txt"},
+        ]
+
+        result = restrict_review_items_to_batch(review_items, batch_results)
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0].status, REVIEW_STATUS_NEEDS_REVIEW)
+
     def test_gui_history_config_path_is_under_home_dot_folder(self) -> None:
         result = history_config_path()
 

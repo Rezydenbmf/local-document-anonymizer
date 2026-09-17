@@ -1,6 +1,7 @@
 """Shared constants, pure formatting helpers, and small reusable
 Tkinter widgets used across the DocShield GUI."""
 
+import dataclasses
 import json
 import os
 import re
@@ -50,6 +51,7 @@ try:
         DICTIONARY_STATUS_NOT_SELECTED,
     )
     from .review import (
+        DEFAULT_REVIEW_STATUS,
         REVIEW_STATUS_APPROVED,
         REVIEW_STATUS_REJECTED,
         ReviewItem,
@@ -89,6 +91,7 @@ except ImportError:
         DICTIONARY_STATUS_NOT_SELECTED,
     )
     from review import (
+        DEFAULT_REVIEW_STATUS,
         REVIEW_STATUS_APPROVED,
         REVIEW_STATUS_REJECTED,
         ReviewItem,
@@ -1628,13 +1631,26 @@ def restrict_review_items_to_batch(
     deliberately opens a folder for review later, but right after
     processing a fresh batch, mixing in unrelated old files would be
     confusing and needlessly resurfaces old output.
+
+    Every kept item's status is reset to the default here too, even when
+    load_review_workspace's merge (see _load_review_folder) attached an
+    older decision to it - _REVIEW_STATUS.json is keyed purely by output
+    filename with no staleness check, so a file the user deleted after
+    rejecting it and then regenerated under that exact same name would
+    otherwise silently resurrect the old rejection on output the user has
+    never actually looked at. Confirmed live: a stale "odrzucony"
+    surviving a delete-and-reprocess cycle.
     """
     fresh_output_names = {
         str(result.get("output_name"))
         for result in batch_results
         if result.get("status") == "success" and result.get("output_name")
     }
-    return [item for item in review_items if item.output_name in fresh_output_names]
+    return [
+        dataclasses.replace(item, status=DEFAULT_REVIEW_STATUS)
+        for item in review_items
+        if item.output_name in fresh_output_names
+    ]
 
 
 # ---------------------------------------------------------------------------
