@@ -15,18 +15,23 @@ przenoszę ją do „Potwierdzone" albo usuwam. Jeśli lista urośnie powyżej
 - [ ] **Przycisk „Zakończ edycję" po zaakceptowaniu zmian w oknie
       porównania** (commit `b124ecd`, 2026-09-12) — zweryfikowane
       programowo (wszystkie 5 przejść stanu panelu), ale nie klikane
-      ręcznie w realnej aplikacji. Sprawdź: po zaakceptowaniu edycji
-      panel w prawym dolnym rogu powinien pokazać „✓ Zmiany zapisane" i
-      przycisk „Zakończ edycję" zamiast po prostu zniknąć; kliknięcie
-      przycisku powinno zamknąć okno porównania.
+      ręcznie w realnej aplikacji. *Częściowo potwierdzone (Twój
+      feedback 2026-09-17: „przycisk zakończ edycję widoczny") — samą
+      widoczność przycisku uznaję za sprawdzoną.* Zostaje do sprawdzenia:
+      czy panel w prawym dolnym rogu faktycznie pokazuje „✓ Zmiany
+      zapisane" zamiast po prostu znikać, i czy kliknięcie przycisku
+      faktycznie zamyka okno porównania.
 
 - [ ] **„Wyczyść historię" — dwuetapowy przepływ kasowania plików**
       (2026-09-15) — jeden przycisk zamiast osobnego per folder, kasuje
-      pliki robocze od razu, o finalne wyniki pyta osobno. Sprawdź: czy
-      treść i kolejność pytań ma sens, czy próg 30 dni dla przypomnienia
-      w Historii jest dla Ciebie trafny, i czy zachowanie przy odmowie
-      (nic się nie kasuje, licznik przypomnienia NIE resetuje się) jest
-      zgodne z tym, czego oczekiwałeś.
+      pliki robocze od razu, o finalne wyniki pyta osobno. *Częściowo
+      potwierdzone (Twój feedback 2026-09-17: „1 przycisk wyczyść -
+      działa") — sam mechanizm „jeden przycisk zamiast wielu" uznaję za
+      sprawdzony.* Zostaje do sprawdzenia: czy treść i kolejność pytań ma
+      sens, czy próg 30 dni dla przypomnienia w Historii jest dla Ciebie
+      trafny, i czy zachowanie przy odmowie (nic się nie kasuje, licznik
+      przypomnienia NIE resetuje się) jest zgodne z tym, czego
+      oczekiwałeś.
 - [ ] **Utracona możliwość przycinania starych generacji finalnych
       wyników** (2026-09-15, świadoma decyzja do potwierdzenia, nie
       błąd) — stara wersja „Wyczyść stare" usuwała nieaktualne generacje
@@ -36,13 +41,6 @@ przenoszę ją do „Potwierdzone" albo usuwam. Jeśli lista urośnie powyżej
       usuwasz je wszystkie naraz. Czy to Ci odpowiada, czy chcesz z
       powrotem możliwość „zostaw tylko najnowszy" dla finalnych wyników
       jako osobną opcję?
-- [ ] **Eksport zatwierdzonych plików z wyborem lokalizacji**
-      (2026-09-15) — okno wyboru folderu otwiera się teraz wewnątrz
-      folderu, z którego eksportujesz. Sprawdź: czy to wygodny punkt
-      startowy, czy wolisz inny (np. ostatnio używany folder eksportu,
-      albo Dokumenty). Anulowanie okna teraz po cichu anuluje cały
-      eksport (wcześniej zawsze lądowało w stałym podfolderze
-      approved/) — potwierdź, że to oczekiwane zachowanie.
 - [ ] **Magic pen — nowy system trybów interakcji myszy (Etap 3,
       2026-09-16)** — trzy tryby: „Domyślny" (LPM=zaznacz, PPM=przesuń
       widok, środkowy=przytrzymaj i kliknij/przeciągnij żeby odznaczyć),
@@ -139,4 +137,10 @@ przenoszę ją do „Potwierdzone" albo usuwam. Jeśli lista urośnie powyżej
 
 ## Potwierdzone
 
-*(pusto na razie)*
+- [x] **Eksport zatwierdzonych plików z wyborem lokalizacji** (2026-09-15,
+      potwierdzone 2026-09-17) — Twój feedback: „eksport i otwieranie się
+      gotowego pdf działają". Uwaga: to potwierdza, że mechanizm działa
+      ogólnie — nie było osobnego komentarza o wygodzie punktu
+      startowego folderu ani o zachowaniu po Anuluj, więc jeśli coś z
+      tych dwóch szczegółów Ci przeszkadza, daj znać, wrócę do tego
+      punktu.
