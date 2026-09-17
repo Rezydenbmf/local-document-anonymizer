@@ -45,25 +45,6 @@ przenoszę ją do „Potwierdzone" albo usuwam. Jeśli lista urośnie powyżej
       danych, które wcześniej były ukryte, jest wystarczającym testem
       na żywo.
 
-- [ ] **Magic pen — kursor bliżej pasuje do plakietek (2026-09-17,
-      zaktualizowane po Twoim teście — częściowo naprawione)** —
-      potwierdziłeś, że głównym problemem był kursor nad dokumentem nie
-      wyglądający jak ikonka na plakietce (krzyżyk/kółko/strzałki
-      zamiast czegoś przypominającego ✏/🧹/✋). Naprawione: zamieniłem
-      kursory na najbliższe dostępne w Windows/Tk — zaznaczanie →
-      `pencil` (ołówek), przesuwanie widoku → `hand2` (dłoń, ten sam
-      kursor co „łapka" w wielu programach), odznaczanie → `X_cursor`
-      (czytelniejsze jako „usuń" niż poprzednie kółko). **Uwaga —
-      granica techniczna, nie da się obejść bez nowej grafiki:** system
-      nie ma gotowego kursora w kształcie miotły (🧹), a żaden gotowy
-      kursor nie da się pokolorować pod kolor plakietki — to wymagałoby
-      własnej grafiki kursora (osobne, większe zadanie), nie samej
-      zmiany nazwy. Sprawdź na żywo: czy kursor teraz lepiej kojarzy
-      się z plakietką dla każdego z 3 trybów. Osobno, jeśli nadal
-      widzisz coś dziwnego z samymi plakietkami LPM/PPM/ŚPM w pasku
-      tytułowym (np. PPM „cyklujące" bez klikania) — to osobny wątek,
-      opisz dokładniej co widzisz, bo tego jeszcze nie naprawiałem.
-
 - [ ] **Kategorie do anonimizacji — czytelność etykiet checkboxów
       (2026-09-17, zaktualizowane po Twoim teście — realny błąd
       znaleziony i naprawiony)** — poprzednia poprawka (przeniesienie
@@ -135,3 +116,12 @@ przenoszę ją do „Potwierdzone" albo usuwam. Jeśli lista urośnie powyżej
       firmy" ("działało gorzej" niż PESEL/e-mail) — przeniesiona z tej
       listy do `docs/PROJECT_STATE.md` jako zadanie do głębszych testów,
       nie błąd do jednorazowego potwierdzenia.
+- [x] **Magic pen — kursor/plakietki: zostawiamy jak jest na razie**
+      (2026-09-17) — Twój feedback: „magic pen zostaje - tak jak jest
+      teraz (ogólnie to estetycznie będę chciał dopracować) ale nie
+      będę się nad tym teraz skupiał bo to polerowanie tylko, a my
+      musimy dopieścić logikę i funkcje". Świadomie odłożone, nie
+      „potwierdzone jako idealne" — kursor `pencil`/`hand2`/`X_cursor`
+      i plakietki zostają w obecnym kształcie; dalsza estetyczna
+      dopieszczka (własna grafika kursora, ewentualny drugi wątek z
+      plakietkami LPM/PPM/ŚPM) czeka, aż wrócisz do tego tematu.
