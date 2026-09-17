@@ -50,6 +50,15 @@ _UPPER_LETTERS = "A-ZĄĆĘŁŃÓŚŹŻ"
 _LOWER_LETTERS = "A-Za-zĄĆĘŁŃÓŚŹŻąćęłńóśźż"
 _NAME_TOKEN = rf"[{_UPPER_LETTERS}][{_LOWER_LETTERS}]{{2,}}"
 _NAME_HYPHEN = r"[-\u00ad\u2010\u2011\u2012\u2013\u2014]"
+# Same fix, same reason, as anonymizer.py's identical _INLINE_WS (this
+# audit-only copy of PERSON_NAME_TYPO_PATTERN predates that constant and
+# can't import it back - anonymizer.py already imports from audit.py,
+# so the reverse import would be circular). Without this, the leftover-
+# risk scanner here could still flag a "PERSON_NAME_TYPO" finding on
+# text the main redaction pass (anonymizer.py) no longer even considers
+# a match, purely because this copy's own \s could still bridge the
+# same table-row "\n" boundary the main pass was fixed to stop at.
+_INLINE_WS = r"[^\S\n]"
 _SURNAME_LIKE_TOKEN = (
     rf"[{_UPPER_LETTERS}][{_LOWER_LETTERS}]{{2,}}"
     r"(?:ski|ska|cki|cka|dzki|dzka|ak|ek|ik|yk|uk|cz|icz|wicz|owicz|ewicz)"
@@ -58,16 +67,16 @@ PERSON_NAME_TYPO_PATTERN = re.compile(
     rf"""
     (?<![\w\-\u00ad\u2010\u2011\u2012\u2013\u2014])
     {_NAME_TOKEN}
-    \s*
+    {_INLINE_WS}*
     {_NAME_HYPHEN}
-    \s*
+    {_INLINE_WS}*
     (?:
         {_SURNAME_LIKE_TOKEN}
-        \s+
+        {_INLINE_WS}+
         {_NAME_TOKEN}
         |
         {_NAME_TOKEN}
-        \s+
+        {_INLINE_WS}+
         {_SURNAME_LIKE_TOKEN}
     )
     (?![\w\-\u00ad\u2010\u2011\u2012\u2013\u2014])

@@ -28,6 +28,8 @@ from file_writers import (
     save_anonymized_pdf_txt_copy,
 )
 from pdf_redaction import (
+    PDF_REDACTION_PATTERNS,
+    PERSON_NAME_TYPO_PATTERN,
     PdfWordPage,
     compute_redaction_rects,
     extract_pdf_word_pages,
@@ -1428,6 +1430,67 @@ class PdfIoTests(unittest.TestCase):
         normalized_text = _normalized_extracted_text(redacted_text)
         for source_value in source_values:
             self.assertIn(source_value, normalized_text)
+
+
+def _pattern_for_label(label: str):
+    for entry in PDF_REDACTION_PATTERNS:
+        if entry.label == label:
+            return entry.pattern
+    raise AssertionError(f"no PDF_REDACTION_PATTERNS entry for {label!r}")
+
+
+class PdfRedactionPatternsLineBreakTests(unittest.TestCase):
+    """Regression tests for a real bug found live on a table-layout PDF:
+    save_redacted_pdf_copy's own PDF_REDACTION_PATTERNS is a separate,
+    independent copy of PERSON_NAME_TYPO_PATTERN/ULICA/MIEJSCOWOSC/NIP/
+    REGON/DATA from the ones anonymizer.py uses (this module can't
+    import them back - anonymizer.py already imports from this module,
+    so the reverse would be circular). The main anonymizer.py pass was
+    fixed to stop \\s from matching the "\\n" that joins separate PDF
+    lines/table rows, but this file's own copy needed the identical fix
+    independently, or a document redacted through save_redacted_pdf_copy
+    (the "original_redaction" PDF output mode) would still have the
+    exact same bug: a field label from the *next* table row silently
+    swept into a redaction meant for a completely different row.
+    """
+
+    def test_person_name_typo_does_not_cross_a_line_break(self) -> None:
+        self.assertIsNone(
+            PERSON_NAME_TYPO_PATTERN.search("Nagy-Kowalski\nAdres zamieszkania")
+        )
+
+    def test_person_name_typo_still_matches_on_one_line(self) -> None:
+        self.assertIsNotNone(
+            PERSON_NAME_TYPO_PATTERN.search("Jan-Kowalski Nowak")
+        )
+
+    def test_ulica_does_not_cross_a_line_break(self) -> None:
+        # The base "ul. Kwiatowa" match is legitimate street data and
+        # still matches on its own - what the fix prevents is the
+        # *optional* trailing-word extension absorbing the next row's
+        # unrelated first word ("Numer") across the "\n".
+        pattern = _pattern_for_label("ULICA")
+        match = pattern.search("ul. Kwiatowa\nNumer PESEL")
+        self.assertIsNotNone(match)
+        self.assertEqual(match.group(), "ul. Kwiatowa")
+        self.assertIsNotNone(pattern.search("ul. Kwiatowa 12"))
+
+    def test_miejscowosc_does_not_cross_a_line_break(self) -> None:
+        pattern = _pattern_for_label("MIEJSCOWOSC")
+        match = pattern.search("62-800 Ostrów\nNumer PESEL")
+        self.assertIsNotNone(match)
+        self.assertEqual(match.group(), "Ostrów")
+        self.assertIsNotNone(pattern.search("62-800 Ostrów Wielkopolski"))
+
+    def test_nip_does_not_cross_a_line_break(self) -> None:
+        pattern = _pattern_for_label("NIP")
+        self.assertIsNone(pattern.search("NIP\n1234567890"))
+        self.assertIsNotNone(pattern.search("NIP: 1234567890"))
+
+    def test_data_long_form_does_not_cross_a_line_break(self) -> None:
+        pattern = _pattern_for_label("DATA")
+        self.assertIsNone(pattern.search("15\nstycznia 2024"))
+        self.assertIsNotNone(pattern.search("15 stycznia 2024"))
 
 
 if __name__ == "__main__":

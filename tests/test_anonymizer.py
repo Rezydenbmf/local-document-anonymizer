@@ -184,6 +184,16 @@ class AnonymizerEngineTests(unittest.TestCase):
         self.assertEqual(anonymized, "Zamieszkały przy [ULICA].")
         self.assertEqual(report, {"ULICA": 1})
 
+    def test_street_name_match_does_not_cross_a_line_break(self) -> None:
+        """Same class of bug as the MIEJSCOWOSC regression above, for the
+        street-name pattern's own multi-word/building-number joins."""
+        text = "ul. Kwiatowa\nNumer PESEL: 00000000000."
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(anonymized, "[ULICA]\nNumer PESEL: [PESEL].")
+        self.assertEqual(report, {"ULICA": 1, "PESEL": 1})
+
     def test_does_not_replace_bare_street_abbreviation_without_name(self) -> None:
         text = "Kolega ulubiony ul lubi kawę. Prosze o pl. wplat na koncie."
 
@@ -202,6 +212,23 @@ class AnonymizerEngineTests(unittest.TestCase):
             "[POSTAL_CODE] [MIEJSCOWOSC]. [POSTAL_CODE] [MIEJSCOWOSC].",
         )
         self.assertEqual(report, {"POSTAL_CODE": 2, "MIEJSCOWOSC": 2})
+
+    def test_city_name_match_does_not_cross_a_line_break(self) -> None:
+        """Regression test for a real bug found live on a table-layout PDF:
+        word_pages_for_redaction_geometry joins each extracted line/table
+        row with a single "\\n", and this pattern's trailing optional word
+        used to match across that boundary - "02-500 Testowo" followed by
+        an unrelated next line/row starting with a capitalized word ("
+        Numer PESEL") swept "Numer" into the same MIEJSCOWOSC match.
+        """
+        text = "62-800 Ostrów\nNumer PESEL: 00000000000."
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(
+            anonymized, "[POSTAL_CODE] [MIEJSCOWOSC]\nNumer PESEL: [PESEL]."
+        )
+        self.assertEqual(report, {"POSTAL_CODE": 1, "MIEJSCOWOSC": 1, "PESEL": 1})
 
     def test_does_not_replace_city_name_without_preceding_postal_code(self) -> None:
         text = "Miasto Warszawa jest stolica Polski."
@@ -256,6 +283,29 @@ class AnonymizerEngineTests(unittest.TestCase):
         anonymized, report = anonymize_text(examples[-1])
         self.assertEqual(anonymized, "podpisano: [PERSON_NAME_TYPO],")
         self.assertEqual(report, {"PERSON_NAME_TYPO": 1})
+
+    def test_hyphenated_surname_does_not_absorb_the_next_lines_first_word(
+        self,
+    ) -> None:
+        """Direct regression test for the exact bug reported live on a
+        table-layout PDF: a table row ending in a hyphenated surname
+        ("Zoltan Nagy-Kowalski") sat directly above the next row's field
+        label ("Adres zamieszkania"), joined by a single "\\n" in the
+        extracted text. PERSON_NAME_TYPO_PATTERN's trailing word - meant
+        to complete a genuine 3-token typo shape like "Jan-Kowalski
+        Nowak" - used to also happily match across that "\\n", so "Adres"
+        (a field label, not a name) got swept into the same redaction and
+        silently vanished from the output. A plain 2-token hyphenated
+        surname on its own line is not a typo shape this pattern should
+        match at all - see anonymize_text_with_ner/NER_PERSON for actual
+        full-name detection, which is a separate, AI-driven path.
+        """
+        text = "Imie i nazwisko: Zoltan Nagy-Kowalski\nAdres zamieszkania: brak."
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(anonymized, text)
+        self.assertEqual(report, {})
 
     def test_does_not_replace_normal_hyphenated_non_person_phrase(self) -> None:
         examples = (
