@@ -4318,6 +4318,68 @@ given the same token-budget calibration.
 656 tests passing (25 new across `test_category_selection.py`), lint at
 75 (still below the established 77-error baseline).
 
+## Etap 5 follow-up: "Strony" field hint + out-of-bounds page-range warning
+(2026-09-18)
+
+After testing Etap 5, the user confirmed the page-range feature works but
+gave two pieces of feedback, verbatim: *"dziala prawidlowo, ale niech tam
+bedzie takim znakiem wodnym podpowiedz co wpisywac, bo niektorzy moga
+myslec ze po przecinkiu wartosci inni dadza z myslnikiem itd.; dodatkowo
+zobaczylem ze jak dokument ma 3 strony a ja zakres wpisze 5-8 to plik sie
+anonimizuje, co prawda nic na stronach 1-3 sie nie robi , ale wykrywajmy
+zakres stron co mozna uzupelnic"*.
+
+1. The "Strony" field's placeholder (`gui_app.py`) now reads
+   `"np. 1,3,5 lub 1-3 (puste = wszystkie)"` and its `IconTooltip` spells
+   out the format explicitly (comma-separated single pages, hyphenated
+   ranges, and combining both) instead of only showing one example and
+   leaving the syntax to be inferred.
+2. A page range that doesn't overlap the document at all (e.g. `"5-8"` on
+   a 3-page PDF) used to silently produce a "successful" anonymization
+   with nothing redacted and no explanation. `_attach_pdf_coverage_metadata`
+   (`anonymizer.py`) gained a `page_count: int` parameter; when
+   `active_pages` is disjoint from `range(1, page_count + 1)`, it now sets
+   `metadata["warning"]` to an English message naming the requested pages
+   and the document's real page count (matching this file's existing
+   convention: internal report warning strings are English, GUI text is
+   Polish) via a new `_page_range_out_of_bounds_warning` helper. This
+   flows through the same `pdf_redaction_result["warning"]` /
+   `pdf_redaction_warning` plumbing `report.py` already reads for the
+   batch summary - no new surfacing mechanism needed.
+
+`code-review` (medium effort, per the token-budget calibration - a
+contained extension of an already-tested mechanism, not new detection
+logic) caught one real correctness bug and one worthwhile cleanup before
+merge:
+- The new `page_count=len(active_word_pages)` at the one call site
+  silently became `0` - disabling the just-added check entirely - on the
+  doubly-degraded scanned-PDF fallback where word-box OCR itself is
+  unavailable (`OcrUnavailableError`, e.g. no Tesseract): in that branch
+  `ocr_word_pages` never gets populated, and `active_word_pages` resolves
+  to it. Fixed by sourcing `page_count` from `word_pages` instead - that
+  list is always populated early in `_anonymize_pdf_file_result`, one
+  entry per real document page (even wordless ones), before the
+  text-vs-OCR branch runs at all, so it stays correct down every fallback
+  path.
+- The out-of-bounds and pre-existing coverage-gap warning branches
+  (`if page_range_out_of_bounds: ... elif not_redacted: ...`) duplicated
+  three lines of `status`/`used`/`true_redaction` promotion logic
+  verbatim - collapsed into computing the warning message once, then a
+  single `if warning:` block, so the two paths can't silently drift apart
+  under a future edit to that promotion rule.
+
+One low-priority reuse finding was deliberately left open: the new
+helper's page-list formatting (`", ".join(str(p) for p in sorted(...))`)
+duplicates `gui_helpers.format_page_list` - not fixed because
+`gui_helpers.py` is a GUI-layer module and importing it into the core
+`anonymizer.py` engine would invert the dependency direction for the sake
+of a one-line duplicate.
+
+661 tests passing (5 new: 3 direct `_attach_pdf_coverage_metadata` unit
+tests for the out-of-bounds branch, 1 end-to-end `anonymize_batch` test,
+1 regression test pinning the OCR-double-fallback fix), lint at 75
+(still below the established 77-error baseline).
+
 ## Warning
 
 This repository is still an early-stage portfolio MVP. Do not use it to

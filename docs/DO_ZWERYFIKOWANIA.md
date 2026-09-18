@@ -90,25 +90,38 @@ przenoszę ją do „Potwierdzone" albo usuwam. Jeśli lista urośnie powyżej
       zniknąć z wyniku, mimo że w oryginale etykieta i numer nie są
       obok siebie.
 
-- [ ] **Nowość: ograniczenie automatycznej anonimizacji PDF-a do
-      wybranych stron (Etap 5, 2026-09-18)** — z Twoich własnych
-      notatek: możliwość wskazania, że automatyczne wykrywanie ma
-      dotyczyć tylko wybranych stron dokumentu, a reszta ma zostać
-      nietknięta. W panelu „Kategorie do anonimizacji” pojawiło się nowe
-      pole „Strony (tylko PDF)” — puste = wszystkie strony (jak
-      dotychczas), np. „1-3,5” = tylko strony 1, 2, 3 i 5. Dotyczy
-      wyłącznie plików PDF i wyłącznie widocznego, kolorowego
-      zamazywania w dokumencie — równoległy raport tekstowy (`_ANON.txt`)
-      nadal pokazuje pełne wykrycie na całym dokumencie, niezależnie od
-      wybranego zakresu (świadoma decyzja zakresu tej wersji, nie błąd).
-      Sprawdź na żywo: wczytaj wielostronicowy PDF, wpisz np. „1” w pole
-      „Strony” i zanonimizuj — tylko pierwsza strona powinna zostać
-      zamazana, reszta ma zostać w oryginalnym stanie. Sprawdź też
-      literówkę (np. „1-abc” albo „5-3”) — powinien pojawić się czytelny
-      komunikat błędu zamiast zawieszenia programu albo cichego
-      zignorowania. **Wciąż otwarte, świadomie odłożone**: zmiana zakresu
-      stron już w trakcie pracy w edytorze magic pen (dziś trzeba ustawić
-      zakres przed uruchomieniem anonimizacji, nie da się go zmienić bez
+- [ ] **Ograniczenie automatycznej anonimizacji PDF-a do wybranych stron
+      (Etap 5, 2026-09-18) + dwie poprawki po Twoim teście
+      (2026-09-18)** — podstawowy mechanizm już potwierdziłeś („dziala
+      prawidlowo"), ale zgłosiłeś dwie rzeczy do poprawy, obie teraz
+      zrobione i czekające na sprawdzenie na żywo:
+      1. **Podpowiedź formatu w polu „Strony”** — Twój feedback: „niech
+         tam bedzie takim znakiem wodnym podpowiedz co wpisywac, bo
+         niektorzy moga myslec ze po przecinkiu wartosci inni dadza z
+         myslnikiem". Placeholder w polu to teraz „np. 1,3,5 lub 1-3
+         (puste = wszystkie)”, a dymek po najechaniu myszką tłumaczy
+         wprost: pojedyncze numery po przecinku, zakresy z myślnikiem,
+         można łączyć oba naraz. Sprawdź na żywo: najedź myszką na pole
+         „Strony” i sprawdź, czy dymek jest czytelny i rzeczywiście
+         wyjaśnia format.
+      2. **Ostrzeżenie, gdy wpisany zakres w ogóle nie pokrywa się z
+         dokumentem** — Twój feedback: „zobaczylem ze jak dokument ma 3
+         strony a ja zakres wpisze 5-8 to plik sie anonimizuje, co
+         prawda nic na stronach 1-3 sie nie robi, ale wykrywajmy zakres
+         stron co mozna uzupelnic”. Taki przypadek (np. „5-8” na
+         3-stronicowym dokumencie) teraz zamiast cichego „sukcesu” bez
+         żadnego efektu generuje ostrzeżenie w raporcie deweloperskim
+         (`_ANON_raport_deweloperski.txt` / zbiorcze podsumowanie
+         wsadu) wprost mówiące, że podany zakres nie pasuje do żadnej
+         strony dokumentu. Sprawdź na żywo: wczytaj np. 3-stronicowy PDF
+         `6_umowa_trzy_strony.pdf`, wpisz w polu „Strony” zakres spoza
+         dokumentu (np. „5-8”) i zanonimizuj — plik wynikowy powinien
+         zostać nietknięty (jak dotychczas), ale w raporcie
+         deweloperskim powinno teraz pojawić się czytelne ostrzeżenie o
+         niepasującym zakresie stron, zamiast całkowitej ciszy.
+      **Wciąż otwarte, świadomie odłożone**: zmiana zakresu stron już w
+      trakcie pracy w edytorze magic pen (dziś trzeba ustawić zakres
+      przed uruchomieniem anonimizacji, nie da się go zmienić bez
       ponownego przetworzenia całego dokumentu).
 
 ## Potwierdzone

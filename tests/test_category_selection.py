@@ -560,6 +560,41 @@ class EndToEndPdfCategorySelectionTests(unittest.TestCase):
         self.assertNotIn("00000000000", page_one_text)
         self.assertIn("11111111111", page_two_text)
 
+    def test_page_range_beyond_document_surfaces_warning_end_to_end(self) -> None:
+        """User-reported gap: a page range that doesn't overlap the real
+        document (e.g. '5-8' on a 3-page PDF) used to anonymize
+        "successfully" with no explanation that nothing happened. Exercises
+        the real anonymize_batch -> _anonymize_pdf_file_result ->
+        _attach_pdf_coverage_metadata wiring (page_count=len(active_word_pages)),
+        not just the metadata helper directly."""
+        with workspace_temp_dir() as temp_dir:
+            source_dir = Path(temp_dir) / "source"
+            output_dir = Path(temp_dir) / "output"
+            source_dir.mkdir()
+            output_dir.mkdir()
+            source_path = source_dir / "document.pdf"
+            write_fitz_multi_page_pdf(
+                source_path,
+                [
+                    ["PESEL 00000000000 on page one."],
+                    ["PESEL 11111111111 on page two."],
+                    ["PESEL 22222222222 on page three."],
+                ],
+            )
+
+            batch_result = anonymize_batch(
+                [source_path],
+                output_dir,
+                page_range="5-8",
+            )
+
+            self.assertEqual(len(batch_result.results), 1)
+            warning = str(
+                batch_result.results[0].get("pdf_redaction_warning", "")
+            )
+            self.assertIn("5, 6, 7, 8", warning)
+            self.assertIn("3-page", warning)
+
     def test_visual_pdf_redacts_table_separated_nip_and_regon(self) -> None:
         """anonymizer.py's own PDF word-coordinate path
         (_table_separated_nip_regon_pdf_spans/_regex_pdf_spans_for_page)
@@ -1054,6 +1089,51 @@ class AttachPdfCoverageMetadataCategoryAwarenessTests(unittest.TestCase):
 
         self.assertIn("warning", metadata)
 
+    def test_page_range_entirely_beyond_document_triggers_warning(self) -> None:
+        """A user typing e.g. '5-8' on a 3-page document used to silently
+        produce a no-op 'successful' anonymization with no explanation -
+        reported by the user after testing Etap 5. With page_count now
+        wired through, this must surface a warning instead of staying
+        silent."""
+        metadata = _attach_pdf_coverage_metadata(
+            {"counters": {}},
+            counters={},
+            audit_result={"findings": {}},
+            ner_result={"counters": {}},
+            active_pages=frozenset({5, 6, 7, 8}),
+            page_count=3,
+        )
+
+        self.assertIn("warning", metadata)
+        self.assertIn("5, 6, 7, 8", metadata["warning"])
+        self.assertIn("3-page", metadata["warning"])
+
+    def test_page_range_partially_overlapping_document_does_not_warn(self) -> None:
+        metadata = _attach_pdf_coverage_metadata(
+            {"counters": {}},
+            counters={"PESEL": 1},
+            audit_result={"findings": {}},
+            ner_result={"counters": {}},
+            active_pages=frozenset({2, 3, 4}),
+            page_count=3,
+        )
+
+        self.assertNotIn("warning", metadata)
+
+    def test_page_count_defaulting_to_zero_skips_out_of_bounds_check(self) -> None:
+        """Callers that don't know the real page count (page_count's
+        default) must not have the bounds check misfire on frozenset({}) *
+        range(1, 1) always being disjoint."""
+        metadata = _attach_pdf_coverage_metadata(
+            {"counters": {}},
+            counters={},
+            audit_result={"findings": {}},
+            ner_result={"counters": {}},
+            active_pages=frozenset({5, 6}),
+        )
+
+        self.assertNotIn("warning", metadata)
+
 
 class SaveRedactedPdfCopyCategoryFilteringTests(unittest.TestCase):
     """Direct coverage for the "original_redaction" text-search fallback
@@ -1192,6 +1272,68 @@ class PageRangeDoesNotApplyToImagesTests(unittest.TestCase):
 
             output_text = (output_dir / "scan_ANON.txt").read_text(encoding="utf-8")
         self.assertIn("[PESEL]", output_text)
+
+
+class OutOfBoundsWarningSurvivesOcrDoubleFallbackTests(unittest.TestCase):
+    """Regression test for a real gap code review caught: for a scanned
+    PDF whose word-level OCR is itself unavailable (OcrUnavailableError,
+    e.g. no Tesseract), _anonymize_pdf_file_result falls back to plain
+    ocr_word_pages staying empty - so page_count=len(active_word_pages)
+    silently became 0 and disabled the out-of-bounds check for exactly
+    this doubly-degraded path. Fixed by sourcing page_count from
+    word_pages instead, which extract_pdf_word_pages always populates
+    (one entry per real document page, even wordless ones) before the
+    text-vs-OCR branch runs."""
+
+    def test_out_of_bounds_range_still_warns_when_word_box_ocr_is_unavailable(
+        self,
+    ) -> None:
+        from ocr import (
+            OCR_INPUT_TYPE_PDF,
+            OCR_STATUS_ENGINE_NOT_FOUND,
+            OcrExtraction,
+            OcrUnavailableError,
+            build_ocr_metadata,
+        )
+
+        extraction = OcrExtraction(
+            text="No PII here.",
+            metadata=build_ocr_metadata(
+                used=True,
+                status=OCR_STATUS_ENGINE_NOT_FOUND,
+                input_type=OCR_INPUT_TYPE_PDF,
+                items_processed=3,
+            ),
+        )
+
+        with workspace_temp_dir() as temp_dir:
+            source_dir = Path(temp_dir) / "source"
+            output_dir = Path(temp_dir) / "output"
+            source_dir.mkdir()
+            output_dir.mkdir()
+            source_path = source_dir / "scan.pdf"
+            # No lines on any page -> no extractable text -> triggers the
+            # word-box-OCR-then-plain-OCR fallback chain, exactly like a
+            # real scanned PDF.
+            write_fitz_multi_page_pdf(source_path, [[], [], []])
+
+            with (
+                patch(
+                    "anonymizer.extract_pdf_word_boxes",
+                    side_effect=OcrUnavailableError(
+                        OCR_STATUS_ENGINE_NOT_FOUND, OCR_INPUT_TYPE_PDF, ""
+                    ),
+                ),
+                patch("anonymizer.extract_text_with_ocr", return_value=extraction),
+            ):
+                batch_result = anonymize_batch(
+                    [source_path], output_dir, page_range="10-20"
+                )
+
+            self.assertEqual(len(batch_result.results), 1)
+            warning = str(batch_result.results[0].get("pdf_redaction_warning", ""))
+        self.assertIn("10, 11", warning)
+        self.assertIn("3-page", warning)
 
 
 if __name__ == "__main__":
