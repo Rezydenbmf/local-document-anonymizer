@@ -90,6 +90,27 @@ przenoszę ją do „Potwierdzone" albo usuwam. Jeśli lista urośnie powyżej
       zniknąć z wyniku, mimo że w oryginale etykieta i numer nie są
       obok siebie.
 
+- [ ] **Nowość: ograniczenie automatycznej anonimizacji PDF-a do
+      wybranych stron (Etap 5, 2026-09-18)** — z Twoich własnych
+      notatek: możliwość wskazania, że automatyczne wykrywanie ma
+      dotyczyć tylko wybranych stron dokumentu, a reszta ma zostać
+      nietknięta. W panelu „Kategorie do anonimizacji” pojawiło się nowe
+      pole „Strony (tylko PDF)” — puste = wszystkie strony (jak
+      dotychczas), np. „1-3,5” = tylko strony 1, 2, 3 i 5. Dotyczy
+      wyłącznie plików PDF i wyłącznie widocznego, kolorowego
+      zamazywania w dokumencie — równoległy raport tekstowy (`_ANON.txt`)
+      nadal pokazuje pełne wykrycie na całym dokumencie, niezależnie od
+      wybranego zakresu (świadoma decyzja zakresu tej wersji, nie błąd).
+      Sprawdź na żywo: wczytaj wielostronicowy PDF, wpisz np. „1” w pole
+      „Strony” i zanonimizuj — tylko pierwsza strona powinna zostać
+      zamazana, reszta ma zostać w oryginalnym stanie. Sprawdź też
+      literówkę (np. „1-abc” albo „5-3”) — powinien pojawić się czytelny
+      komunikat błędu zamiast zawieszenia programu albo cichego
+      zignorowania. **Wciąż otwarte, świadomie odłożone**: zmiana zakresu
+      stron już w trakcie pracy w edytorze magic pen (dziś trzeba ustawić
+      zakres przed uruchomieniem anonimizacji, nie da się go zmienić bez
+      ponownego przetworzenia całego dokumentu).
+
 ## Potwierdzone
 
 - [x] **Ogólna jakość wykrywania przez AI poprawiona — nie tylko nazwy

@@ -280,6 +280,61 @@ def resolve_active_labels(
     return ALWAYS_ON_LABELS | selected
 
 
+_PAGE_RANGE_TOKEN = re.compile(r"^\s*(\d+)\s*(?:-\s*(\d+)\s*)?$")
+# No real PDF this app anonymizes is remotely close to this many pages -
+# this exists purely to reject a typo (an extra digit, e.g. "1-999999999"
+# meant to be "1-9") loudly and fast, rather than letting
+# range(start, end + 1) below build a set with hundreds of millions of
+# entries synchronously on the GUI thread (start_anonymize's own
+# validation call runs before any processing/progress screen shows) -
+# a real gap code review caught: that input froze/could OOM the app
+# instead of showing the friendly error every other bad input gets.
+_MAX_PAGE_NUMBER = 20_000
+
+
+def resolve_active_pages(page_range: str | None) -> frozenset[int] | None:
+    """Return the set of 1-based page numbers automatic PDF detection is
+    allowed to touch, given the user's raw "Strony" field text (Etap 5).
+
+    ``None`` (also returned for an empty/whitespace-only string) means
+    "no filtering" - every page is in scope, the same behavior as before
+    this feature existed. Accepts comma-separated single pages and
+    inclusive ranges, e.g. ``"1-3,5"`` -> ``{1, 2, 3, 5}``. Raises
+    ``ValueError`` with a message safe to show the user directly on
+    unparseable input (a typo, a non-numeric token, a reversed range, a
+    page number past ``_MAX_PAGE_NUMBER``) - the caller must validate
+    *before* starting the batch run rather than silently ignoring a
+    range the user thought was being honored.
+    """
+    if page_range is None or not page_range.strip():
+        return None
+    pages: set[int] = set()
+    for raw_token in page_range.split(","):
+        token = raw_token.strip()
+        if not token:
+            continue
+        match = _PAGE_RANGE_TOKEN.match(token)
+        if not match:
+            raise ValueError(f"Nieprawidłowy zakres stron: „{raw_token.strip()}”.")
+        start = int(match.group(1))
+        end = int(match.group(2)) if match.group(2) is not None else start
+        if start < 1 or end < 1:
+            raise ValueError(f"Numer strony musi być większy od zera: „{raw_token.strip()}”.")
+        if end < start:
+            raise ValueError(
+                f"Zakres stron ma odwróconą kolejność: „{raw_token.strip()}”."
+            )
+        if end > _MAX_PAGE_NUMBER:
+            raise ValueError(
+                f"Numer strony jest zbyt duży: „{raw_token.strip()}” "
+                f"(maksymalnie {_MAX_PAGE_NUMBER})."
+            )
+        pages.update(range(start, end + 1))
+    if not pages:
+        return None
+    return frozenset(pages)
+
+
 CATEGORY_SELECTION_SUFFIX = "_CATEGORY_SELECTION"
 CATEGORY_SELECTION_EXTENSION = ".json"
 
@@ -351,8 +406,50 @@ def load_category_selection(path: str | Path) -> frozenset[str] | None:
     return frozenset(labels)
 
 
+def load_active_pages_selection(path: str | Path) -> frozenset[int] | None:
+    """Load the *frozen* set of 1-based page numbers (Etap 5) that were
+    actually in scope when this visual PDF output was first produced, or
+    ``None`` if missing/corrupt/never written/written by a version of
+    this app before this field existed.
+
+    Sibling of load_category_selection, reading the same sidecar file -
+    kept as an independent function (rather than widening
+    load_category_selection's return shape) so every existing caller and
+    test of the label-only loader keeps working unchanged. ``None`` here
+    means the same thing it does everywhere else in this mechanism: no
+    filtering, every page in scope - the safe direction for a sidecar
+    written before Etap 5 existed.
+
+    Rejects (falls back to ``None``, not a crash) a malformed/hand-edited
+    sidecar containing a non-positive page number - code review caught
+    that without this, ``{"active_pages": [-1, 0]}`` would load as a
+    literal set no real ``page.page_number`` (always >= 1) ever matches,
+    silently regenerating a visual PDF with every page redacted-away
+    (since none is ever "in scope") with no error surfaced anywhere.
+    """
+    try:
+        raw_text = Path(path).read_text(encoding="utf-8")
+        data = json.loads(raw_text)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    pages = data.get("active_pages")
+    if not pages:
+        return None
+    if not isinstance(pages, list) or not all(
+        isinstance(item, int) and not isinstance(item, bool) and item >= 1
+        for item in pages
+    ):
+        return None
+    return frozenset(pages)
+
+
 def save_category_selection(
-    path: str | Path, active_categories: Iterable[str] | None
+    path: str | Path,
+    active_categories: Iterable[str] | None,
+    *,
+    page_range: str | None = None,
 ) -> Path:
     """Write the category selection sidecar - ``None`` records "no
     filtering" explicitly (as ``null``), the same as never having one
@@ -365,17 +462,24 @@ def save_category_selection(
     did I pick last time" display - never read back by this app today)
     and the *resolved* label set active right now, at save time - see
     load_category_selection for why the resolved set, not the names, is
-    what a later regenerate actually needs.
+    what a later regenerate actually needs. ``page_range`` (Etap 5's raw
+    "Strony" field text, e.g. ``"1-3,5"``) is resolved and frozen the
+    same way, for the same reason - see load_active_pages_selection.
     """
     destination = Path(path)
     active_categories = (
         list(active_categories) if active_categories is not None else None
     )
     active_labels = resolve_active_labels(active_categories)
+    active_pages = resolve_active_pages(page_range)
     payload = {
         "active_categories": active_categories,
         "active_labels": (
             sorted(active_labels) if active_labels is not None else None
+        ),
+        "page_range": page_range,
+        "active_pages": (
+            sorted(active_pages) if active_pages is not None else None
         ),
     }
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -1283,6 +1387,7 @@ def _pdf_detection_spans_for_word_pages(
     sensitive_terms: Iterable[SensitiveTerm] | None,
     ner_context,
     active_labels: frozenset[str] | None = None,
+    active_pages: frozenset[int] | None = None,
 ) -> list[PdfRedactionSpan]:
     """Detect spans in dictionary -> regex -> NER order, same as always -
     but with Etap 4's category selection applied *before* each span is
@@ -1296,11 +1401,18 @@ def _pdf_detection_spans_for_word_pages(
     address) from ever being added by the later NER pass -  leaving that
     PII completely unredacted in both categories. Filtering before
     reservation, in every one of the three per-page helpers below,
-    closes that gap. Dictionary spans are never filtered - always the
-    user's own explicit, separate choice.
+    closes that gap. Dictionary spans are never filtered by
+    ``active_labels`` - always the user's own explicit, separate choice
+    - but ``active_pages`` (Etap 5's page-range restriction) skips a
+    page entirely before any of the three sources run, so a page outside
+    the chosen range gets zero spans from any of them, dictionary
+    included - the user picked a range meaning "don't touch this page
+    at all", not "don't touch this page except for my dictionary terms".
     """
     spans: list[PdfRedactionSpan] = []
     for page in word_pages:
+        if active_pages is not None and page.page_number not in active_pages:
+            continue
         occupied_ranges: list[tuple[int, int]] = []
         spans.extend(
             _dictionary_pdf_spans_for_page(
@@ -1377,6 +1489,8 @@ def compute_pdf_redaction_spans(
     ner_model_name: str = DEFAULT_NER_MODEL,
     active_categories: Iterable[str] | None = None,
     active_labels: frozenset[str] | None = None,
+    page_range: str | None = None,
+    active_pages: frozenset[int] | None = None,
 ) -> tuple[list, list[PdfRedactionSpan]]:
     """Recompute word pages and detection spans for a source document.
 
@@ -1397,6 +1511,9 @@ def compute_pdf_redaction_spans(
     resolve_active_labels) is for a live/current selection with no
     prior sidecar to freeze from. ``None`` for both (the default)
     redacts everything, exactly as before either parameter existed.
+    ``active_pages``/``page_range`` (Etap 5) mirror that same precedence
+    for the page-range restriction, via resolve_active_pages/
+    load_active_pages_selection.
     """
     terms, _dictionary_status = _prepare_workflow_dictionary(
         sensitive_terms, sensitive_terms_path
@@ -1404,12 +1521,15 @@ def compute_pdf_redaction_spans(
     ner_context = prepare_ner_context(enabled=use_ner, model_name=ner_model_name)
     if active_labels is None:
         active_labels = resolve_active_labels(active_categories)
+    if active_pages is None:
+        active_pages = resolve_active_pages(page_range)
     word_pages = word_pages_for_redaction_geometry(source_path)
     spans = _pdf_detection_spans_for_word_pages(
         word_pages,
         sensitive_terms=terms,
         ner_context=ner_context,
         active_labels=active_labels,
+        active_pages=active_pages,
     )
     return word_pages, spans
 
@@ -1446,22 +1566,42 @@ def _attach_pdf_coverage_metadata(
     pdf_redaction_scope: str = PDF_REDACTION_SCOPE_SAFE,
     ner_pdf_redaction_skipped_categories: dict[str, int] | None = None,
     active_labels: frozenset[str] | None = None,
+    active_pages: frozenset[int] | None = None,
 ) -> dict[str, object]:
     metadata = dict(pdf_redaction_result)
     scope = _normalize_pdf_redaction_scope(pdf_redaction_scope)
     detected = _build_pdf_detected_categories(counters, audit_result, ner_result)
     txt_anonymized = _positive_counts(counters)
     pdf_redacted = _positive_counts(metadata.get("counters"))
-    not_redacted = {
-        label: count
-        for label, count in detected.items()
-        if pdf_redacted.get(label, 0) <= 0
-        # A category the user deliberately excluded (Etap 4) isn't a PDF
-        # redaction *gap* - the coverage warning below exists to catch
-        # cases where redaction unexpectedly failed, not to second-guess
-        # an intentional choice already surfaced elsewhere in the report.
-        and (active_labels is None or label in active_labels)
-    }
+    # active_pages (Etap 5) makes this comparison structurally unable to
+    # tell a real gap apart from a deliberately out-of-scope page: every
+    # count above is whole-document (the parallel TXT/report pipeline is
+    # never page-scoped - see anonymize_batch's own docstring), so a
+    # category found only on an excluded page looks identical to one
+    # redaction genuinely missed. Code review confirmed this would
+    # otherwise fire PDF_COVERAGE_WARNING on the *normal, expected* case
+    # of a user restricting to page 1 and having, say, a PESEL on page
+    # 2 - directly contradicting the "Strony" field's own promise that
+    # the rest of the document stays untouched. Suppressing the whole
+    # gap check when any page restriction is active is coarser than the
+    # per-category active_labels suppression below, but building true
+    # per-page detected-vs-redacted reconciliation would need the
+    # whole-document counters to become page-aware first - a
+    # significantly bigger change than this feature's own scope.
+    not_redacted = (
+        {}
+        if active_pages is not None
+        else {
+            label: count
+            for label, count in detected.items()
+            if pdf_redacted.get(label, 0) <= 0
+            # A category the user deliberately excluded (Etap 4) isn't a PDF
+            # redaction *gap* - the coverage warning below exists to catch
+            # cases where redaction unexpectedly failed, not to second-guess
+            # an intentional choice already surfaced elsewhere in the report.
+            and (active_labels is None or label in active_labels)
+        }
+    )
     default_pdf_labels = (
         PDF_VISUAL_NER_REDACTION_LABELS
         if metadata.get("visual_redaction_mode") == "word_coordinates"
@@ -1995,6 +2135,7 @@ def _anonymize_pdf_file_result(
     pdf_redaction_scope: str = PDF_REDACTION_SCOPE_SAFE,
     pdf_output_mode: str = PDF_OUTPUT_MODE_VISUAL,
     active_categories: Iterable[str] | None = None,
+    page_range: str | None = None,
 ) -> FileWorkflowResult:
     """Anonymize a PDF file and return paths needed by batch processing."""
     terms, dictionary_status = _prepare_workflow_dictionary(
@@ -2002,6 +2143,7 @@ def _anonymize_pdf_file_result(
     )
     ner_context = prepare_ner_context(enabled=use_ner, model_name=ner_model_name)
     active_labels = resolve_active_labels(active_categories)
+    active_pages = resolve_active_pages(page_range)
     text_based_pdf = False
     word_pages = []
     ocr_word_pages: list = []
@@ -2051,12 +2193,22 @@ def _anonymize_pdf_file_result(
             sensitive_terms=terms,
             ner_context=ner_context,
             active_labels=active_labels,
+            active_pages=active_pages,
         )
         if active_word_pages
         else []
     )
+    # active_pages-aware, matching pdf_detection_spans above (source of
+    # the same "PDF redaction blocks" report section this count feeds) -
+    # a real gap code review caught: this counted every page regardless
+    # of the chosen range, so the report could claim a weak phone-like
+    # value was "skipped" on a page that was never touched at all.
     weak_phone_like_skipped_count = (
-        sum(_weak_phone_like_without_context_count(page.text) for page in word_pages)
+        sum(
+            _weak_phone_like_without_context_count(page.text)
+            for page in word_pages
+            if active_pages is None or page.page_number in active_pages
+        )
         if text_based_pdf
         else 0
     )
@@ -2158,6 +2310,7 @@ def _anonymize_pdf_file_result(
                 save_category_selection(
                     category_selection_path(pdf_visual_output_path),
                     active_categories,
+                    page_range=page_range,
                 )
             except OSError:
                 # Cosmetic-adjacent app state, not the anonymization
@@ -2219,6 +2372,7 @@ def _anonymize_pdf_file_result(
                 extra_redaction_terms=pdf_ner_redaction_terms,
                 output_path=pdf_original_redacted_output_path,
                 active_labels=active_labels,
+                active_pages=active_pages,
             )
         except RuntimeError:
             pdf_redaction_result = build_pdf_redaction_metadata(status="unavailable")
@@ -2287,6 +2441,7 @@ def _anonymize_pdf_file_result(
         pdf_redaction_scope=normalized_pdf_scope,
         ner_pdf_redaction_skipped_categories=pdf_ner_skipped_categories,
         active_labels=active_labels,
+        active_pages=active_pages,
     )
     report_path = _build_anonymization_report_path(source_path, output_dir=output_dir)
     checklist_path = _save_review_checklist(
@@ -2708,6 +2863,7 @@ def _anonymize_file_result(
     pdf_redaction_scope: str = PDF_REDACTION_SCOPE_SAFE,
     pdf_output_mode: str = PDF_OUTPUT_MODE_VISUAL,
     active_categories: Iterable[str] | None = None,
+    page_range: str | None = None,
 ) -> FileWorkflowResult:
     """Anonymize one supported file and return paths needed by batch processing."""
     path = Path(source_path)
@@ -2749,6 +2905,7 @@ def _anonymize_file_result(
             pdf_redaction_scope=pdf_redaction_scope,
             pdf_output_mode=pdf_output_mode,
             active_categories=active_categories,
+            page_range=page_range,
         )
     if path.suffix.lower() in IMAGE_EXTENSIONS:
         return _anonymize_image_file_result(
@@ -2835,6 +2992,7 @@ def anonymize_batch(
     pdf_redaction_scope: str = PDF_REDACTION_SCOPE_SAFE,
     pdf_output_mode: str = PDF_OUTPUT_MODE_VISUAL,
     active_categories: Iterable[str] | None = None,
+    page_range: str | None = None,
     progress_callback: Callable[[int, int, Path], None] | None = None,
 ) -> BatchResult:
     """Anonymize supported files sequentially into one output workspace.
@@ -2847,6 +3005,14 @@ def anonymize_batch(
     (``ALWAYS_ON_LABELS``: the dictionary, DOWOD_OSOBISTY,
     PERSON_NAME_TYPO, NER_MISC) - those are always redacted regardless.
     ``None`` (the default) redacts everything, exactly as before this
+    parameter existed.
+
+    ``page_range`` (Etap 5, e.g. ``"1-3,5"``) restricts the *visual PDF*
+    redaction, for every PDF in this batch, to the given 1-based pages -
+    see ``resolve_active_pages``. Has no effect on TXT/DOCX/image inputs
+    (they have no page concept in this app) or on the parallel text
+    report, which still reflects detection across the whole document.
+    ``None`` (the default) redacts every page, exactly as before this
     parameter existed.
     """
     if sensitive_terms is not None and sensitive_terms_path is not None:
@@ -2900,6 +3066,7 @@ def anonymize_batch(
                 pdf_redaction_scope=pdf_redaction_scope,
                 pdf_output_mode=pdf_output_mode,
                 active_categories=active_categories,
+                page_range=page_range,
             )
         except Exception as error:
             error_count += 1

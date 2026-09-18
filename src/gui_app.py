@@ -19,6 +19,7 @@ try:
         ALL_CATEGORIES,
         BatchResult,
         anonymize_batch,
+        resolve_active_pages,
     )
     from .dependency_updates import (
         check_dependency_updates,
@@ -154,6 +155,7 @@ except ImportError:
         ALL_CATEGORIES,
         BatchResult,
         anonymize_batch,
+        resolve_active_pages,
     )
     from dependency_updates import (
         check_dependency_updates,
@@ -313,6 +315,12 @@ class AnonymizerApp:
         # like use_ner above, so it resets to "everything on" (the safe
         # default) every launch rather than being written to disk.
         self.active_categories: set[str] = set(ALL_CATEGORIES)
+        # Etap 5: raw "Strony" field text (e.g. "1-3,5") restricting
+        # automatic PDF redaction to a page range - empty string (the
+        # default) means every page, same per-task reset behavior as
+        # active_categories above. Only meaningful for PDF input; parsed
+        # via anonymizer.resolve_active_pages right before a batch run.
+        self.active_page_range: str = ""
         # Collapsed to a slim rail (see _build_quick_settings_panel) once
         # the user clicks the panel's own collapse toggle - per direct
         # feedback that "Szybkie akcje" can get in the way and should be
@@ -1207,6 +1215,35 @@ class AnonymizerApp:
             detail = category_selection_detail_pl(category)
             if detail:
                 IconTooltip(category_checkbox, detail)
+
+        page_range_row = ctk.CTkFrame(category_inner, fg_color="transparent")
+        page_range_row.pack(fill="x", pady=(6, 0))
+        ctk.CTkLabel(
+            page_range_row,
+            text="Strony (tylko PDF)",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLOR_TEXT,
+            anchor="w",
+        ).pack(fill="x", pady=(0, 2))
+        # No live-sync StringVar/trace needed - self.active_page_range is
+        # only ever read once, in start_anonymize(), right before the
+        # batch run starts (same as every other "read the widget" field
+        # in this panel that isn't a checkbox needing an immediate
+        # command= callback).
+        self.page_range_entry = ctk.CTkEntry(
+            page_range_row,
+            placeholder_text="np. 1-3,5 (puste = wszystkie)",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+        )
+        self.page_range_entry.insert(0, self.active_page_range)
+        self.page_range_entry.pack(fill="x")
+        IconTooltip(
+            self.page_range_entry,
+            "Automatyczne wykrywanie i zamazywanie w PDF-ie dotyczy tylko "
+            "wybranych stron - reszta zostaje nietknięta. Nie dotyczy "
+            "dokumentów TXT/DOCX ani raportu tekstowego, który nadal "
+            "pokazuje pełne wykrycie na całym dokumencie.",
+        )
 
         env_status = environment_status_lookup(self.environment_items)
 
@@ -2285,6 +2322,21 @@ class AnonymizerApp:
         if not self.selected_paths or self.output_dir is None:
             return
 
+        # Read once here rather than kept in sync via a StringVar/trace on
+        # every keystroke - self.active_page_range only needs its current
+        # value at the one moment a batch run actually starts. Validated
+        # before show_processing_screen() so a typo in "Strony" (Etap 5)
+        # surfaces immediately, not after the processing screen has
+        # already flashed - matching the "fail loudly, before doing any
+        # work" pattern the export destination check uses elsewhere in
+        # this file.
+        self.active_page_range = self.page_range_entry.get()
+        try:
+            resolve_active_pages(self.active_page_range)
+        except ValueError as error:
+            messagebox.showerror("Zakres stron", str(error), parent=self.root)
+            return
+
         self.show_processing_screen()
         self.root.update_idletasks()
 
@@ -2303,6 +2355,7 @@ class AnonymizerApp:
                     self.pdf_output_label
                 ),
                 active_categories=self.active_categories,
+                page_range=self.active_page_range,
                 progress_callback=self._update_processing,
             )
         except Exception:

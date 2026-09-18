@@ -160,6 +160,7 @@ def _resolve_word_pages_and_spans(
     ner_model_name: str,
     active_categories: Sequence[str] | None,
     active_labels: frozenset[str] | None = None,
+    active_pages: frozenset[int] | None = None,
 ) -> tuple[Sequence, object]:
     """Return ``(word_pages, spans)`` as-given when both were supplied by
     the caller, otherwise recompute detection from scratch. Shared by
@@ -175,6 +176,7 @@ def _resolve_word_pages_and_spans(
         "use_ner": use_ner,
         "active_categories": active_categories,
         "active_labels": active_labels,
+        "active_pages": active_pages,
     }
     if ner_model_name:
         kwargs["ner_model_name"] = ner_model_name
@@ -194,6 +196,7 @@ def regenerate_pdf_with_manual_overrides(
     spans: object = None,
     active_categories: Sequence[str] | None = None,
     active_labels: frozenset[str] | None = None,
+    active_pages: frozenset[int] | None = None,
 ) -> dict[str, object]:
     """Rebuild the true-redacted visual PDF in place, applying manual overrides.
 
@@ -216,7 +219,9 @@ def regenerate_pdf_with_manual_overrides(
     compute_pdf_redaction_spans). Omitting both this and
     ``active_categories`` here would silently redact every category
     again, overriding whatever the user originally chose to leave
-    unredacted.
+    unredacted. ``active_pages`` (Etap 5) is the same freeze-at-save-time
+    story for the page-range restriction - see
+    anonymizer.load_active_pages_selection.
     """
     word_pages, spans = _resolve_word_pages_and_spans(
         source_path,
@@ -228,6 +233,7 @@ def regenerate_pdf_with_manual_overrides(
         ner_model_name=ner_model_name,
         active_categories=active_categories,
         active_labels=active_labels,
+        active_pages=active_pages,
     )
 
     extra_rects = [(rect.page, rect.as_tuple()) for rect in edits.added]
@@ -265,6 +271,7 @@ def compute_visible_redaction_rects(
     spans: object = None,
     active_categories: Sequence[str] | None = None,
     active_labels: frozenset[str] | None = None,
+    active_pages: frozenset[int] | None = None,
 ) -> list[dict[str, object]]:
     """Return every rectangle currently visible on a true-redacted PDF.
 
@@ -276,8 +283,8 @@ def compute_visible_redaction_rects(
     neither) the same way :func:`regenerate_pdf_with_manual_overrides`
     does, to skip redetection when a caller already has one from this
     session on this exact source file. See that function's docstring for
-    why ``active_labels``/``active_categories`` matter when redetection
-    does happen.
+    why ``active_labels``/``active_categories``/``active_pages`` matter
+    when redetection does happen.
     """
     word_pages, spans = _resolve_word_pages_and_spans(
         source_path,
@@ -289,6 +296,7 @@ def compute_visible_redaction_rects(
         ner_model_name=ner_model_name,
         active_labels=active_labels,
         active_categories=active_categories,
+        active_pages=active_pages,
     )
     auto_rects, _counters, _unmapped = compute_redaction_rects(
         word_pages, spans, removed_span_keys=edits.removed

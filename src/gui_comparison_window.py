@@ -18,6 +18,7 @@ try:
     from .anonymizer import (
         category_selection_path,
         compute_pdf_redaction_spans,
+        load_active_pages_selection,
         load_category_selection,
     )
     from .file_readers import (
@@ -93,6 +94,7 @@ except ImportError:
     from anonymizer import (
         category_selection_path,
         compute_pdf_redaction_spans,
+        load_active_pages_selection,
         load_category_selection,
     )
     from file_readers import (
@@ -492,6 +494,13 @@ class ComparisonWindow:
         # excluded.
         self._original_active_labels: frozenset[str] | None = (
             load_category_selection(category_selection_path(result_path))
+        )
+        # Sibling of _original_active_labels, same sidecar, same freeze-at-
+        # save-time reasoning (see anonymizer.load_active_pages_selection) -
+        # Etap 5's page-range restriction. None means "no filtering", every
+        # page in scope - the sidecar's own default before Etap 5 existed.
+        self._original_active_pages: frozenset[int] | None = (
+            load_active_pages_selection(category_selection_path(result_path))
         )
         self._images: list[ctk.CTkImage] = []
         self._tk_images: list[ImageTk.PhotoImage] = []
@@ -2053,6 +2062,7 @@ class ComparisonWindow:
                 sensitive_terms_path=self.app.sensitive_terms_path,
                 use_ner=self.app.use_ner,
                 active_labels=self._original_active_labels,
+                active_pages=self._original_active_pages,
             )
             self._detection_cache_key = key
         return self._detection_cache
@@ -2071,6 +2081,7 @@ class ComparisonWindow:
                 word_pages=word_pages,
                 spans=spans,
                 active_labels=self._original_active_labels,
+                active_pages=self._original_active_pages,
             )
         except (OSError, RuntimeError, ValueError):
             self.visible_rects = []
@@ -2612,6 +2623,7 @@ class ComparisonWindow:
                 word_pages=word_pages,
                 spans=spans,
                 active_labels=self._original_active_labels,
+                active_pages=self._original_active_pages,
             )
             os.replace(staging_path, self.result_path)
             save_manual_edits(manual_edits_path(self.result_path), new_edits)
