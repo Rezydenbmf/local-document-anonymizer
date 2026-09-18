@@ -1557,6 +1557,16 @@ def _build_pdf_detected_categories(
     return detected
 
 
+def _page_range_out_of_bounds_warning(
+    active_pages: frozenset[int], page_count: int
+) -> str:
+    requested = ", ".join(str(page) for page in sorted(active_pages))
+    return (
+        f"The chosen page range ({requested}) does not match any page of "
+        f"this {page_count}-page document - nothing was redacted."
+    )
+
+
 def _attach_pdf_coverage_metadata(
     pdf_redaction_result: dict[str, object],
     *,
@@ -1567,6 +1577,7 @@ def _attach_pdf_coverage_metadata(
     ner_pdf_redaction_skipped_categories: dict[str, int] | None = None,
     active_labels: frozenset[str] | None = None,
     active_pages: frozenset[int] | None = None,
+    page_count: int = 0,
 ) -> dict[str, object]:
     metadata = dict(pdf_redaction_result)
     scope = _normalize_pdf_redaction_scope(pdf_redaction_scope)
@@ -1633,8 +1644,20 @@ def _attach_pdf_coverage_metadata(
         metadata["safe_scope_note"] = PDF_SAFE_SCOPE_NOTE
     if scope == PDF_REDACTION_SCOPE_STRICT:
         metadata["strict_scope_warning"] = PDF_STRICT_SCOPE_WARNING
-    if not_redacted:
-        metadata["warning"] = PDF_COVERAGE_WARNING
+    page_range_out_of_bounds = (
+        active_pages is not None
+        and page_count > 0
+        and active_pages.isdisjoint(range(1, page_count + 1))
+    )
+    warning = (
+        _page_range_out_of_bounds_warning(active_pages, page_count)
+        if page_range_out_of_bounds
+        else PDF_COVERAGE_WARNING
+        if not_redacted
+        else ""
+    )
+    if warning:
+        metadata["warning"] = warning
         if metadata.get("status") in ("completed", "no_matches"):
             metadata["status"] = "completed_with_warnings"
             metadata["used"] = True
@@ -2442,6 +2465,14 @@ def _anonymize_pdf_file_result(
         ner_pdf_redaction_skipped_categories=pdf_ner_skipped_categories,
         active_labels=active_labels,
         active_pages=active_pages,
+        # word_pages (not active_word_pages) on purpose: it's populated
+        # unconditionally near the top of this function, one entry per
+        # real document page, before the text-vs-OCR branch runs - so it
+        # still carries the true page count even down the doubly-degraded
+        # fallback (word-box OCR unavailable -> plain-text-only OCR),
+        # where active_word_pages resolves to the still-empty
+        # ocr_word_pages and would otherwise silently disable this check.
+        page_count=len(word_pages),
     )
     report_path = _build_anonymization_report_path(source_path, output_dir=output_dir)
     checklist_path = _save_review_checklist(

@@ -1232,7 +1232,7 @@ class AnonymizerApp:
         # command= callback).
         self.page_range_entry = ctk.CTkEntry(
             page_range_row,
-            placeholder_text="np. 1-3,5 (puste = wszystkie)",
+            placeholder_text="np. 1,3,5 lub 1-3 (puste = wszystkie)",
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
         )
         self.page_range_entry.insert(0, self.active_page_range)
@@ -1240,9 +1240,11 @@ class AnonymizerApp:
         IconTooltip(
             self.page_range_entry,
             "Automatyczne wykrywanie i zamazywanie w PDF-ie dotyczy tylko "
-            "wybranych stron - reszta zostaje nietknięta. Nie dotyczy "
-            "dokumentów TXT/DOCX ani raportu tekstowego, który nadal "
-            "pokazuje pełne wykrycie na całym dokumencie.",
+            "wybranych stron - reszta zostaje nietknięta. Format: pojedyncze "
+            "numery stron po przecinku (1,3,5), zakresy z myślnikiem (1-3), "
+            "można łączyć oba naraz (1-3,5). Nie dotyczy dokumentów TXT/DOCX "
+            "ani raportu tekstowego, który nadal pokazuje pełne wykrycie na "
+            "całym dokumencie.",
         )
 
         env_status = environment_status_lookup(self.environment_items)
