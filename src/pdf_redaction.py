@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
-from pathlib import Path
+import bisect
 import re
 import tempfile
 import textwrap
+from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
+from pathlib import Path
 
 try:
     from .file_writers import (
@@ -279,6 +280,106 @@ PDF_REDACTION_PATTERNS: tuple[PdfRedactionPattern, ...] = (
         PERSON_NAME_TYPO_PATTERN,
     ),
 )
+
+# Same fix, same reason, as anonymizer.py's identical fallback (this
+# module can't import anonymizer.py's copy - the import direction
+# already runs the other way, anonymizer.py imports from this module,
+# so the reverse would be circular). The direct "NIP"/"REGON" entries
+# above require the label and its digits on the same line - a common
+# invoice-table layout (every field label grouped in one column/block,
+# every value in another a few lines later) defeats that entirely,
+# confirmed live on a real invoice fixture. _table_separated_label_value_spans
+# pairs a label with the nearest not-yet-claimed value within
+# _TABLE_LABEL_VALUE_MAX_LINES_AHEAD lines, in reading order - never
+# touching the label text itself, since a field label is never PII.
+_BARE_NIP_LABEL_PATTERN = re.compile(r"(?<!\w)NIP(?!\w)", re.IGNORECASE)
+_BARE_REGON_LABEL_PATTERN = re.compile(r"(?<!\w)REGON(?!\w)", re.IGNORECASE)
+_BARE_NIP_VALUE_PATTERN = re.compile(r"(?<!\w)\d(?:[\s-]?\d){9}(?!\w)")
+_BARE_REGON_VALUE_PATTERN = re.compile(
+    r"(?<!\w)(?:\d(?:[\s-]?\d){13}|\d(?:[\s-]?\d){8})(?!\w)"
+)
+# Kept small and close to the actually-observed real-world gap (2
+# lines) rather than generous - see anonymizer.py's identical constant
+# for the full reasoning (a wider window risks mispairing an unrelated
+# same-length number instead of the real value).
+_TABLE_LABEL_VALUE_MAX_LINES_AHEAD = 4
+
+
+def _line_start_offsets(text: str) -> list[int]:
+    """0-based offset each line starts at, for bisect-based line-number
+    lookups - shared across both the NIP and REGON calls in the same
+    page text by callers that need more than one, instead of each call
+    re-scanning the same text for newlines independently."""
+    line_starts = [0]
+    line_starts.extend(m.end() for m in re.finditer(r"\n", text))
+    return line_starts
+
+
+def _table_separated_label_value_spans(
+    text: str,
+    label_pattern: re.Pattern[str],
+    value_pattern: re.Pattern[str],
+    line_starts: list[int],
+) -> list[tuple[int, int]]:
+    """Pair each bare ``label_pattern`` match with the nearest, not yet
+    claimed ``value_pattern`` match that starts after it, within
+    ``_TABLE_LABEL_VALUE_MAX_LINES_AHEAD`` lines - in reading order, so
+    a block of N labels pairs with the next N values in the same
+    relative order they were written in. Returns only the *value*
+    spans; the caller never touches the label text. ``line_starts``
+    (see _line_start_offsets) is precomputed by the caller so pairing
+    NIP and REGON in the same page text doesn't rescan it for newlines
+    twice."""
+    label_starts = [m.start() for m in label_pattern.finditer(text)]
+    if not label_starts:
+        return []
+    value_positions = [(m.start(), m.end()) for m in value_pattern.finditer(text)]
+    if not value_positions:
+        return []
+
+    def line_number(offset: int) -> int:
+        return bisect.bisect_right(line_starts, offset) - 1
+
+    claimed: set[int] = set()
+    spans: list[tuple[int, int]] = []
+    search_from = 0
+    for label_start in label_starts:
+        label_line = line_number(label_start)
+        while search_from < len(value_positions) and (
+            value_positions[search_from][0] < label_start
+            or search_from in claimed
+        ):
+            search_from += 1
+        for index in range(search_from, len(value_positions)):
+            if index in claimed:
+                continue
+            value_start, value_end = value_positions[index]
+            if line_number(value_start) - label_line > _TABLE_LABEL_VALUE_MAX_LINES_AHEAD:
+                break
+            claimed.add(index)
+            spans.append((value_start, value_end))
+            break
+    return spans
+
+
+def _table_separated_nip_regon_matches(
+    page_text: str, active_labels: frozenset[str] | None
+) -> list[tuple[str, int, int]]:
+    """Return ``(label, start, end)`` spans for the table-separated
+    NIP/REGON fallback."""
+    results: list[tuple[str, int, int]] = []
+    line_starts = _line_start_offsets(page_text)
+    for label_name, label_pattern, value_pattern in (
+        ("NIP", _BARE_NIP_LABEL_PATTERN, _BARE_NIP_VALUE_PATTERN),
+        ("REGON", _BARE_REGON_LABEL_PATTERN, _BARE_REGON_VALUE_PATTERN),
+    ):
+        if active_labels is not None and label_name not in active_labels:
+            continue
+        for start, end in _table_separated_label_value_spans(
+            page_text, label_pattern, value_pattern, line_starts
+        ):
+            results.append((label_name, start, end))
+    return results
 
 
 def build_pdf_redaction_metadata(
@@ -900,24 +1001,58 @@ def _redact_pattern_matches(
 ) -> dict[str, int]:
     counters: dict[str, int] = {}
     seen_locations: set[tuple[str, float, float, float, float]] = set()
+    # Tracks each match's *offset range* in page_text once it has
+    # actually redacted something, so a later, looser pattern (TELEFON's
+    # bare "\d{9}" fallback) can't also claim the same digits under a
+    # second label, and the table-separated NIP/REGON fallback below
+    # can't re-claim a value its own direct, same-line pattern already
+    # consumed as part of a wider "NIP: 123..." match - this function
+    # has no other general cross-label "already redacted this range"
+    # tracking the way the word-coordinate path's occupied_ranges does.
+    claimed_ranges: list[tuple[int, int]] = []
+
+    def _redact_offset_match(label: str, start: int, end: int, matched_text: str) -> None:
+        if any(start < c_end and c_start < end for c_start, c_end in claimed_ranges):
+            return
+        redacted_here = False
+        for rect in _search_page_for_text(page, matched_text):
+            key = (
+                label,
+                round(rect.x0, 2),
+                round(rect.y0, 2),
+                round(rect.x1, 2),
+                round(rect.y1, 2),
+            )
+            if key in seen_locations:
+                continue
+            seen_locations.add(key)
+            _add_redaction(page, rect, label)
+            counters[label] = counters.get(label, 0) + 1
+            redacted_here = True
+        if redacted_here:
+            claimed_ranges.append((start, end))
+
     for item in PDF_REDACTION_PATTERNS:
-        if active_labels is not None and item.label not in active_labels:
-            continue
-        for match in item.pattern.finditer(page_text):
-            matched_text = match.group(0)
-            for rect in _search_page_for_text(page, matched_text):
-                key = (
-                    item.label,
-                    round(rect.x0, 2),
-                    round(rect.y0, 2),
-                    round(rect.x1, 2),
-                    round(rect.y1, 2),
+        if active_labels is None or item.label in active_labels:
+            for match in item.pattern.finditer(page_text):
+                _redact_offset_match(
+                    item.label, match.start(), match.end(), match.group(0)
                 )
-                if key in seen_locations:
-                    continue
-                seen_locations.add(key)
-                _add_redaction(page, rect, item.label)
-                counters[item.label] = counters.get(item.label, 0) + 1
+        # Right after REGON's own direct (same-line) pattern above, and
+        # before TELEFON's turn a few iterations later in this same
+        # loop - see _apply_dictionary_and_regex's identical ordering
+        # note in anonymizer.py. Deliberately a plain `if`, not
+        # `continue`d away above when REGON itself is excluded - see
+        # that same note for the real bug that caused.
+        if item.label == "REGON" and (
+            active_labels is None
+            or "NIP" in active_labels
+            or "REGON" in active_labels
+        ):
+            for label, start, end in _table_separated_nip_regon_matches(
+                page_text, active_labels
+            ):
+                _redact_offset_match(label, start, end, page_text[start:end])
     return counters
 
 

@@ -404,6 +404,40 @@ class EndToEndPdfCategorySelectionTests(unittest.TestCase):
         self.assertNotIn("00000000000", visible_text)
         self.assertIn("tester@example.test", visible_text)
 
+    def test_visual_pdf_redacts_table_separated_nip_and_regon(self) -> None:
+        """anonymizer.py's own PDF word-coordinate path
+        (_table_separated_nip_regon_pdf_spans/_regex_pdf_spans_for_page)
+        for the table-separated NIP/REGON fallback - the direct
+        regression test for the exact scenario reported live on a real
+        invoice (label block, then value block, a few lines apart).
+        pdf_redaction.py's independent copy of the same fallback is
+        covered separately in tests/test_pdf_io.py, since this module
+        can't import that one's copy (circular import)."""
+        with workspace_temp_dir() as temp_dir:
+            source_dir = Path(temp_dir) / "source"
+            output_dir = Path(temp_dir) / "output"
+            source_dir.mkdir()
+            output_dir.mkdir()
+            source_path = source_dir / "invoice.pdf"
+            write_fitz_text_pdf(
+                source_path, ["NIP", "REGON", "526-000-12-46", "012345678"]
+            )
+
+            anonymize_batch(
+                [source_path],
+                output_dir,
+                active_categories=[CATEGORY_COMPANY],
+            )
+
+            import pymupdf as fitz
+
+            visual_pdf = output_dir / "invoice_ANON_VISUAL.pdf"
+            self.assertTrue(visual_pdf.exists())
+            with fitz.open(visual_pdf) as document:
+                visible_text = "\n".join(page.get_text("text") for page in document)
+        self.assertNotIn("526-000-12-46", visible_text)
+        self.assertNotIn("012345678", visible_text)
+
 
 class PdfSpanOrderingRegressionTests(unittest.TestCase):
     """Regression guard for a real bug the code-review pass caught: an

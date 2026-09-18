@@ -3936,6 +3936,66 @@ task), not a name swap. 601 tests passing (existing cursor-name
 assertions in `tests/test_comparison_window_magic_pen_visuals.py`
 updated to match), lint unchanged - UI-only, no `code-review` needed.
 
+**"Dane firmy" detection quality - the first concrete finding: NIP/REGON
+undetected in a common invoice-table layout.** Following up on the
+backlog note above, the user chose to investigate this first (over the
+parallel NER company-name-quality question). Reproduced directly
+against the actual `2_faktura_vat.pdf` test fixture: `NIP_PATTERN`/
+`REGON_PATTERN` in `anonymizer.py`'s `_PATTERNS` require the field
+label and its digit value on the same line, but a very common invoice
+layout groups every field label in one block and every value in
+another a few lines later (`"NIP\nREGON\n526-000-12-46\n012345678"`) -
+leaving both completely undetected despite "Dane firmy" being selected.
+Fixed with a fallback pass (`_table_separated_label_value_spans` and
+its callers) that pairs a bare label with the nearest not-yet-claimed
+matching-digit-count value within a few lines, in reading order, never
+touching the label text (a field label is never PII). Threaded through
+all three detection paths: `anonymizer.py`'s TXT/DOCX substitution
+path, `anonymizer.py`'s PDF word-coordinate span path, and
+`pdf_redaction.py`'s independent PDF text-search path (duplicated due
+to the same circular-import constraint documented earlier this
+session). Had to run ahead of TELEFON's own bare `\d{9}` fallback
+specifically (REGON's short form is also exactly 9 digits) but after
+NIP/REGON's own direct same-line patterns, so the existing adjacent-
+case behavior (`"NIP: 123..."` swallowing the whole label+value into
+one placeholder) is unaffected.
+
+`code-review` (required - touches `anonymizer.py`/`pdf_redaction.py`;
+5 finder angles run via background agents, two of which hit a session
+rate limit partway through but had already independently converged on
+the same critical finding a third angle completed in full) caught a
+real, reproducible control-flow bug before it could ship: selecting
+only "NIP" (without "REGON") skipped the table-separated fallback
+entirely, since it was only ever triggered from the REGON iteration of
+the main pattern loop, and that iteration's own `continue` guard (for
+excluded labels) also skipped the fallback trigger below it - silently
+losing table-separated NIP detection too. Currently unreachable through
+the GUI (`CATEGORY_COMPANY` always bundles NIP+REGON into one "Dane
+firmy" checkbox) but a real trap for any future caller/category split.
+Fixed by restructuring the guard from `continue` to a plain `if`
+wrapping only the direct-pattern application, so the loop always
+reaches the REGON-triggered fallback check regardless of which
+individual label was excluded. The review also flagged and fixed: the
+label-value pairing window was tightened from 8 to 4 lines (the
+real-world gap was only 2; a narrower window meaningfully reduces the
+risk of mispairing a label with an unrelated same-length decoy number
+sitting between it and the real value); a same-file loop duplication
+between the text-substitution and PDF-span wrappers was collapsed (the
+substitution version now builds on the span version instead of
+re-walking the same pairing logic); the newline-offset line index was
+computed once per document/page instead of twice (once per label); and
+- matching exactly the dominant finding class from the *previous* round
+in this same session - `pdf_redaction.py`'s new cross-label overlap-
+tracking logic (`claimed_ranges`/`_redact_offset_match`, genuinely new,
+this function had no such tracking before) had zero test coverage,
+now covered directly (`tests/test_pdf_io.py`'s new
+`TableSeparatedNipRegonPdfTests`, including a full `save_redacted_pdf_copy`
+end-to-end check that TELEFON doesn't steal REGON's value).
+
+612 tests passing (12 new across `test_anonymizer.py`, `test_pdf_io.py`,
+`test_category_selection.py`), lint at 75 (still below the established
+77-error baseline).
+
 ## Warning
 
 This repository is still an early-stage portfolio MVP. Do not use it to

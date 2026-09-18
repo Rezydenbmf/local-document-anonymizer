@@ -8,7 +8,7 @@ import unittest
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from anonymizer import SUPPORTED_LABELS, anonymize_text
+from anonymizer import SUPPORTED_LABELS, _apply_dictionary_and_regex, anonymize_text
 
 
 class AnonymizerEngineTests(unittest.TestCase):
@@ -45,6 +45,103 @@ class AnonymizerEngineTests(unittest.TestCase):
 
         self.assertEqual(anonymized, text)
         self.assertEqual(report, {})
+
+    def test_pairs_table_separated_nip_and_regon_labels_with_their_values(
+        self,
+    ) -> None:
+        """Direct regression test for the exact scenario reported live on
+        a real invoice: NIP/REGON_PATTERN require the label and its
+        digits on the same line, but a common invoice-table layout
+        groups every field label in one block and every value in
+        another a few lines later - leaving both completely undetected
+        before this fallback existed.
+        """
+        text = "NIP\nREGON\n526-000-12-46\n012345678"
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(anonymized, "NIP\nREGON\n[NIP]\n[REGON]")
+        self.assertEqual(report, {"NIP": 1, "REGON": 1})
+
+    def test_table_separated_pairing_matches_multiple_labels_in_reading_order(
+        self,
+    ) -> None:
+        text = "NIP\nNIP\n1111111111\n2222222222"
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(anonymized, "NIP\nNIP\n[NIP]\n[NIP]")
+        self.assertEqual(report, {"NIP": 2})
+
+    def test_table_separated_pairing_does_not_reach_across_unrelated_pages(
+        self,
+    ) -> None:
+        """A label many lines away from any digits must not silently
+        grab an unrelated number much later in the document - bounded
+        to the same table/block, not the rest of a long document."""
+        filler = "linia wypelniajaca\n" * 12
+        text = f"NIP\n{filler}526-000-12-46"
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(anonymized, text)
+        self.assertEqual(report, {})
+
+    def test_table_separated_pairing_leaves_the_field_label_itself_untouched(
+        self,
+    ) -> None:
+        text = "NIP\n526-000-12-46"
+
+        anonymized, _report = anonymize_text(text)
+
+        self.assertIn("NIP", anonymized)
+        self.assertNotIn("526-000-12-46", anonymized)
+
+    def test_table_separated_pairing_does_not_claim_a_pesel_shaped_number(
+        self,
+    ) -> None:
+        """PESEL is 11 digits, NIP is exactly 10 - the two patterns
+        already run in an order where PESEL claims its match first, so
+        this fallback must never additionally treat an 11-digit PESEL
+        as a disconnected NIP value."""
+        text = "NIP\n00000000000"
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(anonymized, "NIP\n[PESEL]")
+        self.assertEqual(report, {"PESEL": 1})
+
+    def test_table_separated_nip_pairing_still_works_when_regon_is_excluded(
+        self,
+    ) -> None:
+        """Regression test for a real bug code-review caught: the
+        table-separated fallback was only ever triggered from the
+        REGON iteration of the main _PATTERNS loop, and that iteration
+        was skipped entirely (via `continue`) whenever "REGON" itself
+        was excluded from active_labels - silently losing
+        table-separated NIP detection too, even though "NIP" was
+        selected. Currently unreachable through the GUI (the "Dane
+        firmy" checkbox always selects NIP and REGON together) but a
+        real trap for any future caller passing a narrower selection.
+        """
+        text = "NIP\nREGON\n526-000-12-46\n012345678"
+
+        anonymized, counters, _dictionary_counters = _apply_dictionary_and_regex(
+            text, active_labels=frozenset({"NIP"})
+        )
+
+        self.assertEqual(anonymized, "NIP\nREGON\n[NIP]\n012345678")
+        self.assertEqual(counters, {"NIP": 1})
+
+    def test_table_separated_regon_pairing_works_alone_too(self) -> None:
+        text = "NIP\nREGON\n526-000-12-46\n012345678"
+
+        anonymized, counters, _dictionary_counters = _apply_dictionary_and_regex(
+            text, active_labels=frozenset({"REGON"})
+        )
+
+        self.assertEqual(anonymized, "NIP\nREGON\n526-000-12-46\n[REGON]")
+        self.assertEqual(counters, {"REGON": 1})
 
     def test_replaces_dowod_osobisty_number(self) -> None:
         text = "Numer dowodu: ABC123456."
