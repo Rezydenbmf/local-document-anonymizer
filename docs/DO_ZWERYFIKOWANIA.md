@@ -90,42 +90,31 @@ przenoszę ją do „Potwierdzone" albo usuwam. Jeśli lista urośnie powyżej
       zniknąć z wyniku, mimo że w oryginale etykieta i numer nie są
       obok siebie.
 
-- [ ] **Ogólna jakość wykrywania przez AI poprawiona — nie tylko nazwy
-      firm z formą prawną (2026-09-18)** — po Twoim potwierdzeniu
-      poprawki „Sp. z o.o./S.A." wybrałeś dalej „ogólną jakość NER dla
-      nazw firm". Znaleziona przyczyna: mechanizm AI, który miał
-      sklejać nazwisko rozdzielone łamaniem wiersza w PDF-ie (np.
-      "Jan\nKowalski"), sklejał też przypadkiem niepowiązane słowa z
-      sąsiednich wierszy/komórek tabeli w jeden fałszywy twór, który
-      potem był odrzucany w całości — razem z prawdziwą, samodzielną
-      nazwą firmy czy miejscowości, jeśli akurat sąsiadowała ze
-      sklejeniem. Naprawione przebudową mechanizmu (dwuprzebiegowa
-      analiza) — dotyczy nie tylko nazw firm, ale też lokalizacji i
-      innych kategorii wykrywanych przez AI. Przy naprawie code-review
-      znalazł i naprawił dodatkowo realny błąd (mógłby ujawnić fragment
-      nazwiska, gdyby nie złapany przed wydaniem). Sprawdź na żywo:
-      zanonimizuj ponownie `2_faktura_vat.pdf` (samo AI, bez włączania
-      wzorca z formy prawnej — np. sprawdź na dokumencie, gdzie nazwa
-      firmy nie kończy się na „Sp. z o.o."/„S.A.") i dokumenty z
-      nazwiskiem rozdzielonym na dwa wiersze — czy nazwy nadal są
-      wykrywane w całości, nie tylko fragmentami.
-
-- [ ] **Nazwisko z myślnikiem w PDF-ie już nie znika w całości
-      (2026-09-18)** — to zauważyłeś sam na screenshocie z
-      `5_pismo_nazwisko_dwa_wiersze.pdf`: pierwsze wystąpienie
-      „Bartlomiej Zaremba-Wojciechowski" nie było zamazane w ogóle, ani
-      trochę. Przyczyna była głębsza niż samo AI: PDF traktuje
-      „Zaremba-Wojciechowski" (bez spacji wokół myślnika) jako jedno
-      słowo, a mechanizm rysujący ramki odrzucał całe dopasowanie, gdy
-      AI wskazało tylko część słowa („Zaremba") — więc całe nazwisko
-      zostawało bez żadnej ochrony, gorzej niż zwykłe pominięcie.
-      Naprawione — teraz taki przypadek rozszerza zaznaczenie na całe
-      słowo. Sprawdź na żywo: zanonimizuj ponownie
-      `5_pismo_nazwisko_dwa_wiersze.pdf` — oba wystąpienia nazwiska
-      powinny być teraz w pełni zamazane (nie tylko drugie, w podpisie).
-
 ## Potwierdzone
 
+- [x] **Ogólna jakość wykrywania przez AI poprawiona — nie tylko nazwy
+      firm z formą prawną** (2026-09-18, potwierdzone 2026-09-18) —
+      Twój feedback: „tyak zatwierdzam" (po zrzucie z żywego okna
+      porównania: `2_faktura_vat.pdf` z obiema nazwami firm w pełni
+      zamazanymi, NIP/REGON zniknięte). Przyczyna była w mechanizmie
+      AI sklejającym nazwisko rozdzielone łamaniem wiersza w PDF-ie,
+      który przypadkiem sklejał też niepowiązane słowa z sąsiednich
+      wierszy/komórek tabeli w jeden fałszywy twór, odrzucany potem w
+      całości razem z prawdziwą nazwą firmy czy miejscowości.
+      Naprawione przebudową mechanizmu (dwuprzebiegowa analiza) —
+      dotyczy nie tylko nazw firm, ale też lokalizacji i innych
+      kategorii wykrywanych przez AI.
+- [x] **Nazwisko z myślnikiem w PDF-ie już nie znika w całości**
+      (2026-09-18, potwierdzone 2026-09-18) — Twój feedback: „tyak
+      zatwierdzam" (po zrzucie z żywego okna porównania:
+      `5_pismo_nazwisko_dwa_wiersze.pdf`, oba wystąpienia „Bartlomiej
+      Zaremba-Wojciechowski" w pełni zamazane, nie tylko drugie w
+      podpisie jak wcześniej). Przyczyna: PDF traktuje
+      „Zaremba-Wojciechowski" (bez spacji wokół myślnika) jako jedno
+      słowo, a mechanizm rysujący ramki odrzucał całe dopasowanie, gdy
+      AI wskazało tylko część słowa — całe nazwisko zostawało bez
+      żadnej ochrony. Naprawione rozszerzaniem zaznaczenia na całe
+      słowo w takim przypadku.
 - [x] **Eksport zatwierdzonych plików z wyborem lokalizacji** (2026-09-15,
       potwierdzone 2026-09-17) — Twój feedback: „eksport i otwieranie się
       gotowego pdf działają". Uwaga: to potwierdza, że mechanizm działa
