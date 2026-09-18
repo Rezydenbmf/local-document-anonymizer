@@ -90,6 +90,26 @@ przenoszę ją do „Potwierdzone" albo usuwam. Jeśli lista urośnie powyżej
       zniknąć z wyniku, mimo że w oryginale etykieta i numer nie są
       obok siebie.
 
+- [ ] **Ogólna jakość wykrywania przez AI poprawiona — nie tylko nazwy
+      firm z formą prawną (2026-09-18)** — po Twoim potwierdzeniu
+      poprawki „Sp. z o.o./S.A." wybrałeś dalej „ogólną jakość NER dla
+      nazw firm". Znaleziona przyczyna: mechanizm AI, który miał
+      sklejać nazwisko rozdzielone łamaniem wiersza w PDF-ie (np.
+      "Jan\nKowalski"), sklejał też przypadkiem niepowiązane słowa z
+      sąsiednich wierszy/komórek tabeli w jeden fałszywy twór, który
+      potem był odrzucany w całości — razem z prawdziwą, samodzielną
+      nazwą firmy czy miejscowości, jeśli akurat sąsiadowała ze
+      sklejeniem. Naprawione przebudową mechanizmu (dwuprzebiegowa
+      analiza) — dotyczy nie tylko nazw firm, ale też lokalizacji i
+      innych kategorii wykrywanych przez AI. Przy naprawie code-review
+      znalazł i naprawił dodatkowo realny błąd (mógłby ujawnić fragment
+      nazwiska, gdyby nie złapany przed wydaniem). Sprawdź na żywo:
+      zanonimizuj ponownie `2_faktura_vat.pdf` (samo AI, bez włączania
+      wzorca z formy prawnej — np. sprawdź na dokumencie, gdzie nazwa
+      firmy nie kończy się na „Sp. z o.o."/„S.A.") i dokumenty z
+      nazwiskiem rozdzielonym na dwa wiersze — czy nazwy nadal są
+      wykrywane w całości, nie tylko fragmentami.
+
 ## Potwierdzone
 
 - [x] **Eksport zatwierdzonych plików z wyborem lokalizacji** (2026-09-15,

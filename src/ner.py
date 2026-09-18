@@ -517,20 +517,33 @@ def _linebreak_between_name_like_tokens(text: str, index: int) -> bool:
     )
 
 
-def _analysis_text_with_offsets(text: str) -> tuple[str, list[int]]:
+def _analysis_text(text: str, *, bridge_linebreaks: bool = True) -> str:
+    """``bridge_linebreaks=False`` applies the NBSP/dash cleanup only,
+    without merging any line break - see detect_entities_with_details's
+    two-pass design for why a caller needs that raw-but-cleaned variant
+    on its own.
+
+    Every substitution below replaces exactly one input character with
+    exactly one output character, so a position in the returned string
+    always lines up with the same position in ``text`` - no offset
+    mapping is needed to translate spaCy's ``start_char``/``end_char``
+    (computed against whichever variant was fed to it) back to ``text``.
+    """
     analysis_chars: list[str] = []
-    offsets: list[int] = []
     for index, char in enumerate(text):
         if char == "\u00a0":
             analysis_chars.append(" ")
         elif char in _DASH_CHARS:
             analysis_chars.append("-")
-        elif char == "\n" and _linebreak_between_name_like_tokens(text, index):
+        elif (
+            bridge_linebreaks
+            and char == "\n"
+            and _linebreak_between_name_like_tokens(text, index)
+        ):
             analysis_chars.append(" ")
         else:
             analysis_chars.append(char)
-        offsets.append(index)
-    return "".join(analysis_chars), offsets
+    return "".join(analysis_chars)
 
 
 def _expand_person_start_left(
@@ -576,73 +589,140 @@ def detect_entities_with_details(
     text: str,
     context: NerContext,
 ) -> tuple[list[NerEntity], dict[str, int], dict[str, int], int]:
-    """Detect supported entities and return safe spans plus counters only."""
+    """Detect supported entities and return safe spans plus counters only.
+
+    Two passes, not one - a real bug live-tested on an invoice fixture:
+    the line-break bridging below exists only to let a person name split
+    across a PDF/document line still be detected as one name, but it
+    can't know in advance what an entity will turn out to be, so it also
+    bridges any two unrelated capitalized words from separate lines (a
+    field label, a city name, a section header) into one merged phrase.
+    When that merged phrase turns out to *not* be a person, the whole
+    thing gets discarded below - taking a perfectly ordinary, single-line
+    company/location name down with it if it happened to sit next to the
+    bridge (root cause of a real miss: "Warszawa" from a table row above
+    bridged into "Firma Wzorcowa S.A." on the row below, producing one
+    non-person entity that was discarded in full).
+
+    The bridged pass runs *first*, and only ever contributes entities
+    that themselves cross a bridged line break - the case the raw pass
+    can only find by accident (the model happening to span a literal
+    newline on its own, unrelated to the bridging). The raw pass then
+    runs on the text with line-break bridging *off*, the correct,
+    uncorrupted source for any entity that's genuinely whole on a single
+    line, which is the overwhelming majority. ``evaluated_spans`` below
+    guards specifically against that accidental-overlap case: if the raw
+    pass independently reports the exact same span the bridged pass
+    already handled, it must not be evaluated (and, if excluded, counted)
+    a second time.
+
+    Cost this pays for correctness: whenever any bridge candidate exists
+    anywhere in ``text``, the model runs on the *entire* text twice, not
+    just the bridged region - there is no cheap way to re-run inference
+    on a sub-span alone. Accepted deliberately; NER inference itself has
+    never been the measured latency cost in this codebase (pipeline
+    *loading* is, and stays cached - see ``_LOADED_NLP_CACHE`` above).
+
+    Bridged-first is load-bearing, not an arbitrary choice: a real bug
+    found by code review before this shipped - on "Pan Jan\nKowalski",
+    the raw pass alone tags "Jan" as a single-token PERSON candidate
+    that a preceding title ("Pan") makes it accept, *before* it ever
+    sees "Kowalski" trailing on the next line. Since the raw pass's own
+    span-overlap check only ever looks at what's *already* accepted, an
+    accepted-first "Jan" would silently block the bridged pass's later,
+    correct "Jan Kowalski" from ever being added - leaving "Kowalski"
+    exposed in plain text, a worse outcome than the single-pass code
+    this replaced (which only ever saw the pre-merged "Jan Kowalski" and
+    would never have isolated "Jan" from it at all). Running the bridged
+    pass first means its correct, wider span claims the region before
+    the raw pass's own narrower same-region fragment is ever evaluated,
+    so the raw pass's overlap check is what suppresses the fragment
+    instead of the other way around.
+    """
     if not isinstance(text, str):
         raise TypeError("text must be a string")
     if context.status != NER_STATUS_AVAILABLE or context.nlp is None:
         return [], {label: 0 for label in NER_LABELS}, {}, 0
 
-    analysis_text, offset_map = _analysis_text_with_offsets(text)
-    doc = context.nlp(analysis_text)
     occupied_ranges = _placeholder_ranges(text)
     accepted_ranges: list[tuple[int, int]] = []
+    evaluated_spans: set[tuple[int, int]] = set()
     entities: list[NerEntity] = []
     counters = {label: 0 for label in NER_LABELS}
     exclusion_counters = {category: 0 for category in NER_EXCLUSION_CATEGORIES}
     linebreak_person_candidates = 0
 
-    for entity in getattr(doc, "ents", ()):
-        label = _internal_label(getattr(entity, "label_", ""))
-        if label is None:
-            continue
-        analysis_start = getattr(entity, "start_char", None)
-        analysis_end = getattr(entity, "end_char", None)
-        if not isinstance(analysis_start, int) or not isinstance(analysis_end, int):
-            continue
-        if analysis_start < 0 or analysis_end <= analysis_start:
-            continue
-        if analysis_end > len(offset_map):
-            continue
-        start = offset_map[analysis_start]
-        end = offset_map[analysis_end - 1] + 1
-        if not text[start:end].strip():
-            continue
-        if label == NER_LABEL_PERSON:
-            start = _expand_person_start_left(text, start, end, occupied_ranges)
-        exclusion_category = _ner_exclusion_category(text[start:end], label)
-        if exclusion_category is not None:
-            exclusion_counters[exclusion_category] += 1
-            continue
-        if label == NER_LABEL_PERSON and _person_single_token_exclusion(
-            text,
-            start,
-            end,
-        ):
-            exclusion_counters[NER_EXCLUSION_SINGLE_TOKEN_PERSON] += 1
-            continue
-        if _overlaps_any(start, end, occupied_ranges):
-            continue
-        if _overlaps_any(start, end, accepted_ranges):
-            continue
-        crosses_bridged_linebreak = "\n" in text[start:end]
-        if label == NER_LABEL_PERSON:
+    def _process(doc: object, *, require_linebreak_cross: bool) -> None:
+        nonlocal linebreak_person_candidates
+        for entity in getattr(doc, "ents", ()):
+            label = _internal_label(getattr(entity, "label_", ""))
+            if label is None:
+                continue
+            start = getattr(entity, "start_char", None)
+            end = getattr(entity, "end_char", None)
+            if not isinstance(start, int) or not isinstance(end, int):
+                continue
+            if start < 0 or end <= start or end > len(text):
+                continue
+            if not text[start:end].strip():
+                continue
+            crosses_bridged_linebreak = "\n" in text[start:end]
+            if require_linebreak_cross and not crosses_bridged_linebreak:
+                # Redundant with the raw pass by construction (this pass
+                # only changed the text at bridged line breaks -
+                # anywhere else it's identical to the raw pass's own
+                # input) - skipped before any exclusion check runs, not
+                # just before being added, so an exclusion never gets
+                # counted a second time.
+                continue
+            if (start, end) in evaluated_spans:
+                continue
+            evaluated_spans.add((start, end))
+
+            if label == NER_LABEL_PERSON:
+                start = _expand_person_start_left(text, start, end, occupied_ranges)
+            # Overlap checks run *before* any exclusion-counting check
+            # below, specifically so a same-region fragment the OTHER
+            # pass already claimed (see this function's own docstring)
+            # is silently dropped rather than separately counted as
+            # excluded for an unrelated reason (single-token, allowlist,
+            # ...) - that count would describe a fragment of an entity
+            # that's already being redacted in full, not a real miss.
+            if _overlaps_any(start, end, occupied_ranges):
+                continue
+            if _overlaps_any(start, end, accepted_ranges):
+                continue
+            exclusion_category = _ner_exclusion_category(text[start:end], label)
+            if exclusion_category is not None:
+                exclusion_counters[exclusion_category] += 1
+                continue
+            if label == NER_LABEL_PERSON and _person_single_token_exclusion(
+                text,
+                start,
+                end,
+            ):
+                exclusion_counters[NER_EXCLUSION_SINGLE_TOKEN_PERSON] += 1
+                continue
             if crosses_bridged_linebreak:
-                linebreak_person_candidates += 1
-        elif crosses_bridged_linebreak:
-            # The line-break bridging above exists only to let a person
-            # name split across a PDF/document line still be detected as
-            # one name. It does not know in advance what an entity will
-            # turn out to be, so it also bridges two unrelated capitalized
-            # words from separate lines (for example two section headers).
-            # A non-person entity that only exists because of that
-            # bridging is far more likely to be such an accidental merge
-            # than a genuine multi-line organization/location name, so it
-            # is skipped here rather than redacted.
-            exclusion_counters[NER_EXCLUSION_LINEBREAK_NON_PERSON] += 1
-            continue
-        accepted_ranges.append((start, end))
-        entities.append(NerEntity(start=start, end=end, label=label))
-        counters[label] += 1
+                if label == NER_LABEL_PERSON:
+                    linebreak_person_candidates += 1
+                else:
+                    # See this function's own docstring: a non-person
+                    # entity that only exists because of the bridging is
+                    # far more likely to be an accidental merge than a
+                    # genuine multi-line organization/location name.
+                    exclusion_counters[NER_EXCLUSION_LINEBREAK_NON_PERSON] += 1
+                    continue
+            accepted_ranges.append((start, end))
+            entities.append(NerEntity(start=start, end=end, label=label))
+            counters[label] += 1
+
+    raw_text = _analysis_text(text, bridge_linebreaks=False)
+    bridged_text = _analysis_text(text)
+    if bridged_text != raw_text:
+        _process(context.nlp(bridged_text), require_linebreak_cross=True)
+
+    _process(context.nlp(raw_text), require_linebreak_cross=False)
 
     return entities, counters, exclusion_counters, linebreak_person_candidates
 
