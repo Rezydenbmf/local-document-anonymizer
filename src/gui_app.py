@@ -321,6 +321,14 @@ class AnonymizerApp:
         # active_categories above. Only meaningful for PDF input; parsed
         # via anonymizer.resolve_active_pages right before a batch run.
         self.active_page_range: str = ""
+        # Etap 7: "Usuń podpisy elektroniczne" - off by default per the
+        # user's own explicit decision (2026-09-18: "usuwanie podpisu to
+        # osobna opcja - nie dziala automatycznie"). Unlike every Etap 4
+        # category, this structurally and irreversibly removes a
+        # legally-relevant document object, so it must never be on
+        # unless the user checks it for this specific task, same
+        # per-task reset behavior as the two settings above.
+        self.strip_signatures: bool = False
         # Collapsed to a slim rail (see _build_quick_settings_panel) once
         # the user clicks the panel's own collapse toggle - per direct
         # feedback that "Szybkie akcje" can get in the way and should be
@@ -1245,6 +1253,64 @@ class AnonymizerApp:
             "można łączyć oba naraz (1-3,5). Nie dotyczy dokumentów TXT/DOCX "
             "ani raportu tekstowego, który nadal pokazuje pełne wykrycie na "
             "całym dokumencie.",
+        )
+
+        # Deliberately its OWN card, not another row inside category_card
+        # above - code review flagged that nesting it there was
+        # misleading: that card's whole header/subtext ("Odznacz, czego
+        # NIE anonimizować") trains the user that *unchecking* something
+        # in it narrows/restricts what happens, the safe direction. This
+        # toggle is the opposite polarity - checking it *adds* an
+        # irreversible, structural removal - so it gets its own
+        # warning-colored framing instead of blending into that list.
+        signature_card = ctk.CTkFrame(
+            inner,
+            corner_radius=10,
+            fg_color=COLOR_WARNING_SOFT,
+            border_width=1,
+            border_color=COLOR_WARNING,
+        )
+        signature_card.pack(fill="x", pady=(0, 14))
+        signature_inner = ctk.CTkFrame(signature_card, fg_color="transparent")
+        signature_inner.pack(fill="x", padx=14, pady=12)
+        strip_signatures_var = tk.BooleanVar(value=self.strip_signatures)
+
+        def _on_strip_signatures_toggle(var=strip_signatures_var) -> None:
+            self.strip_signatures = var.get()
+
+        strip_signatures_checkbox = ctk.CTkCheckBox(
+            signature_inner,
+            text="Usuń podpisy elektroniczne (PDF)",
+            variable=strip_signatures_var,
+            command=_on_strip_signatures_toggle,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11, weight="bold"),
+            text_color=COLOR_WARNING_TEXT,
+            fg_color=COLOR_WARNING,
+            hover_color=COLOR_WARNING,
+        )
+        strip_signatures_checkbox.pack(anchor="w", pady=(0, 4))
+        ctk.CTkLabel(
+            signature_inner,
+            text=(
+                "Domyślnie wyłączone. Nieodwracalnie usuwa pole podpisu "
+                "elektronicznego z PDF-a - inna, poważniejsza operacja "
+                "niż zamazywanie danych powyżej."
+            ),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+            text_color=COLOR_WARNING_TEXT,
+            anchor="w",
+            wraplength=QUICK_SETTINGS_PANEL_WIDTH - 40,
+            justify="left",
+        ).pack(fill="x")
+        IconTooltip(
+            strip_signatures_checkbox,
+            "Domyślnie WYŁĄCZONE. Gdy zaznaczone, usuwa z PDF-a pole "
+            "podpisu elektronicznego razem z jego widoczną treścią (np. "
+            "\"Podpisano elektronicznie przez: ...\") - dane, których "
+            "zwykłe wykrywanie tekstu nie widzi, bo żyją w osobnym "
+            "obiekcie formularza, nie na stronie. To usunięcie jest "
+            "nieodwracalne w wyniku - jeśli zależy Ci na zachowaniu "
+            "dowodu, że dokument był podpisany, zostaw wyłączone.",
         )
 
         env_status = environment_status_lookup(self.environment_items)
@@ -2358,6 +2424,7 @@ class AnonymizerApp:
                 ),
                 active_categories=self.active_categories,
                 page_range=self.active_page_range,
+                strip_signatures=self.strip_signatures,
                 progress_callback=self._update_processing,
             )
         except Exception:

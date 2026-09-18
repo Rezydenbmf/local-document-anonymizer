@@ -4458,25 +4458,62 @@ ones before this branch went anywhere near `main`:
   claimed in a comment, that its synthetic single-page PDF can never
   carry a signature widget through.
 
-**Deliberately NOT merged to `main` yet - a design decision needs your
-explicit sign-off first, not a silent autonomous merge.** Code review's
-altitude pass flagged something worth taking seriously: unlike every
-Etap-4 category label, this feature has **no opt-out toggle** - it runs
-unconditionally on every PDF this app touches (scoped only by page
-range, never by a checkbox), and it **structurally deletes** a
-legally-relevant document object rather than visually redacting text -
-irreversible in the produced output, with only an easy-to-miss report
-line as a trace. That combination - data-handling behavior change, and
-effectively irreversible - is exactly what this project's own
+**Held for a design decision before merging - not a silent autonomous
+merge.** Code review's altitude pass flagged something worth taking
+seriously: unlike every Etap-4 category label, the first implementation
+had **no opt-out toggle** - it ran unconditionally on every PDF this
+app touches, and it **structurally deletes** a legally-relevant
+document object rather than visually redacting text - irreversible in
+the produced output. That combination - data-handling behavior change,
+and effectively irreversible - is exactly what this project's own
 `CLAUDE.md` carves out as always requiring a stop-and-ask before a
 routine autonomous merge, separate from (in addition to) the
-code-review gate already satisfied here. See `docs/DO_ZWERYFIKOWANIA.md`
-for the specific question waiting on you.
+code-review gate. The question was put to the user directly; their
+answer (2026-09-18, verbatim): **"usuwanie podpisu to osobna opcja -
+nie dziala automatycznie"** (signature removal must be a separate
+option, not automatic).
 
-673 tests passing (10 new, all in the new `tests/test_signature_stripping.py`,
-plus 2 in `tests/test_report.py` for the new report line), lint at 75
-(still below the established 77-error baseline). Branch:
-`feature/etap7-signature-stripping`, not yet merged.
+## Etap 7 follow-up: made signature removal an explicit, off-by-default
+opt-in (2026-09-18)
+
+Converted the feature into a `strip_signatures: bool = False` parameter
+threaded end-to-end: a new GUI checkbox ("Usuń podpisy elektroniczne
+(PDF)", unchecked by default) → `anonymize_batch` → `_anonymize_file_result`
+→ `_anonymize_pdf_file_result` → `save_word_coordinate_redacted_pdf_copy`/
+`save_redacted_pdf_copy`, where `_strip_signature_widgets` itself now
+carries the off-by-default guard (`if not strip_signatures or not
+document.is_form_pdf: return 0`) - moved inside the shared helper
+rather than duplicated at each call site, per code review, so a future
+third PDF-writing function can't forget the guard by only remembering
+to add the call. Persisted into the existing category-selection
+sidecar via a new `save_category_selection(..., strip_signatures=...)`
+kwarg and a sibling loader `load_signature_stripping_selection` (a
+plain bool, `False` on anything missing/corrupt/old-format - the safe
+direction, no "unfiltered" middle ground the way `active_labels`/
+`active_pages` have), read by the comparison window at open time
+(`self._original_strip_signatures`) so a magic-pen regenerate never
+silently flips the choice the user actually made when the document was
+first produced. `manual_redaction.regenerate_pdf_with_manual_overrides`
+carries the same parameter through.
+
+`code-review` (medium effort - a contained extension gating already-
+reviewed logic, not new detection logic) found no correctness bugs in
+the threading (confirmed complete end-to-end by grepping every call
+site) but caught one real UX gap: the new checkbox had been placed
+inside the existing "Kategorie do anonimizacji" card, whose own header
+text ("Odznacz, czego NIE anonimizować") trains the user that checking/
+unchecking an item there *narrows* what happens - the opposite polarity
+of this toggle, where checking *adds* an irreversible removal. Fixed by
+giving it its own visually distinct, warning-colored card
+(`COLOR_WARNING`/`COLOR_WARNING_SOFT`/`COLOR_WARNING_TEXT`, already
+used elsewhere in this file) with an always-visible one-line warning
+beneath the checkbox, not only in the hover tooltip.
+
+678 tests passing (15 total in `tests/test_signature_stripping.py`,
+covering both the default-off and opted-in path at every layer, plus a
+sidecar freeze-at-save-time round-trip test), lint at 75 (still below
+the established 77-error baseline). Branch:
+`feature/etap7-signature-stripping`, ready to merge.
 
 ## Warning
 

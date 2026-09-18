@@ -20,6 +20,7 @@ try:
         compute_pdf_redaction_spans,
         load_active_pages_selection,
         load_category_selection,
+        load_signature_stripping_selection,
     )
     from .file_readers import (
         read_docx_file,
@@ -96,6 +97,7 @@ except ImportError:
         compute_pdf_redaction_spans,
         load_active_pages_selection,
         load_category_selection,
+        load_signature_stripping_selection,
     )
     from file_readers import (
         read_docx_file,
@@ -501,6 +503,14 @@ class ComparisonWindow:
         # page in scope - the sidecar's own default before Etap 5 existed.
         self._original_active_pages: frozenset[int] | None = (
             load_active_pages_selection(category_selection_path(result_path))
+        )
+        # Sibling of the two above, same sidecar, same freeze-at-save-time
+        # reasoning (see anonymizer.load_signature_stripping_selection) -
+        # Etap 7's "usuń podpisy elektroniczne" opt-in. False (never
+        # None - this is a plain bool, off by default) means the choice
+        # was either never made or the document predates this feature.
+        self._original_strip_signatures: bool = load_signature_stripping_selection(
+            category_selection_path(result_path)
         )
         self._images: list[ctk.CTkImage] = []
         self._tk_images: list[ImageTk.PhotoImage] = []
@@ -2624,6 +2634,7 @@ class ComparisonWindow:
                 spans=spans,
                 active_labels=self._original_active_labels,
                 active_pages=self._original_active_pages,
+                strip_signatures=self._original_strip_signatures,
             )
             os.replace(staging_path, self.result_path)
             save_manual_edits(manual_edits_path(self.result_path), new_edits)

@@ -80,7 +80,12 @@ class StripSignatureWidgetsUnitTests(unittest.TestCase):
     """Direct coverage for _strip_signature_widgets, independent of
     which higher-level save_* function calls it."""
 
-    def test_removes_a_signature_widget_and_returns_its_count(self) -> None:
+    def test_default_is_a_no_op_even_with_a_real_signature_present(self) -> None:
+        """The user's own explicit decision (2026-09-18): "usuwanie
+        podpisu to osobna opcja - nie dziala automatycznie". The gate
+        lives inside this shared helper (not only at its callers' call
+        sites), so this is the lowest-level guarantee that off-by-default
+        actually holds."""
         import pymupdf as fitz
 
         with workspace_temp_dir() as temp_dir:
@@ -89,6 +94,22 @@ class StripSignatureWidgetsUnitTests(unittest.TestCase):
 
             with fitz.open(source_path) as document:
                 removed = _strip_signature_widgets(fitz, document)
+                remaining = sum(1 for _ in (document[0].widgets() or ()))
+
+        self.assertEqual(removed, 0)
+        self.assertEqual(remaining, 1)
+
+    def test_removes_a_signature_widget_and_returns_its_count(self) -> None:
+        import pymupdf as fitz
+
+        with workspace_temp_dir() as temp_dir:
+            source_path = Path(temp_dir) / "signed.pdf"
+            write_fitz_pdf_with_signature_widget(source_path)
+
+            with fitz.open(source_path) as document:
+                removed = _strip_signature_widgets(
+                    fitz, document, strip_signatures=True
+                )
                 remaining = sum(
                     1
                     for page in document
@@ -111,7 +132,9 @@ class StripSignatureWidgetsUnitTests(unittest.TestCase):
             document.close()
 
             with fitz.open(source_path) as document:
-                removed = _strip_signature_widgets(fitz, document)
+                removed = _strip_signature_widgets(
+                    fitz, document, strip_signatures=True
+                )
 
         self.assertEqual(removed, 0)
 
@@ -134,7 +157,9 @@ class StripSignatureWidgetsUnitTests(unittest.TestCase):
             document.close()
 
             with fitz.open(source_path) as document:
-                removed = _strip_signature_widgets(fitz, document)
+                removed = _strip_signature_widgets(
+                    fitz, document, strip_signatures=True
+                )
                 remaining = sum(1 for _ in (document[0].widgets() or ()))
 
         self.assertEqual(removed, 0)
@@ -151,7 +176,10 @@ class StripSignatureWidgetsUnitTests(unittest.TestCase):
 
             with fitz.open(source_path) as document:
                 removed = _strip_signature_widgets(
-                    fitz, document, active_pages=frozenset({1})
+                    fitz,
+                    document,
+                    active_pages=frozenset({1}),
+                    strip_signatures=True,
                 )
                 remaining = sum(
                     1
@@ -192,7 +220,9 @@ class StripSignatureWidgetsUnitTests(unittest.TestCase):
             document.close()
 
             with fitz.open(source_path) as document:
-                removed = _strip_signature_widgets(fitz, document)
+                removed = _strip_signature_widgets(
+                    fitz, document, strip_signatures=True
+                )
                 remaining = sum(1 for _ in (document[0].widgets() or ()))
             # A closed fitz.Document can still hold the source file's OS
             # handle open for a moment on Windows - gc.collect() nudges
@@ -207,7 +237,10 @@ class StripSignatureWidgetsUnitTests(unittest.TestCase):
 class SaveWordCoordinateRedactedPdfCopySignatureTests(unittest.TestCase):
     """The default (_ANON_VISUAL.pdf) output path."""
 
-    def test_signature_widget_is_stripped_from_the_visual_pdf(self) -> None:
+    def test_signature_widget_is_left_alone_by_default(self) -> None:
+        """Etap 7 is an explicit per-task opt-in, per the user's own
+        decision (2026-09-18): "usuwanie podpisu to osobna opcja - nie
+        dziala automatycznie". strip_signatures defaults to False."""
         with workspace_temp_dir() as temp_dir:
             source_path = Path(temp_dir) / "signed.pdf"
             write_fitz_pdf_with_signature_widget(source_path)
@@ -218,6 +251,25 @@ class SaveWordCoordinateRedactedPdfCopySignatureTests(unittest.TestCase):
                 word_pages=word_pages,
                 spans=[],
                 output_dir=temp_dir,
+            )
+
+            output_path = Path(temp_dir) / result["output_name"]
+            remaining = count_signature_widgets(output_path)
+        self.assertEqual(result["signature_fields_removed"], 0)
+        self.assertEqual(remaining, 1)
+
+    def test_signature_widget_is_stripped_when_opted_in(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            source_path = Path(temp_dir) / "signed.pdf"
+            write_fitz_pdf_with_signature_widget(source_path)
+            word_pages = extract_pdf_word_pages(source_path)
+
+            result = save_word_coordinate_redacted_pdf_copy(
+                source_path,
+                word_pages=word_pages,
+                spans=[],
+                output_dir=temp_dir,
+                strip_signatures=True,
             )
 
             output_path = Path(temp_dir) / result["output_name"]
@@ -237,6 +289,7 @@ class SaveWordCoordinateRedactedPdfCopySignatureTests(unittest.TestCase):
                 source_path,
                 word_pages=word_pages,
                 spans=[],
+                strip_signatures=True,
                 output_dir=temp_dir,
                 active_pages=frozenset({1}),
             )
@@ -276,7 +329,7 @@ class SaveWordCoordinateRedactedPdfCopySignatureTests(unittest.TestCase):
 class SaveRedactedPdfCopySignatureTests(unittest.TestCase):
     """The experimental "original layout redaction" output path."""
 
-    def test_signature_widget_is_stripped(self) -> None:
+    def test_signature_widget_is_left_alone_by_default(self) -> None:
         with workspace_temp_dir() as temp_dir:
             source_path = Path(temp_dir) / "signed.pdf"
             write_fitz_pdf_with_signature_widget(source_path)
@@ -285,12 +338,29 @@ class SaveRedactedPdfCopySignatureTests(unittest.TestCase):
 
             output_path = Path(temp_dir) / result["output_name"]
             remaining = count_signature_widgets(output_path)
+        self.assertEqual(result["signature_fields_removed"], 0)
+        self.assertEqual(remaining, 1)
+
+    def test_signature_widget_is_stripped_when_opted_in(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            source_path = Path(temp_dir) / "signed.pdf"
+            write_fitz_pdf_with_signature_widget(source_path)
+
+            result = save_redacted_pdf_copy(
+                source_path, output_dir=temp_dir, strip_signatures=True
+            )
+
+            output_path = Path(temp_dir) / result["output_name"]
+            remaining = count_signature_widgets(output_path)
         self.assertEqual(result["signature_fields_removed"], 1)
         self.assertEqual(remaining, 0)
 
 
 class SignatureRemovalEndToEndTests(unittest.TestCase):
-    def test_anonymize_batch_removes_the_signature_from_the_visual_pdf(self) -> None:
+    def test_anonymize_batch_leaves_the_signature_by_default(self) -> None:
+        """The user's own explicit decision (2026-09-18): this must never
+        run automatically. anonymize_batch's default (no strip_signatures
+        argument) must leave a signature widget untouched."""
         with workspace_temp_dir() as temp_dir:
             source_dir = Path(temp_dir) / "source"
             output_dir = Path(temp_dir) / "output"
@@ -302,7 +372,28 @@ class SignatureRemovalEndToEndTests(unittest.TestCase):
                 body_lines=("PESEL 00000000000 w tresci umowy.",),
             )
 
-            batch_result = anonymize_batch([source_path], output_dir)
+            anonymize_batch([source_path], output_dir)
+
+            visual_pdf = output_dir / "umowa_ANON_VISUAL.pdf"
+            self.assertTrue(visual_pdf.exists())
+            remaining = count_signature_widgets(visual_pdf)
+        self.assertEqual(remaining, 1)
+
+    def test_anonymize_batch_removes_the_signature_when_opted_in(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            source_dir = Path(temp_dir) / "source"
+            output_dir = Path(temp_dir) / "output"
+            source_dir.mkdir()
+            output_dir.mkdir()
+            source_path = source_dir / "umowa.pdf"
+            write_fitz_pdf_with_signature_widget(
+                source_path,
+                body_lines=("PESEL 00000000000 w tresci umowy.",),
+            )
+
+            batch_result = anonymize_batch(
+                [source_path], output_dir, strip_signatures=True
+            )
 
             visual_pdf = output_dir / "umowa_ANON_VISUAL.pdf"
             self.assertTrue(visual_pdf.exists())
@@ -311,6 +402,32 @@ class SignatureRemovalEndToEndTests(unittest.TestCase):
                 batch_result.results[0].get("pdf_redaction_warning", "")
             )
         self.assertEqual(warning, "")
+
+    def test_sidecar_freezes_the_strip_signatures_choice(self) -> None:
+        """Regeneration through the magic-pen path must reuse the choice
+        frozen at first-anonymization time, not silently default back to
+        off (or on) - mirrors the existing active_pages/active_labels
+        sidecar-freeze tests in tests/test_category_selection.py."""
+        from anonymizer import (
+            category_selection_path,
+            load_signature_stripping_selection,
+        )
+
+        with workspace_temp_dir() as temp_dir:
+            source_dir = Path(temp_dir) / "source"
+            output_dir = Path(temp_dir) / "output"
+            source_dir.mkdir()
+            output_dir.mkdir()
+            source_path = source_dir / "umowa.pdf"
+            write_fitz_pdf_with_signature_widget(source_path)
+
+            anonymize_batch([source_path], output_dir, strip_signatures=True)
+
+            visual_pdf = output_dir / "umowa_ANON_VISUAL.pdf"
+            frozen = load_signature_stripping_selection(
+                category_selection_path(visual_pdf)
+            )
+        self.assertTrue(frozen)
 
 
 if __name__ == "__main__":

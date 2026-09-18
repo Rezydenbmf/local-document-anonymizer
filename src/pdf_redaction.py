@@ -952,6 +952,7 @@ def _strip_signature_widgets(
     document,
     *,
     active_pages: frozenset[int] | None = None,
+    strip_signatures: bool = False,
 ) -> int:
     """Remove every AcroForm signature field (Etap 7 - a real case showed
     a digitally-signed PDF's visual "Podpisano elektronicznie przez: ..."
@@ -962,6 +963,14 @@ def _strip_signature_widgets(
     signature image, or both) and its value together, in one PyMuPDF
     call - no new dependency needed beyond PyMuPDF, already bundled for
     every other PDF operation in this module.
+
+    ``strip_signatures`` defaults to ``False`` and the whole function is
+    a no-op unless it is explicitly ``True`` - the user's own decision
+    (2026-09-18: "usuwanie podpisu to osobna opcja - nie dziala
+    automatycznie") is enforced here, inside the shared helper, rather
+    than at each call site - a future third writer of a full document
+    copy (see the paragraph below) then cannot forget the off-by-default
+    guard by only remembering to add the call but not the gate.
 
     Every function in this module that writes out a full copy of the
     source document (not a synthetic from-scratch one, like the review
@@ -993,7 +1002,7 @@ def _strip_signature_widgets(
     every iteration costs one extra page scan per widget removed - on
     real documents, always a small, bounded number - and is the only
     variant proven safe against a real multi-signer page."""
-    if not document.is_form_pdf:
+    if not strip_signatures or not document.is_form_pdf:
         return 0
     removed = 0
     for page_number, page in enumerate(document, start=1):
@@ -1025,6 +1034,7 @@ def save_word_coordinate_redacted_pdf_copy(
     removed_span_keys: object = frozenset(),
     extra_redaction_rects: Iterable[tuple[int, object]] = (),
     active_pages: frozenset[int] | None = None,
+    strip_signatures: bool = False,
 ) -> dict[str, object]:
     """Create an original-layout true-redacted PDF from word-coordinate spans.
 
@@ -1037,8 +1047,10 @@ def save_word_coordinate_redacted_pdf_copy(
     exactly as before. When ``output_path`` is given, that exact path is
     (over)written instead of picking a fresh collision-safe name — used to
     regenerate an existing visual PDF in place after manual edits.
-    ``active_pages`` (Etap 5) additionally scopes the Etap 7 signature-field
-    stripping below - see ``_strip_signature_widgets``.
+    ``strip_signatures`` (Etap 7) is ``False`` by default - a deliberate
+    per-task opt-in, not automatic - and ``active_pages`` (Etap 5)
+    additionally scopes it when it is on - see
+    ``_strip_signature_widgets``.
     """
     fitz = _load_fitz_module()
     source = Path(source_path)
@@ -1058,7 +1070,10 @@ def save_word_coordinate_redacted_pdf_copy(
 
     with fitz.open(source) as document:
         signature_fields_removed = _strip_signature_widgets(
-            fitz, document, active_pages=active_pages
+            fitz,
+            document,
+            active_pages=active_pages,
+            strip_signatures=strip_signatures,
         )
         for rect_info in applied_rects:
             page = document[int(rect_info["page"]) - 1]
@@ -1295,6 +1310,7 @@ def save_redacted_pdf_copy(
     output_path: str | Path | None = None,
     active_labels: frozenset[str] | None = None,
     active_pages: frozenset[int] | None = None,
+    strip_signatures: bool = False,
 ) -> dict[str, object]:
     """Create a true-redacted PDF copy and return safe metadata.
 
@@ -1310,7 +1326,9 @@ def save_redacted_pdf_copy(
     gap code review caught: this "experimental original-layout
     redaction" output mode is a separate code path from the default
     visual-redaction one and was burning PII out of every page
-    regardless of the user's chosen page range."""
+    regardless of the user's chosen page range. ``strip_signatures``
+    (Etap 7) is ``False`` by default - a deliberate per-task opt-in,
+    never automatic - see ``_strip_signature_widgets``."""
     fitz = _load_fitz_module()
     source = Path(source_path)
     if output_path is not None:
@@ -1323,7 +1341,10 @@ def save_redacted_pdf_copy(
 
     with fitz.open(source) as document:
         signature_fields_removed = _strip_signature_widgets(
-            fitz, document, active_pages=active_pages
+            fitz,
+            document,
+            active_pages=active_pages,
+            strip_signatures=strip_signatures,
         )
         for page_number, page in enumerate(document, start=1):
             if not _page_in_scope(page_number, active_pages):

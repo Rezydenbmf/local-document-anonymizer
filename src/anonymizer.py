@@ -406,6 +406,28 @@ def load_category_selection(path: str | Path) -> frozenset[str] | None:
     return frozenset(labels)
 
 
+def load_signature_stripping_selection(path: str | Path) -> bool:
+    """Load the *frozen* Etap 7 "usuń podpisy elektroniczne" choice that
+    was actually active when this visual PDF output was first produced,
+    or ``False`` (the safe, off-by-default direction the user chose for
+    this feature) if missing/corrupt/never written/written by a version
+    of this app before this field existed.
+
+    Sibling of load_active_pages_selection, reading the same sidecar
+    file - unlike ``active_labels``/``active_pages`` this is a plain
+    bool, so there is no "unfiltered" middle ground to fall back to:
+    absence means the feature was off, exactly like a fresh, never-run
+    task."""
+    try:
+        raw_text = Path(path).read_text(encoding="utf-8")
+        data = json.loads(raw_text)
+    except (OSError, ValueError):
+        return False
+    if not isinstance(data, dict):
+        return False
+    return data.get("strip_signatures") is True
+
+
 def load_active_pages_selection(path: str | Path) -> frozenset[int] | None:
     """Load the *frozen* set of 1-based page numbers (Etap 5) that were
     actually in scope when this visual PDF output was first produced, or
@@ -450,6 +472,7 @@ def save_category_selection(
     active_categories: Iterable[str] | None,
     *,
     page_range: str | None = None,
+    strip_signatures: bool = False,
 ) -> Path:
     """Write the category selection sidecar - ``None`` records "no
     filtering" explicitly (as ``null``), the same as never having one
@@ -465,6 +488,9 @@ def save_category_selection(
     what a later regenerate actually needs. ``page_range`` (Etap 5's raw
     "Strony" field text, e.g. ``"1-3,5"``) is resolved and frozen the
     same way, for the same reason - see load_active_pages_selection.
+    ``strip_signatures`` (Etap 7 - off by default, an explicit opt-in
+    per the user's own decision that this must never run automatically)
+    is frozen the same way too - see load_signature_stripping_selection.
     """
     destination = Path(path)
     active_categories = (
@@ -481,6 +507,7 @@ def save_category_selection(
         "active_pages": (
             sorted(active_pages) if active_pages is not None else None
         ),
+        "strip_signatures": bool(strip_signatures),
     }
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text(
@@ -2159,6 +2186,7 @@ def _anonymize_pdf_file_result(
     pdf_output_mode: str = PDF_OUTPUT_MODE_VISUAL,
     active_categories: Iterable[str] | None = None,
     page_range: str | None = None,
+    strip_signatures: bool = False,
 ) -> FileWorkflowResult:
     """Anonymize a PDF file and return paths needed by batch processing."""
     terms, dictionary_status = _prepare_workflow_dictionary(
@@ -2328,6 +2356,7 @@ def _anonymize_pdf_file_result(
                 spans=pdf_detection_spans,
                 output_path=pdf_visual_output_path,
                 active_pages=active_pages,
+                strip_signatures=strip_signatures,
             )
             pdf_redaction_result["text_extraction"] = text_extraction_label
             try:
@@ -2335,6 +2364,7 @@ def _anonymize_pdf_file_result(
                     category_selection_path(pdf_visual_output_path),
                     active_categories,
                     page_range=page_range,
+                    strip_signatures=strip_signatures,
                 )
             except OSError:
                 # Cosmetic-adjacent app state, not the anonymization
@@ -2397,6 +2427,7 @@ def _anonymize_pdf_file_result(
                 output_path=pdf_original_redacted_output_path,
                 active_labels=active_labels,
                 active_pages=active_pages,
+                strip_signatures=strip_signatures,
             )
         except RuntimeError:
             pdf_redaction_result = build_pdf_redaction_metadata(status="unavailable")
@@ -2896,6 +2927,7 @@ def _anonymize_file_result(
     pdf_output_mode: str = PDF_OUTPUT_MODE_VISUAL,
     active_categories: Iterable[str] | None = None,
     page_range: str | None = None,
+    strip_signatures: bool = False,
 ) -> FileWorkflowResult:
     """Anonymize one supported file and return paths needed by batch processing."""
     path = Path(source_path)
@@ -2938,6 +2970,7 @@ def _anonymize_file_result(
             pdf_output_mode=pdf_output_mode,
             active_categories=active_categories,
             page_range=page_range,
+            strip_signatures=strip_signatures,
         )
     if path.suffix.lower() in IMAGE_EXTENSIONS:
         return _anonymize_image_file_result(
@@ -3025,6 +3058,7 @@ def anonymize_batch(
     pdf_output_mode: str = PDF_OUTPUT_MODE_VISUAL,
     active_categories: Iterable[str] | None = None,
     page_range: str | None = None,
+    strip_signatures: bool = False,
     progress_callback: Callable[[int, int, Path], None] | None = None,
 ) -> BatchResult:
     """Anonymize supported files sequentially into one output workspace.
@@ -3046,6 +3080,14 @@ def anonymize_batch(
     report, which still reflects detection across the whole document.
     ``None`` (the default) redacts every page, exactly as before this
     parameter existed.
+
+    ``strip_signatures`` (Etap 7) removes AcroForm signature fields from
+    every PDF in this batch's visual/original-layout output - see
+    ``pdf_redaction._strip_signature_widgets``. ``False`` (the default)
+    is a deliberate design choice, not a placeholder: unlike every other
+    detection this app performs, this structurally and irreversibly
+    removes a legally-relevant document object, so it must be an
+    explicit per-task opt-in, never automatic.
     """
     if sensitive_terms is not None and sensitive_terms_path is not None:
         raise ValueError(
@@ -3099,6 +3141,7 @@ def anonymize_batch(
                 pdf_output_mode=pdf_output_mode,
                 active_categories=active_categories,
                 page_range=page_range,
+                strip_signatures=strip_signatures,
             )
         except Exception as error:
             error_count += 1
