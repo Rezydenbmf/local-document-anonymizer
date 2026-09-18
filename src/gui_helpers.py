@@ -1483,6 +1483,7 @@ CATEGORY_LABELS_PL = {
     "POSTAL_CODE": "Kod pocztowy",
     "NIP": "NIP",
     "REGON": "REGON",
+    "NAZWA_FIRMY": "Nazwa firmy",
     "DOWOD_OSOBISTY": "Dowód osobisty",
     "IBAN": "IBAN",
     "PERSON_NAME_TYPO": "Nazwisko (nietypowy zapis)",
@@ -1528,7 +1529,7 @@ CATEGORY_SELECTION_DETAIL_PL = {
     CATEGORY_EMAIL: "Adres e-mail.",
     CATEGORY_IBAN: "Numer konta bankowego (IBAN).",
     CATEGORY_ADDRESS: "Ulica, miejscowość, kod pocztowy - wykryte wzorcem oraz przez AI.",
-    CATEGORY_COMPANY: "Nazwa firmy (AI), NIP, REGON.",
+    CATEGORY_COMPANY: "Nazwa firmy - wykryta wzorcem oraz przez AI, NIP, REGON.",
     CATEGORY_DATE: "Data.",
 }
 CATEGORY_SELECTION_ORDER = ALL_CATEGORIES

@@ -63,6 +63,7 @@ PDF_REDACTION_COLORS = {
     "ULICA": (0.25, 0.55, 0.35),
     "NIP": (0.85, 0.12, 0.12),
     "REGON": (0.85, 0.12, 0.12),
+    "NAZWA_FIRMY": (0.50, 0.42, 0.70),
     "DOWOD_OSOBISTY": (0.85, 0.12, 0.12),
     "IBAN": (0.85, 0.12, 0.12),
     "RECZNE": (0.08, 0.08, 0.08),
@@ -93,6 +94,38 @@ _INLINE_WS = r"[^\S\n]"
 _SURNAME_LIKE_TOKEN = (
     rf"[{_UPPER_LETTERS}][{_LOWER_LETTERS}]{{2,}}"
     r"(?:ski|ska|cki|cka|dzki|dzka|ak|ek|ik|yk|uk|cz|icz|wicz|owicz|ewicz)"
+)
+# Kept in sync with anonymizer.py's identical _COMPANY_LEGAL_FORM_SUFFIX/
+# _COMPANY_NAME_WORD/NAZWA_FIRMY_PATTERN (same circular-import constraint
+# as the rest of this duplicated pattern set - see _INLINE_WS's own
+# comment above). A Polish company's own legal-form suffix (Sp. z o.o.,
+# S.A., ...) is a deterministic regex safety net alongside NER: spaCy's
+# small model tagged only "z o.o." out of a real invoice's "Usługi
+# Biurowe Testowski Sp. z o.o." and missed "Firma Wzorcowa S.A."
+# entirely.
+_COMPANY_LEGAL_FORM_SUFFIX = (
+    rf"(?i:sp\.{_INLINE_WS}*z{_INLINE_WS}*o\.{_INLINE_WS}*o\."
+    rf"|s\.a\."
+    rf"|sp\.{_INLINE_WS}*[kj]\."
+    rf"|s\.k\.a\."
+    rf"|p\.s\.a\.)"
+)
+# Deliberately more permissive than the shared _NAME_TOKEN - see
+# anonymizer.py's identical constant for why: a strict letters-only,
+# 3+-char token left a leading brand token ("3M") or hyphenated compound
+# ("Info-Tech") exposed right next to the [NAZWA_FIRMY] tag, which reads
+# as fully redacted while it isn't. Local to this pattern only.
+_COMPANY_NAME_WORD = rf"[{_UPPER_LETTERS}\d][{_LOWER_LETTERS}\d-]*"
+NAZWA_FIRMY_PATTERN = re.compile(
+    rf"""
+    (?<!\w)
+    {_COMPANY_NAME_WORD}
+    (?:{_INLINE_WS}+{_COMPANY_NAME_WORD}){{0,5}}
+    {_INLINE_WS}+
+    {_COMPANY_LEGAL_FORM_SUFFIX}
+    (?!\w)
+    """,
+    re.VERBOSE,
 )
 PERSON_NAME_TYPO_PATTERN = re.compile(
     rf"""
@@ -206,6 +239,10 @@ PDF_REDACTION_PATTERNS: tuple[PdfRedactionPattern, ...] = (
             """,
             re.VERBOSE | re.IGNORECASE,
         ),
+    ),
+    PdfRedactionPattern(
+        "NAZWA_FIRMY",
+        NAZWA_FIRMY_PATTERN,
     ),
     PdfRedactionPattern(
         "TELEFON",

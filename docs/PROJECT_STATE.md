@@ -3996,6 +3996,93 @@ end-to-end check that TELEFON doesn't steal REGON's value).
 `test_category_selection.py`), lint at 75 (still below the established
 77-error baseline).
 
+### Company-name detection quality: NAZWA_FIRMY regex safety net (2026-09-18)
+
+The user picked "Jakość wykrywania „Dane firmy”" as the next priority
+after the NIP/REGON fix above, then chose NIP/REGON-in-tables first and
+deferred the AI/NER company-name-quality half of the problem. Live
+verification of that NIP/REGON fix on the real `2_faktura_vat.pdf`
+fixture surfaced the deferred NER half directly, via a pasted screenshot
+of the redacted output: the seller's name ("Usługi Biurowe Testowski
+Sp. z o.o.") was only half-redacted - `Sp.` stayed visible, only `z
+o.o.` was blacked out - and the buyer's name ("Firma Wzorcowa S.A.")
+wasn't touched at all.
+
+Root-caused directly: spaCy's `pl_core_news_sm` NER model's own
+person-name line-break-bridging heuristic (`src/ner.py`,
+`_linebreak_between_name_like_tokens`/`_analysis_text_with_offsets`)
+converts a real newline between two "simple capitalized word" tokens
+into a space before running the model, specifically so a person's name
+split across a PDF line still gets detected as one entity. On the real
+invoice this same heuristic also bridged unrelated capitalized words
+across *several* lines ("Warszawa Sprzedawca Nabywca Usługi Biurowe
+Testowski Sp.") into one bogus ORG entity spanning the seller's actual
+name plus two field labels and a city name - and since that merged
+entity isn't a PERSON crossing the bridge, `NER_EXCLUSION_LINEBREAK_NON_PERSON`
+discards it outright, taking the real company name down with it. The
+buyer's name failed differently: in isolation spaCy tags it fine
+("Wzorcowa S.A."), but with the real surrounding document context spaCy
+simply doesn't emit any entity for it at all - a context-sensitivity
+false negative with no clean root cause to fix.
+
+Rather than tune that heuristic (which would need to special-case how
+many lines/words a bridge may span, and doesn't explain the buyer-name
+miss at all), added `NAZWA_FIRMY` - a new, independent, deterministic
+regex label alongside `NER_ORG`, same philosophy as the NIP/REGON
+table-pairing fix: a company's own legal-form suffix (`Sp. z o.o.`,
+`S.A.`, `Sp.k.`, `Sp.j.`, `S.K.A.`, `P.S.A.`) is a reliable marker, and
+the capitalized words immediately in front of it (never crossing a
+line) are the registered name. Added to `SUPPORTED_LABELS`,
+`CATEGORY_GROUPS[CATEGORY_COMPANY]` (now `NIP`, `REGON`, `NAZWA_FIRMY`,
+`NER_ORG`), `_PATTERNS`/`PDF_REDACTION_PATTERNS` (duplicated across
+`anonymizer.py`/`pdf_redaction.py` per the existing circular-import
+constraint), a Polish display name in `gui_helpers.py`'s
+`CATEGORY_LABELS_PL`, and a redaction-box color in
+`PDF_REDACTION_COLORS`. Confirmed end-to-end against the real
+`2_faktura_vat.pdf` fixture: all three occurrences of both company
+names (header seller, header buyer, footer seller) now fully redacted,
+NIP/REGON's own table-pairing fix unaffected.
+
+`code-review` (required - touches `anonymizer.py`/`pdf_redaction.py`; 5
+finder angles) caught one real correctness bug and one real
+documentation gap (found independently by three separate angles),
+before either could ship:
+- The word-token shape used for the name run was the shared, strict
+  `_NAME_TOKEN` (3+ letters, no digits, no hyphens) - reused from
+  ULICA/MIEJSCOWOSC without checking whether a company name can violate
+  those assumptions. It routinely does: `"3M Polska S.A."` matched only
+  `"Polska S.A."`, leaking `"3M "` in plain text right next to the
+  `[NAZWA_FIRMY]` tag; `"Info-Tech Polska Sp. z o.o."` matched only
+  `"Tech Polska Sp. z o.o."`, leaking `"Info-"` the same way. Worse than
+  a total miss, since the output *looks* fully redacted while still
+  disclosing a distinguishing fragment of the name. Fixed with a new,
+  local-only token shape (`_COMPANY_NAME_WORD`, not shared with the
+  stricter patterns) that allows a leading digit and internal hyphens,
+  verified against both failing cases plus the original fixture text.
+- `gui_helpers.py`'s `CATEGORY_SELECTION_DETAIL_PL[CATEGORY_COMPANY]`
+  tooltip text ("Nazwa firmy (AI), NIP, REGON.") wasn't updated for the
+  new regex detector - it still implied company-name detection was
+  AI-only. Fixed to match the existing `CATEGORY_ADDRESS` tooltip's own
+  phrasing ("wykryte wzorcem oraz przez AI").
+- Minor cleanup also applied: merged the near-duplicate `sp.k.`/`sp.j.`
+  suffix alternatives into one `sp\.[kj]\.`; added a comment justifying
+  the up-to-6-word name-length bound (a real, unremarkable Polish
+  company name can run that long, unlike a street or city name).
+
+One review finding was deliberately left open, not chased in this diff:
+the `NER_EXCLUSION_LINEBREAK_NON_PERSON` root cause above isn't specific
+to `NER_ORG` - the identical silent-loss failure (an unrelated multi-line
+bridge merges into one entity, then gets discarded because it isn't a
+PERSON) can equally hit `NER_LOCATION`/`NER_MISC` on some future
+document, with no regex safety net and no test coverage for that case
+today. Recorded here as a known, accepted gap rather than a wrong fix -
+worth its own investigation later, not a quick patch bolted onto this
+one.
+
+620 tests passing (8 new across `test_anonymizer.py`,
+`test_category_selection.py`, `test_pdf_io.py`), lint at 75 (still below
+the established 77-error baseline).
+
 ## Warning
 
 This repository is still an early-stage portfolio MVP. Do not use it to
