@@ -196,6 +196,7 @@ SUPPORTED_LABELS = (
     "POSTAL_CODE",
     "NIP",
     "REGON",
+    "NAZWA_FIRMY",
     "DOWOD_OSOBISTY",
     "IBAN",
 )
@@ -243,7 +244,7 @@ CATEGORY_GROUPS: dict[str, tuple[str, ...]] = {
     CATEGORY_EMAIL: ("EMAIL",),
     CATEGORY_IBAN: ("IBAN",),
     CATEGORY_ADDRESS: ("ULICA", "MIEJSCOWOSC", "POSTAL_CODE", "NER_LOCATION"),
-    CATEGORY_COMPANY: ("NIP", "REGON", "NER_ORG"),
+    CATEGORY_COMPANY: ("NIP", "REGON", "NAZWA_FIRMY", "NER_ORG"),
     CATEGORY_DATE: ("DATA",),
 }
 ALL_CATEGORIES = tuple(CATEGORY_GROUPS.keys())
@@ -608,6 +609,58 @@ _SURNAME_LIKE_TOKEN = (
     rf"[{_UPPER_LETTERS}][{_LOWER_LETTERS}]{{2,}}"
     r"(?:ski|ska|cki|cka|dzki|dzka|ak|ek|ik|yk|uk|cz|icz|wicz|owicz|ewicz)"
 )
+# A Polish company's own legal-form suffix (Sp. z o.o., S.A., ...) is the
+# one reliable marker spaCy's small NER model kept missing or truncating
+# live on a real invoice fixture: it tagged only "z o.o." out of "Usługi
+# Biurowe Testowski Sp. z o.o." (dropping the actual name) and missed
+# "Firma Wzorcowa S.A." entirely - root-caused to the model's own
+# person-name line-break-bridging heuristic accidentally merging
+# unrelated capitalized words across several PDF lines into one bogus
+# entity, which then gets discarded outright since it isn't a person.
+# Rather than chase that heuristic's edge cases, this is a deterministic
+# regex safety net alongside NER, same philosophy as the NIP/REGON
+# table-pairing fix: a run of capitalized words immediately followed by
+# a known legal-form suffix (never crossing a line, via _INLINE_WS - see
+# its own comment above) is the company's actual registered name, suffix
+# included. Known limitation, not chased here: an ordinary capitalized
+# word directly before a stray "S.A."/"sp. z o.o." mention outside a
+# company-name context would also match - same false-positive tolerance
+# already accepted for ULICA/MIEJSCOWOSC.
+_COMPANY_LEGAL_FORM_SUFFIX = (
+    rf"(?i:sp\.{_INLINE_WS}*z{_INLINE_WS}*o\.{_INLINE_WS}*o\."
+    rf"|s\.a\."
+    rf"|sp\.{_INLINE_WS}*[kj]\."
+    rf"|s\.k\.a\."
+    rf"|p\.s\.a\.)"
+)
+# Deliberately more permissive than the shared _NAME_TOKEN (which needs
+# 3+ letters, no digits/hyphens): a real company name routinely starts
+# with a short alphanumeric brand token ("3M Polska S.A.") or is a
+# hyphenated compound ("Info-Tech Polska Sp. z o.o."). Using the strict
+# _NAME_TOKEN here left exactly that leading piece behind - e.g. "3M
+# Polska S.A." matched only "Polska S.A.", leaking "3M" right next to
+# the [NAZWA_FIRMY] tag it was supposed to be inside of. That is a worse
+# outcome than a total miss (NER's own failure mode): it *looks* fully
+# redacted while still disclosing a distinguishing fragment of the name.
+# Local to this pattern only - not shared with ULICA/MIEJSCOWOSC/
+# PERSON_NAME_TYPO, whose stricter shape those patterns still rely on.
+_COMPANY_NAME_WORD = rf"[{_UPPER_LETTERS}\d][{_LOWER_LETTERS}\d-]*"
+# Up to 6 words total before the suffix - a real, unremarkable Polish
+# company name can run that long, e.g. "Polskie Zakłady Zbożowo
+# Młynarskie Sp. z o.o." (4 words) or a compound trade name plus a
+# descriptive phrase; ULICA/MIEJSCOWOSC stay tighter (2-3 tokens) because
+# a street or city name is never realistically that long.
+NAZWA_FIRMY_PATTERN = re.compile(
+    rf"""
+    (?<!\w)
+    {_COMPANY_NAME_WORD}
+    (?:{_INLINE_WS}+{_COMPANY_NAME_WORD}){{0,5}}
+    {_INLINE_WS}+
+    {_COMPANY_LEGAL_FORM_SUFFIX}
+    (?!\w)
+    """,
+    re.VERBOSE,
+)
 PERSON_NAME_TYPO_PATTERN = re.compile(
     rf"""
     (?<![\w\-\u00ad\u2010\u2011\u2012\u2013\u2014])
@@ -714,6 +767,10 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
             """,
             re.VERBOSE | re.IGNORECASE,
         ),
+    ),
+    (
+        "NAZWA_FIRMY",
+        NAZWA_FIRMY_PATTERN,
     ),
     (
         "TELEFON",

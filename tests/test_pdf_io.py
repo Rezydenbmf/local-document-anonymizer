@@ -1548,5 +1548,37 @@ class TableSeparatedNipRegonPdfTests(unittest.TestCase):
             self.assertNotIn("012345678", redacted_text)
 
 
+class NazwaFirmyPdfTests(unittest.TestCase):
+    """pdf_redaction.py's own independent copy of NAZWA_FIRMY_PATTERN
+    (anonymizer.py's copy is covered directly in tests/test_anonymizer.py
+    and tests/test_category_selection.py) - a deterministic regex safety
+    net for company names spaCy's small NER model kept missing or
+    truncating live on a real invoice: it tagged only "z o.o." out of
+    "Usługi Biurowe Testowski Sp. z o.o." and missed "Firma Wzorcowa
+    S.A." entirely."""
+
+    def test_end_to_end_redacts_company_names_via_the_text_search_fallback(
+        self,
+    ) -> None:
+        with workspace_temp_dir() as temp_dir:
+            source_path = Path(temp_dir) / "invoice.pdf"
+            write_fitz_text_pdf(
+                source_path,
+                ["Uslugi Biurowe Testowski Sp. z o.o.", "Firma Wzorcowa S.A."],
+            )
+
+            result = save_redacted_pdf_copy(source_path)
+
+            self.assertEqual(result["counters"].get("NAZWA_FIRMY"), 2)
+
+            import pymupdf as fitz
+
+            redacted_pdf_path = Path(temp_dir) / "invoice_ORIGINAL_REDACTED.pdf"
+            with fitz.open(redacted_pdf_path) as document:
+                redacted_text = "\n".join(page.get_text("text") for page in document)
+            self.assertNotIn("Testowski", redacted_text)
+            self.assertNotIn("Wzorcowa", redacted_text)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -86,6 +86,7 @@ class ResolveActiveLabelsTests(unittest.TestCase):
         active = resolve_active_labels([CATEGORY_COMPANY])
         self.assertIn("NIP", active)
         self.assertIn("REGON", active)
+        self.assertIn("NAZWA_FIRMY", active)
         self.assertIn("NER_ORG", active)
 
     def test_deselecting_address_excludes_the_ai_detected_location_too(
@@ -437,6 +438,38 @@ class EndToEndPdfCategorySelectionTests(unittest.TestCase):
                 visible_text = "\n".join(page.get_text("text") for page in document)
         self.assertNotIn("526-000-12-46", visible_text)
         self.assertNotIn("012345678", visible_text)
+
+    def test_visual_pdf_redacts_company_name_with_legal_form_suffix(self) -> None:
+        """Direct regression test for the other real miss reported live
+        on the same invoice: spaCy's NER only caught "z o.o." out of
+        "Usługi Biurowe Testowski Sp. z o.o." and missed "Firma Wzorcowa
+        S.A." entirely. NAZWA_FIRMY_PATTERN (_PATTERNS) is a
+        deterministic regex safety net that runs regardless of NER."""
+        with workspace_temp_dir() as temp_dir:
+            source_dir = Path(temp_dir) / "source"
+            output_dir = Path(temp_dir) / "output"
+            source_dir.mkdir()
+            output_dir.mkdir()
+            source_path = source_dir / "invoice.pdf"
+            write_fitz_text_pdf(
+                source_path,
+                ["Uslugi Biurowe Testowski Sp. z o.o.", "Firma Wzorcowa S.A."],
+            )
+
+            anonymize_batch(
+                [source_path],
+                output_dir,
+                active_categories=[CATEGORY_COMPANY],
+            )
+
+            import pymupdf as fitz
+
+            visual_pdf = output_dir / "invoice_ANON_VISUAL.pdf"
+            self.assertTrue(visual_pdf.exists())
+            with fitz.open(visual_pdf) as document:
+                visible_text = "\n".join(page.get_text("text") for page in document)
+        self.assertNotIn("Testowski", visible_text)
+        self.assertNotIn("Wzorcowa", visible_text)
 
 
 class PdfSpanOrderingRegressionTests(unittest.TestCase):

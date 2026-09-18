@@ -143,6 +143,84 @@ class AnonymizerEngineTests(unittest.TestCase):
         self.assertEqual(anonymized, "NIP\nREGON\n526-000-12-46\n[REGON]")
         self.assertEqual(counters, {"REGON": 1})
 
+    def test_replaces_company_name_with_sp_zoo_suffix(self) -> None:
+        """Direct regression test for the exact scenario reported live on
+        a real invoice: spaCy's small NER model tagged only "z o.o." out
+        of "Usługi Biurowe Testowski Sp. z o.o.", dropping the actual
+        company name. NAZWA_FIRMY_PATTERN is a deterministic regex
+        safety net alongside NER - it doesn't depend on the AI model at
+        all."""
+        text = "Sprzedawca: Usługi Biurowe Testowski Sp. z o.o."
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(anonymized, "Sprzedawca: [NAZWA_FIRMY]")
+        self.assertEqual(report, {"NAZWA_FIRMY": 1})
+
+    def test_replaces_company_name_with_sa_suffix(self) -> None:
+        """The other real miss from the same invoice: spaCy missed
+        "Firma Wzorcowa S.A." entirely."""
+        text = "Nabywca: Firma Wzorcowa S.A."
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(anonymized, "Nabywca: [NAZWA_FIRMY]")
+        self.assertEqual(report, {"NAZWA_FIRMY": 1})
+
+    def test_company_name_suffix_pattern_does_not_cross_a_line_break(self) -> None:
+        """Same _INLINE_WS boundary every other multi-word pattern in
+        this file relies on: a company name on one table row must never
+        reach into an unrelated word on the next row/line."""
+        text = "Nabywca\nFirma Wzorcowa S.A."
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(anonymized, "Nabywca\n[NAZWA_FIRMY]")
+        self.assertEqual(report, {"NAZWA_FIRMY": 1})
+
+    def test_company_name_suffix_pattern_requires_a_preceding_name(self) -> None:
+        """A bare mention of the legal form with no capitalized name in
+        front of it (e.g. talking about company types in general) is not
+        itself identifying information and must be left alone."""
+        text = "Dzialalnosc mozna prowadzic jako sp. z o.o."
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(anonymized, text)
+        self.assertEqual(report, {})
+
+    def test_company_name_suffix_pattern_includes_a_leading_brand_token(
+        self,
+    ) -> None:
+        """Regression test for a real bug code-review caught: the shared
+        _NAME_TOKEN (3+ letters, no digits) requires every word in the
+        chain to look like an ordinary word, so a short alphanumeric
+        brand token directly in front of the rest of the name ("3M")
+        failed to match and was left exposed right next to the
+        [NAZWA_FIRMY] tag - worse than a total miss, since the output
+        looks fully redacted while still disclosing a distinguishing
+        fragment of the name."""
+        text = "Dostawca: 3M Polska S.A."
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(anonymized, "Dostawca: [NAZWA_FIRMY]")
+        self.assertEqual(report, {"NAZWA_FIRMY": 1})
+
+    def test_company_name_suffix_pattern_includes_a_hyphenated_compound(
+        self,
+    ) -> None:
+        """Same bug class as the leading-brand-token case: _INLINE_WS
+        doesn't include "-", so a hyphenated compound name ("Info-Tech")
+        broke the token chain and only the piece after the hyphen
+        matched, leaking "Info-" next to the [NAZWA_FIRMY] tag."""
+        text = "Dostawca: Info-Tech Polska Sp. z o.o."
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(anonymized, "Dostawca: [NAZWA_FIRMY]")
+        self.assertEqual(report, {"NAZWA_FIRMY": 1})
+
     def test_replaces_dowod_osobisty_number(self) -> None:
         text = "Numer dowodu: ABC123456."
 
@@ -490,6 +568,7 @@ class AnonymizerEngineTests(unittest.TestCase):
                 "POSTAL_CODE",
                 "NIP",
                 "REGON",
+                "NAZWA_FIRMY",
                 "DOWOD_OSOBISTY",
                 "IBAN",
             ),

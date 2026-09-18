@@ -88,11 +88,27 @@ przenoszę ją do „Potwierdzone" albo usuwam. Jeśli lista urośnie powyżej
       Sprawdź na żywo: zanonimizuj ponownie `2_faktura_vat.pdf` z
       zaznaczoną tylko kategorią „Dane firmy” — NIP i REGON powinny
       zniknąć z wyniku, mimo że w oryginale etykieta i numer nie są
-      obok siebie. **Wciąż otwarte, osobny wątek**: wykrywanie samej
-      *nazwy* firmy przez AI (np. „Firma Wzorcowa S.A.” w ogóle
-      pominięte, „Sp. z o.o.” czasem rozdzielone na dwa kawałki) —
-      to nie zostało jeszcze ruszone, czekamy aż zdecydujesz się na to
-      spojrzeć.
+      obok siebie.
+
+- [ ] **Nazwa firmy wykrywana niezależnie od AI, na podstawie formy
+      prawnej (Sp. z o.o., S.A., ...) (2026-09-18)** — druga połowa
+      „Dane firmy działa gorzej”: na tym samym `2_faktura_vat.pdf`
+      widziałeś na screenshocie, że „Usługi Biurowe Testowski **Sp.** z
+      o.o.” było zamazane tylko częściowo (samo „Sp.” zostawało widoczne)
+      i że „Firma Wzorcowa S.A.” w ogóle nie zostało wykryte. Przyczyna:
+      model AI (spaCy) w tym konkretnym dokumencie w ogóle nie oznaczał
+      tych fragmentów poprawnie — nie błąd rysowania, tylko sam model.
+      Zamiast poprawiać model AI, dodany został niezależny, deterministyczny
+      wzorzec: nazwa firmy + jej forma prawna (Sp. z o.o., S.A., Sp.k.,
+      Sp.j., S.K.A., P.S.A.) tuż obok siebie jest traktowana jako pełna
+      nazwa do zamazania, niezależnie od tego, czy AI ją rozpozna. Sprawdź
+      na żywo: zanonimizuj ponownie `2_faktura_vat.pdf` z zaznaczoną
+      kategorią „Dane firmy” — obie nazwy firm (sprzedawca i nabywca, oraz
+      powtórzona nazwa sprzedawcy w stopce) powinny teraz zniknąć w
+      całości, nie tylko częściowo. **Wciąż otwarte, osobny wątek**: samo
+      rozpoznawanie nazw firm przez AI (np. gdy nazwa nie ma na końcu
+      „Sp. z o.o.”/„S.A.” — inna forma prawna, brak formy prawnej w ogóle,
+      albo literówka) — poza tym nowym wzorcem nie zostało poprawione.
 
 ## Potwierdzone
 
