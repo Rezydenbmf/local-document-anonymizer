@@ -67,6 +67,7 @@ from gui import (
     format_audit_result,
     format_batch_audit_result,
     format_batch_error_items,
+    format_batch_pdf_warning_items,
     format_batch_status,
     format_dictionary_result,
     format_drop_result,
@@ -1356,6 +1357,61 @@ class GuiWorkflowTests(unittest.TestCase):
         )
 
         self.assertEqual(format_batch_error_items(batch_result), [])
+
+    def test_format_batch_pdf_warning_items_lists_only_warned_successes(self) -> None:
+        """Regression guard for real user feedback: a page-range-out-of-
+        bounds warning (Etap 5) used to only ever reach the hidden
+        developer report, so a "successfully" processed file with
+        nothing visibly wrong read as silent success. This must surface
+        on the review screen instead."""
+        batch_result = BatchResult(
+            summary_path=Path("output") / "_wewnetrzne" / "_BATCH_SUMMARY.txt",
+            input_count=3,
+            success_count=3,
+            error_count=0,
+            counters={},
+            audit_status_counts={},
+            risk_level_counts={},
+            audit_category_counters={},
+            results=[
+                {"input_name": "clean.pdf", "status": "success"},
+                {
+                    "input_name": "out_of_range.pdf",
+                    "status": "success",
+                    "pdf_redaction_warning": (
+                        "The chosen page range (6, 7) does not match any "
+                        "page of this 3-page document - nothing was "
+                        "redacted."
+                    ),
+                },
+                {
+                    "input_name": "failed.pdf",
+                    "status": "error",
+                    "error": "OCR unavailable for image-based input",
+                },
+            ],
+        )
+
+        items = format_batch_pdf_warning_items(batch_result)
+
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0][0], "out_of_range.pdf")
+        self.assertIn("does not match any", items[0][1])
+
+    def test_format_batch_pdf_warning_items_empty_when_no_warnings(self) -> None:
+        batch_result = BatchResult(
+            summary_path=Path("output") / "_wewnetrzne" / "_BATCH_SUMMARY.txt",
+            input_count=1,
+            success_count=1,
+            error_count=0,
+            counters={},
+            audit_status_counts={},
+            risk_level_counts={},
+            audit_category_counters={},
+            results=[{"input_name": "ok.pdf", "status": "success"}],
+        )
+
+        self.assertEqual(format_batch_pdf_warning_items(batch_result), [])
 
     def test_environment_status_lookup_maps_item_to_ok(self) -> None:
         items = [

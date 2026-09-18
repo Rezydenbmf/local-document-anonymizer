@@ -101,6 +101,7 @@ try:
         filter_supported_paths,
         format_anonymize_button_text,
         format_batch_error_items,
+        format_batch_pdf_warning_items,
         format_drop_result,
         format_filename_pii_warning,
         format_processing_animation_frame,
@@ -237,6 +238,7 @@ except ImportError:
         filter_supported_paths,
         format_anonymize_button_text,
         format_batch_error_items,
+        format_batch_pdf_warning_items,
         format_drop_result,
         format_filename_pii_warning,
         format_processing_animation_frame,
@@ -388,6 +390,16 @@ class AnonymizerApp:
         self._sidebar_badge_image: ctk.CTkImage | None = None
         self.environment_items: list | None = None
         self.environment_installing: set[str] = set()
+        # Lazily filled the first time Settings needs it, reused on every
+        # later open - real user report: opening Settings after being in
+        # the comparison window took 3-5s, root-caused to
+        # list_installed_languages() shelling out to Tesseract fresh on
+        # every single SettingsDialog.__init__, on the main thread,
+        # despite the startup environment check already having paid this
+        # exact cost once in the background. Explicitly invalidated (set
+        # back to None) after a language pack install actually changes
+        # what's installed - never silently stale.
+        self._installed_ocr_languages_cache: list[str] | None = None
 
         self.dependency_updates: list | None = None
         self.package_updates_installing: set[str] = set()
@@ -2539,6 +2551,7 @@ class AnonymizerApp:
         ).pack(side="right")
 
         self._build_batch_errors_card(self.content)
+        self._build_batch_pdf_warnings_card(self.content)
         self._build_review_stat_cards(self.content)
         self._build_selection_bar(self.content)
 
@@ -2619,6 +2632,53 @@ class AnonymizerApp:
             ctk.CTkLabel(
                 inner,
                 text=f"•  {input_name} — {reason}",
+                font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                text_color=COLOR_TEXT,
+                anchor="w",
+                wraplength=640,
+                justify="left",
+            ).pack(fill="x", padx=(10, 0), pady=(4, 0))
+
+    def _build_batch_pdf_warnings_card(self, parent: ctk.CTkFrame) -> None:
+        """Show which PDFs from the just-run batch "succeeded" but still
+        carry a PDF redaction warning (e.g. Etap 5's chosen page range
+        not matching the document at all).
+
+        Without this, that warning only ever reached the hidden
+        developer report (`_wewnetrzne/..._RAPORT.txt`) - real user
+        feedback confirmed a file processing "successfully" with the
+        warning buried there reads as silent, unexplained success,
+        exactly the "puściło mnie bez ostrzeżenia" gap this was
+        supposed to close.
+        """
+        if self.last_batch_result is None:
+            return
+        warning_items = format_batch_pdf_warning_items(self.last_batch_result)
+        if not warning_items:
+            return
+
+        card = ctk.CTkFrame(
+            parent,
+            fg_color=COLOR_WARNING_SOFT,
+            corner_radius=10,
+            border_width=1,
+            border_color=COLOR_WARNING,
+        )
+        card.pack(fill="x", pady=(0, 10))
+        inner = ctk.CTkFrame(card, fg_color="transparent")
+        inner.pack(fill="x", padx=14, pady=10)
+        file_word = "pliku" if len(warning_items) == 1 else "plików"
+        ctk.CTkLabel(
+            inner,
+            text=f"⚠ Ostrzeżenie dot. redakcji PDF dla {len(warning_items)} {file_word}:",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
+            text_color=COLOR_WARNING_TEXT,
+            anchor="w",
+        ).pack(fill="x")
+        for input_name, warning in warning_items:
+            ctk.CTkLabel(
+                inner,
+                text=f"•  {input_name} — {warning}",
                 font=ctk.CTkFont(family=FONT_FAMILY, size=11),
                 text_color=COLOR_TEXT,
                 anchor="w",

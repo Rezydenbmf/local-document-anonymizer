@@ -33,22 +33,33 @@ przenoszę ją do „Potwierdzone" albo usuwam. Jeśli lista urośnie powyżej
       dokumentu podpis (razem z widoczną „ramką”) ma zniknąć; (3) dymek
       po najechaniu na pole powinien jasno tłumaczyć, że to nieodwracalne.
 
-- [ ] **Magic pen — nowy system trybów interakcji myszy (Etap 3,
-      2026-09-16)** — trzy tryby: „Domyślny" (LPM=zaznacz, PPM=przesuń
-      widok, środkowy=przytrzymaj i kliknij/przeciągnij żeby odznaczyć),
-      „Klasyczny" (LPM=zaznacz, PPM=odznacz — jak dotychczas — plus
-      nowość: środkowy=przesuń widok), „Niestandardowy" (przypisujesz
-      sam w Ustawienia > Ogólne, przypisanie tej samej akcji do innego
-      przycisku zamienia je miejscami zamiast błędu). Stare przyciski
-      „Dodaj/Usuń zaznaczenie" (przypinanie LPM) zniknęły z paska u góry
-      — zastąpione małym opisem trybu obok Cofnij/Ponów. Sprawdź na
-      żywo: czy PPM rzeczywiście przesuwa widok w trybie domyślnym (nie
-      odznacza), czy przytrzymanie środkowego i przeciągnięcie po kilku
-      zaznaczeniach naraz faktycznie je zdejmuje, czy tryb
-      niestandardowy w Ustawieniach zapisuje się poprawnie między
-      sesjami, i czy podpowiedź przy pierwszym otwarciu dokumentu
-      (dialog „Co możesz zrobić z tym dokumentem?") poprawnie opisuje
-      wybrany tryb.
+      **Twoja uwaga po teście (2026-09-18)**: „czy nie mozemy dac opcji
+      usun podpis na oknie podgladu? bo tak troche na okolo ze trzba od
+      poczatku anonimizowac i zaznaczyc podpis - mniej wygodnie”. To
+      rozsądna prośba o wygodę, ale **jeszcze niezrobiona w tej turze** —
+      dziś rzeczywiście trzeba zaznaczyć pole przed pierwszym
+      uruchomieniem anonimizacji; nie da się dodać usuwania podpisu z
+      poziomu okna porównania/magic pena bez ponownego przetworzenia
+      całego dokumentu od zera. Jest to technicznie wykonalne (mechanizm
+      "zamrożonego wyboru" już działa dla zakresu stron i kategorii),
+      ale to osobny kawałek pracy — powiedz, czy mam się tym zająć w
+      następnej kolejności.
+
+- [ ] **Ustawienia ładowały się 3-5 sekund po powrocie z okna podglądu
+      (zgłoszone 2026-09-18, przyczyna znaleziona i naprawiona)** —
+      Twój feedback: „odkrylem ze jak mam okno podgladu wracam do
+      glownego i wlaczam ustawienia, to strasznie dlugo sie laduja (3-5
+      SEK)". Przyczyna: okno Ustawień za każdym otwarciem od nowa
+      pytało silnik OCR (Tesseract) o listę zainstalowanych języków —
+      osobny, realny proces uruchamiany na nowo przy każdym kliknięciu
+      w Ustawienia, mimo że ta sama informacja jest już policzona raz
+      przy starcie aplikacji. Naprawione: wynik jest teraz zapamiętywany
+      po pierwszym otwarciu Ustawień w danej sesji i tylko odświeżany na
+      świeżo po realnym dograniu nowego pakietu językowego. Sprawdź na
+      żywo: otwórz Ustawienia dwa razy pod rząd (najlepiej po powrocie z
+      okna podglądu, tak jak zgłosiłeś) — drugie i kolejne otwarcie
+      powinno być zauważalnie szybsze niż pierwsze.
+
 - [ ] **Wersjonowanie wyboru kategorii w pliku JSON (2026-09-17,
       techniczna poprawka, trudna do bezpośredniego sprawdzenia)** —
       przy okazji poprzedniego punktu code-review znalazł powiązany,
@@ -66,80 +77,31 @@ przenoszę ją do „Potwierdzone" albo usuwam. Jeśli lista urośnie powyżej
       danych, które wcześniej były ukryte, jest wystarczającym testem
       na żywo.
 
-- [ ] **Kategorie do anonimizacji — czytelność etykiet checkboxów
-      (2026-09-17, zaktualizowane po Twoim teście — realny błąd
-      znaleziony i naprawiony)** — poprzednia poprawka (przeniesienie
-      na górę panelu) działa, ale **Twój feedback ze screenshotem**:
-      dłuższe etykiety („Kategorie do anonimizacj[i]", „Numer konta
-      bankowego (I...)", „Adres (ulica, miejscowość, k...)", „Dane
-      firmy (nazwa, NIP, REG...)") były ucinane, nie zawijały się.
-      Przyczyna: CTkCheckBox (widget checkboxa) w ogóle nie obsługuje
-      zawijania tekstu — długa etykieta po prostu wychodziła poza wąski
-      panel „Szybkie akcje" i była wizualnie ucinana. Naprawione:
-      etykiety skrócone do samej nazwy kategorii („Dane firmy", „Adres",
-      „IBAN"...), a pełny opis (co dokładnie kryje się pod daną
-      kategorią) przeniesiony do dymka po najechaniu myszką na
-      checkbox. Też skrócony i zawijany tytuł karty. Sprawdź na żywo:
-      czy wszystkie 8 etykiet mieści się teraz w całości bez ucinania,
-      i czy najechanie myszką na checkbox pokazuje dymek z pełnym
-      opisem.
-
-- [ ] **Etykieta pola (np. „Adres”) już nie znika z tabelarycznych
-      dokumentów (2026-09-17)** — to była przyczyna tego dziwnego
-      zamalowania, które zauważyłeś na screenshocie z pisma urzędowego.
-      Nie był to błąd współrzędnych/rysowania — wzorzec wykrywający
-      nietypowe nazwiska (i podobne dla ulicy/miejscowości) „połykał”
-      pierwsze słowo z następnego wiersza tabeli, traktując je jakby
-      było częścią nazwiska w wierszu poprzednim. Naprawione w 3
-      miejscach na raz (kod miał osobne kopie tych samych wzorców):
-      `src/anonymizer.py`, `src/pdf_redaction.py` (tryb PDF
-      „oryginalny układ”) i `src/audit.py` (skaner pozostałości).
-      Sprawdź na żywo: zanonimizuj ponownie `3_pismo_urzedowe.pdf`
-      (albo inny dokument z tabelą, gdzie etykieta pola sąsiaduje z
-      nazwiskiem z myślnikiem albo z miejscowością) — etykiety pól
-      („Adres”, „Numer” itp.) powinny zostać na miejscu, nie znikać.
-
-- [ ] **NIP/REGON wykrywane, gdy etykieta i wartość są w osobnych
-      komórkach tabeli (2026-09-18)** — to była pierwsza konkretna
-      przyczyna „Dane firmy działa gorzej”: `NIP\nREGON\n526-000-12-46\n
-      012345678` (etykiety osobno, wartości osobno — typowy układ
-      faktury) w ogóle nie było wykrywane, mimo zaznaczonej kategorii.
-      Naprawione — program teraz paruje etykietę z najbliższą pasującą
-      wartością (do 4 linijek dalej), nie ruszając samej etykiety.
-      Sprawdź na żywo: zanonimizuj ponownie `2_faktura_vat.pdf` z
-      zaznaczoną tylko kategorią „Dane firmy” — NIP i REGON powinny
-      zniknąć z wyniku, mimo że w oryginale etykieta i numer nie są
-      obok siebie.
-
 - [ ] **Ograniczenie automatycznej anonimizacji PDF-a do wybranych stron
-      (Etap 5, 2026-09-18) + dwie poprawki po Twoim teście
-      (2026-09-18)** — podstawowy mechanizm już potwierdziłeś („dziala
-      prawidlowo"), ale zgłosiłeś dwie rzeczy do poprawy, obie teraz
-      zrobione i czekające na sprawdzenie na żywo:
-      1. **Podpowiedź formatu w polu „Strony”** — Twój feedback: „niech
-         tam bedzie takim znakiem wodnym podpowiedz co wpisywac, bo
-         niektorzy moga myslec ze po przecinkiu wartosci inni dadza z
-         myslnikiem". Placeholder w polu to teraz „np. 1,3,5 lub 1-3
-         (puste = wszystkie)”, a dymek po najechaniu myszką tłumaczy
-         wprost: pojedyncze numery po przecinku, zakresy z myślnikiem,
-         można łączyć oba naraz. Sprawdź na żywo: najedź myszką na pole
-         „Strony” i sprawdź, czy dymek jest czytelny i rzeczywiście
-         wyjaśnia format.
-      2. **Ostrzeżenie, gdy wpisany zakres w ogóle nie pokrywa się z
-         dokumentem** — Twój feedback: „zobaczylem ze jak dokument ma 3
-         strony a ja zakres wpisze 5-8 to plik sie anonimizuje, co
-         prawda nic na stronach 1-3 sie nie robi, ale wykrywajmy zakres
-         stron co mozna uzupelnic”. Taki przypadek (np. „5-8” na
-         3-stronicowym dokumencie) teraz zamiast cichego „sukcesu” bez
-         żadnego efektu generuje ostrzeżenie w raporcie deweloperskim
-         (`_ANON_raport_deweloperski.txt` / zbiorcze podsumowanie
-         wsadu) wprost mówiące, że podany zakres nie pasuje do żadnej
-         strony dokumentu. Sprawdź na żywo: wczytaj np. 3-stronicowy PDF
-         `6_umowa_trzy_strony.pdf`, wpisz w polu „Strony” zakres spoza
-         dokumentu (np. „5-8”) i zanonimizuj — plik wynikowy powinien
-         zostać nietknięty (jak dotychczas), ale w raporcie
-         deweloperskim powinno teraz pojawić się czytelne ostrzeżenie o
-         niepasującym zakresie stron, zamiast całkowitej ciszy.
+      (Etap 5) — ostrzeżenie o zakresie spoza dokumentu (ad7 z
+      2026-09-18, zgłoszone jako niedziałające — przyczyna znaleziona i
+      naprawiona 2026-09-18)** — Twój test: 3-stronicowy dokument,
+      zakres „6-7”, „mnie puściło” (bez żadnego ostrzeżenia). Sprawdziłem
+      bezpośrednio w kodzie: ostrzeżenie **technicznie już wtedy
+      powstawało** poprawnie, ale trafiało tylko do ukrytego pliku
+      wewnętrznego (`_wewnetrzne/..._RAPORT.txt` / `_BATCH_SUMMARY.txt`)
+      — miejsca, do którego normalnie nikt nie zagląda. Poza tym w
+      poprzedniej instrukcji podałem Ci zresztą złą nazwę pliku do
+      szukania (`_ANON_raport_deweloperski.txt` — taki plik w ogóle nie
+      istnieje), więc nawet ktoś, kto by szukał, by go nie znalazł. To
+      był realny błąd UX, nie tylko pomyłka w opisie — samo ostrzeżenie
+      było praktycznie niewidoczne. Naprawione: po przetworzeniu wsadu
+      na ekranie „Wyniki anonimizacji” pojawia się teraz żółta karta z
+      ostrzeżeniem wprost na liście plików (ten sam styl co istniejąca
+      czerwona karta „Nie udało się przetworzyć..."), więc nie trzeba
+      niczego szukać w ukrytych folderach. Sprawdź na żywo: wczytaj
+      `6_umowa_trzy_strony.pdf`, wpisz w polu „Strony” zakres spoza
+      dokumentu (np. „6-7”), zanonimizuj — na ekranie wyników powinna od
+      razu pojawić się żółta karta ostrzeżenia z nazwą pliku i treścią
+      mówiącą, że podany zakres nie pasuje do żadnej strony dokumentu.
+      **Nadal do sprawdzenia z poprzedniej tury** (nie testowane w tej
+      rundzie): dymek po najechaniu na pole „Strony” — czy jasno
+      tłumaczy format (przecinek/myślnik/kombinacja).
       **Wciąż otwarte, świadomie odłożone**: zmiana zakresu stron już w
       trakcie pracy w edytorze magic pen (dziś trzeba ustawić zakres
       przed uruchomieniem anonimizacji, nie da się go zmienić bez
@@ -147,6 +109,22 @@ przenoszę ją do „Potwierdzone" albo usuwam. Jeśli lista urośnie powyżej
 
 ## Potwierdzone
 
+- [x] **Magic pen — nowy system trybów interakcji myszy (Etap 3)**
+      (potwierdzone 2026-09-18) — Twój feedback: „wszystkie tryby
+      magicc pena dzialaj". Podczas tego testu znalazłeś osobny,
+      niezwiązany problem (Ustawienia ładujące się 3-5 sek) — opisany
+      wyżej w „Do sprawdzenia".
+- [x] **Kategorie do anonimizacji — czytelność etykiet checkboxów**
+      (potwierdzone 2026-09-18) — Twój feedback: „ad 4 - wszystko ok,
+      zatwierdzam".
+- [x] **Etykieta pola (np. „Adres") już nie znika z tabelarycznych
+      dokumentów** (potwierdzone 2026-09-18) — Twój feedback: „ad 5
+      dziala".
+- [x] **NIP/REGON wykrywane, gdy etykieta i wartość są w osobnych
+      komórkach tabeli** (potwierdzone 2026-09-18) — Twój feedback:
+      „ad 6 dziala" (potwierdzone też zrzutem z żywego okna porównania:
+      `2_faktura_vat.pdf`, obie nazwy firm, NIP i REGON w pełni
+      zamazane).
 - [x] **Ogólna jakość wykrywania przez AI poprawiona — nie tylko nazwy
       firm z formą prawną** (2026-09-18, potwierdzone 2026-09-18) —
       Twój feedback: „tyak zatwierdzam" (po zrzucie z żywego okna
