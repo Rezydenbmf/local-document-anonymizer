@@ -78,6 +78,22 @@ przenoszę ją do „Potwierdzone" albo usuwam. Jeśli lista urośnie powyżej
       nazwiskiem z myślnikiem albo z miejscowością) — etykiety pól
       („Adres”, „Numer” itp.) powinny zostać na miejscu, nie znikać.
 
+- [ ] **NIP/REGON wykrywane, gdy etykieta i wartość są w osobnych
+      komórkach tabeli (2026-09-18)** — to była pierwsza konkretna
+      przyczyna „Dane firmy działa gorzej”: `NIP\nREGON\n526-000-12-46\n
+      012345678` (etykiety osobno, wartości osobno — typowy układ
+      faktury) w ogóle nie było wykrywane, mimo zaznaczonej kategorii.
+      Naprawione — program teraz paruje etykietę z najbliższą pasującą
+      wartością (do 4 linijek dalej), nie ruszając samej etykiety.
+      Sprawdź na żywo: zanonimizuj ponownie `2_faktura_vat.pdf` z
+      zaznaczoną tylko kategorią „Dane firmy” — NIP i REGON powinny
+      zniknąć z wyniku, mimo że w oryginale etykieta i numer nie są
+      obok siebie. **Wciąż otwarte, osobny wątek**: wykrywanie samej
+      *nazwy* firmy przez AI (np. „Firma Wzorcowa S.A.” w ogóle
+      pominięte, „Sp. z o.o.” czasem rozdzielone na dwa kawałki) —
+      to nie zostało jeszcze ruszone, czekamy aż zdecydujesz się na to
+      spojrzeć.
+
 ## Potwierdzone
 
 - [x] **Eksport zatwierdzonych plików z wyborem lokalizacji** (2026-09-15,

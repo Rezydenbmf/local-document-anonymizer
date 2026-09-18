@@ -8,7 +8,7 @@ import unittest
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from anonymizer import SUPPORTED_LABELS, anonymize_text
+from anonymizer import SUPPORTED_LABELS, _apply_dictionary_and_regex, anonymize_text
 
 
 class AnonymizerEngineTests(unittest.TestCase):
@@ -110,6 +110,38 @@ class AnonymizerEngineTests(unittest.TestCase):
 
         self.assertEqual(anonymized, "NIP\n[PESEL]")
         self.assertEqual(report, {"PESEL": 1})
+
+    def test_table_separated_nip_pairing_still_works_when_regon_is_excluded(
+        self,
+    ) -> None:
+        """Regression test for a real bug code-review caught: the
+        table-separated fallback was only ever triggered from the
+        REGON iteration of the main _PATTERNS loop, and that iteration
+        was skipped entirely (via `continue`) whenever "REGON" itself
+        was excluded from active_labels - silently losing
+        table-separated NIP detection too, even though "NIP" was
+        selected. Currently unreachable through the GUI (the "Dane
+        firmy" checkbox always selects NIP and REGON together) but a
+        real trap for any future caller passing a narrower selection.
+        """
+        text = "NIP\nREGON\n526-000-12-46\n012345678"
+
+        anonymized, counters, _dictionary_counters = _apply_dictionary_and_regex(
+            text, active_labels=frozenset({"NIP"})
+        )
+
+        self.assertEqual(anonymized, "NIP\nREGON\n[NIP]\n012345678")
+        self.assertEqual(counters, {"NIP": 1})
+
+    def test_table_separated_regon_pairing_works_alone_too(self) -> None:
+        text = "NIP\nREGON\n526-000-12-46\n012345678"
+
+        anonymized, counters, _dictionary_counters = _apply_dictionary_and_regex(
+            text, active_labels=frozenset({"REGON"})
+        )
+
+        self.assertEqual(anonymized, "NIP\nREGON\n526-000-12-46\n[REGON]")
+        self.assertEqual(counters, {"REGON": 1})
 
     def test_replaces_dowod_osobisty_number(self) -> None:
         text = "Numer dowodu: ABC123456."

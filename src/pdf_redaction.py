@@ -298,29 +298,44 @@ _BARE_NIP_VALUE_PATTERN = re.compile(r"(?<!\w)\d(?:[\s-]?\d){9}(?!\w)")
 _BARE_REGON_VALUE_PATTERN = re.compile(
     r"(?<!\w)(?:\d(?:[\s-]?\d){13}|\d(?:[\s-]?\d){8})(?!\w)"
 )
-_TABLE_LABEL_VALUE_MAX_LINES_AHEAD = 8
+# Kept small and close to the actually-observed real-world gap (2
+# lines) rather than generous - see anonymizer.py's identical constant
+# for the full reasoning (a wider window risks mispairing an unrelated
+# same-length number instead of the real value).
+_TABLE_LABEL_VALUE_MAX_LINES_AHEAD = 4
+
+
+def _line_start_offsets(text: str) -> list[int]:
+    """0-based offset each line starts at, for bisect-based line-number
+    lookups - shared across both the NIP and REGON calls in the same
+    page text by callers that need more than one, instead of each call
+    re-scanning the same text for newlines independently."""
+    line_starts = [0]
+    line_starts.extend(m.end() for m in re.finditer(r"\n", text))
+    return line_starts
 
 
 def _table_separated_label_value_spans(
     text: str,
     label_pattern: re.Pattern[str],
     value_pattern: re.Pattern[str],
+    line_starts: list[int],
 ) -> list[tuple[int, int]]:
     """Pair each bare ``label_pattern`` match with the nearest, not yet
     claimed ``value_pattern`` match that starts after it, within
     ``_TABLE_LABEL_VALUE_MAX_LINES_AHEAD`` lines - in reading order, so
     a block of N labels pairs with the next N values in the same
     relative order they were written in. Returns only the *value*
-    spans; the caller never touches the label text."""
+    spans; the caller never touches the label text. ``line_starts``
+    (see _line_start_offsets) is precomputed by the caller so pairing
+    NIP and REGON in the same page text doesn't rescan it for newlines
+    twice."""
     label_starts = [m.start() for m in label_pattern.finditer(text)]
     if not label_starts:
         return []
     value_positions = [(m.start(), m.end()) for m in value_pattern.finditer(text)]
     if not value_positions:
         return []
-
-    line_starts = [0]
-    line_starts.extend(m.end() for m in re.finditer(r"\n", text))
 
     def line_number(offset: int) -> int:
         return bisect.bisect_right(line_starts, offset) - 1
@@ -353,6 +368,7 @@ def _table_separated_nip_regon_matches(
     """Return ``(label, start, end)`` spans for the table-separated
     NIP/REGON fallback."""
     results: list[tuple[str, int, int]] = []
+    line_starts = _line_start_offsets(page_text)
     for label_name, label_pattern, value_pattern in (
         ("NIP", _BARE_NIP_LABEL_PATTERN, _BARE_NIP_VALUE_PATTERN),
         ("REGON", _BARE_REGON_LABEL_PATTERN, _BARE_REGON_VALUE_PATTERN),
@@ -360,7 +376,7 @@ def _table_separated_nip_regon_matches(
         if active_labels is not None and label_name not in active_labels:
             continue
         for start, end in _table_separated_label_value_spans(
-            page_text, label_pattern, value_pattern
+            page_text, label_pattern, value_pattern, line_starts
         ):
             results.append((label_name, start, end))
     return results
@@ -1017,14 +1033,17 @@ def _redact_pattern_matches(
             claimed_ranges.append((start, end))
 
     for item in PDF_REDACTION_PATTERNS:
-        if active_labels is not None and item.label not in active_labels:
-            continue
-        for match in item.pattern.finditer(page_text):
-            _redact_offset_match(item.label, match.start(), match.end(), match.group(0))
+        if active_labels is None or item.label in active_labels:
+            for match in item.pattern.finditer(page_text):
+                _redact_offset_match(
+                    item.label, match.start(), match.end(), match.group(0)
+                )
         # Right after REGON's own direct (same-line) pattern above, and
         # before TELEFON's turn a few iterations later in this same
         # loop - see _apply_dictionary_and_regex's identical ordering
-        # note in anonymizer.py.
+        # note in anonymizer.py. Deliberately a plain `if`, not
+        # `continue`d away above when REGON itself is excluded - see
+        # that same note for the real bug that caused.
         if item.label == "REGON" and (
             active_labels is None
             or "NIP" in active_labels

@@ -31,6 +31,7 @@ from pdf_redaction import (
     PDF_REDACTION_PATTERNS,
     PERSON_NAME_TYPO_PATTERN,
     PdfWordPage,
+    _table_separated_nip_regon_matches,
     compute_redaction_rects,
     extract_pdf_word_pages,
     manual_edit_span_key,
@@ -1491,6 +1492,60 @@ class PdfRedactionPatternsLineBreakTests(unittest.TestCase):
         pattern = _pattern_for_label("DATA")
         self.assertIsNone(pattern.search("15\nstycznia 2024"))
         self.assertIsNotNone(pattern.search("15 stycznia 2024"))
+
+
+class TableSeparatedNipRegonPdfTests(unittest.TestCase):
+    """pdf_redaction.py's own independent copy of the table-separated
+    NIP/REGON fallback (anonymizer.py's copy is covered directly in
+    tests/test_anonymizer.py) - both exist because this module can't
+    import anonymizer.py's copy back (anonymizer.py already imports
+    from this module, so the reverse would be circular). Also covers
+    _redact_pattern_matches's new claimed_ranges overlap tracking,
+    which didn't exist before this fallback and has no other test."""
+
+    def test_pairs_table_separated_nip_and_regon(self) -> None:
+        text = "NIP\nREGON\n526-000-12-46\n012345678"
+        matches = _table_separated_nip_regon_matches(text, None)
+        resolved = {(label, text[start:end]) for label, start, end in matches}
+        self.assertEqual(
+            resolved, {("NIP", "526-000-12-46"), ("REGON", "012345678")}
+        )
+
+    def test_respects_active_labels_filter(self) -> None:
+        text = "NIP\nREGON\n526-000-12-46\n012345678"
+        matches = _table_separated_nip_regon_matches(text, frozenset({"NIP"}))
+        resolved = [(label, text[start:end]) for label, start, end in matches]
+        self.assertEqual(resolved, [("NIP", "526-000-12-46")])
+
+    def test_end_to_end_redacts_both_without_telefon_stealing_regon(self) -> None:
+        """Direct regression test for the exact scenario reported live
+        on a real invoice, through the full save_redacted_pdf_copy path
+        (not just the pairing function in isolation): confirms
+        _redact_pattern_matches's new claimed_ranges check correctly
+        gives the table-separated fallback precedence over TELEFON's
+        own bare "\\d{9}" fallback, which would otherwise redact the
+        disconnected 9-digit REGON value as a phone number first.
+        """
+        with workspace_temp_dir() as temp_dir:
+            source_path = Path(temp_dir) / "invoice.pdf"
+            write_fitz_text_pdf(
+                source_path,
+                ["NIP", "REGON", "526-000-12-46", "012345678"],
+            )
+
+            result = save_redacted_pdf_copy(source_path)
+
+            self.assertEqual(result["counters"].get("NIP"), 1)
+            self.assertEqual(result["counters"].get("REGON"), 1)
+            self.assertNotIn("TELEFON", result["counters"])
+
+            import pymupdf as fitz
+
+            redacted_pdf_path = Path(temp_dir) / "invoice_ORIGINAL_REDACTED.pdf"
+            with fitz.open(redacted_pdf_path) as document:
+                redacted_text = "\n".join(page.get_text("text") for page in document)
+            self.assertNotIn("526-000-12-46", redacted_text)
+            self.assertNotIn("012345678", redacted_text)
 
 
 if __name__ == "__main__":
