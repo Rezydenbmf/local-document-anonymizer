@@ -73,7 +73,9 @@ _SAFE_WORD_PADDING = set(".,;:!?()[]{}<>\"'")
 _UPPER_LETTERS = "A-ZĄĆĘŁŃÓŚŹŻ"
 _LOWER_LETTERS = "A-Za-zĄĆĘŁŃÓŚŹŻąćęłńóśźż"
 _NAME_TOKEN = rf"[{_UPPER_LETTERS}][{_LOWER_LETTERS}]{{2,}}"
-_NAME_HYPHEN = r"[-\u00ad\u2010\u2011\u2012\u2013\u2014]"
+_NAME_HYPHEN_CHAR_LIST = "-\u00ad\u2010\u2011\u2012\u2013\u2014"
+_NAME_HYPHEN = rf"[{_NAME_HYPHEN_CHAR_LIST}]"
+_NAME_HYPHEN_CHARS = frozenset(_NAME_HYPHEN_CHAR_LIST)
 # Whitespace that can separate two words *within the same line* (space,
 # tab) but never a newline. get_text("text")/word-coordinate extraction
 # in this module joins separate PDF lines/table rows with a single "\n",
@@ -799,8 +801,54 @@ def _merge_rects_by_line(words: Sequence[PdfWord]):
     return rects
 
 
-def _padding_is_safe(text: str) -> bool:
-    return all(character.isspace() or character in _SAFE_WORD_PADDING for character in text)
+def _padding_is_safe(text: str, *, hyphen_at_start: bool) -> bool:
+    """``hyphen_at_start`` says where a hyphen would sit if this padding
+    is the other half of a hyphenated compound word split by the
+    detector's own span boundary: ``True`` for padding trailing *after*
+    the span (e.g. "-Wojciechowski"), ``False`` for padding leading *up
+    to* the span (e.g. "Zaremba-").
+    """
+    if all(character.isspace() or character in _SAFE_WORD_PADDING for character in text):
+        return True
+    # A detected span landing exactly at a hyphen inside a hyphenated
+    # compound word ("Zaremba-Wojciechowski", detected by NER as just
+    # "Zaremba") is still one real match that must be redacted in full -
+    # confirmed live: spaCy's own span boundary lands right on the
+    # hyphen (a genuine sub-word split its own tokenizer makes), and
+    # without this the check above used to reject the whole span
+    # outright, leaving the *entire* name completely unredacted rather
+    # than at least widened to the full word - worse than a plain miss,
+    # since a real, detected PII entity ended up with zero protection.
+    # Deliberately narrow (hyphen immediately at the span boundary, only
+    # letters/more hyphens/safe punctuation beyond it) rather than "any
+    # letters are safe padding" - that broader rule would risk widening
+    # into a genuinely unrelated word that just happens to start with
+    # the same few letters as the detected entity, with no hyphen
+    # indicating they're one compound.
+    #
+    # The remainder allows more hyphen-like characters (not just plain
+    # letters) - code review caught the first version of this fix
+    # requiring remainder.isalpha(), which still rejected the whole span
+    # for a 3+-part hyphenated name when NER only tagged one end segment
+    # (e.g. "Anna" out of "Anna-Maria-Zaremba" leaves a remainder of
+    # "Maria-Zaremba", which itself contains a hyphen) - reproducing the
+    # exact zero-protection bug this fix exists to close, just one
+    # hyphen further along. Safe punctuation/whitespace is also allowed
+    # in the remainder for the same reason (a trailing comma glued
+    # directly onto the word with no space, e.g. "-Wojciechowski,").
+    if len(text) < 2:
+        return False
+    hyphen_char = text[0] if hyphen_at_start else text[-1]
+    remainder = text[1:] if hyphen_at_start else text[:-1]
+    if hyphen_char not in _NAME_HYPHEN_CHARS:
+        return False
+    return all(
+        character.isalpha()
+        or character in _NAME_HYPHEN_CHARS
+        or character.isspace()
+        or character in _SAFE_WORD_PADDING
+        for character in remainder
+    )
 
 
 def _span_maps_to_full_words(page: PdfWordPage, span: PdfRedactionSpan) -> list:
@@ -819,11 +867,11 @@ def _span_maps_to_full_words(page: PdfWordPage, span: PdfRedactionSpan) -> list:
     last = matching_words[-1]
     if span.start_offset > first.start_offset:
         left_padding = page.text[first.start_offset:span.start_offset]
-        if not _padding_is_safe(left_padding):
+        if not _padding_is_safe(left_padding, hyphen_at_start=False):
             return []
     if span.end_offset < last.end_offset:
         right_padding = page.text[span.end_offset:last.end_offset]
-        if not _padding_is_safe(right_padding):
+        if not _padding_is_safe(right_padding, hyphen_at_start=True):
             return []
 
     for word in matching_words[1:-1]:

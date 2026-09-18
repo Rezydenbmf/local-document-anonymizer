@@ -30,6 +30,7 @@ from file_writers import (
 from pdf_redaction import (
     PDF_REDACTION_PATTERNS,
     PERSON_NAME_TYPO_PATTERN,
+    PdfRedactionSpan,
     PdfWordPage,
     _table_separated_nip_regon_matches,
     compute_redaction_rects,
@@ -1077,6 +1078,44 @@ class PdfIoTests(unittest.TestCase):
             )
             self.assert_pdf_exposes_text(visual_pdf_path, ("Footer",))
 
+    def test_visual_redaction_widens_a_span_ending_mid_hyphenated_word(self) -> None:
+        """Regression test for a real bug found live testing the two-pass
+        NER fix: spaCy's own span boundary can land exactly at the
+        hyphen inside a hyphenated surname ("Zaremba-Wojciechowski"),
+        tagging only "Zaremba" as the entity. Before this fix,
+        _span_maps_to_full_words rejected the span outright (the
+        leftover "-Wojciechowski" wasn't "safe" padding), leaving the
+        *entire* name completely unredacted - worse than a plain miss,
+        since a real, detected PII entity ended up with zero protection
+        in the visual PDF. Confirmed live on a generated invoice-style
+        fixture before this fix existed."""
+        with workspace_temp_dir() as temp_dir:
+            source_path = Path(temp_dir) / "visual_hyphenated_person.pdf"
+            write_fitz_text_pdf(
+                source_path,
+                [
+                    "Szanowny Pan",
+                    "Zaremba-Wojciechowski",
+                    "Footer visible",
+                ],
+            )
+            # The model only ever tags the piece before the hyphen - the
+            # exact shape observed live, not a hypothetical.
+            model = FakeNerModel([("Zaremba", "persName")])
+
+            with patch("ner._spacy_module", return_value=FakeSpacy(model)):
+                output_path, counters = anonymize_pdf_file(source_path, use_ner=True)
+
+            visual_pdf_path = Path(temp_dir) / "visual_hyphenated_person_ANON_VISUAL.pdf"
+
+            self.assertIn("[NER_PERSON]", output_path.read_text(encoding="utf-8"))
+            self.assertEqual(counters["NER_PERSON"], 1)
+            self.assert_redacted_pdf_does_not_expose_text(
+                visual_pdf_path,
+                ("Zaremba", "Wojciechowski"),
+            )
+            self.assert_pdf_exposes_text(visual_pdf_path, ("Footer",))
+
     def test_word_page_text_keeps_line_breaks_between_separate_pdf_lines(self) -> None:
         """extract_pdf_word_pages must not flatten separate PDF lines into
         one run-on line with plain spaces. Losing real line breaks removes
@@ -1309,6 +1348,144 @@ class PdfIoTests(unittest.TestCase):
             self.assert_pdf_exposes_text(override_output, ("Header", "Beta", "Gamma"))
             self.assertEqual(result["counters"].get("RECZNE"), 1)
             self.assertNotIn("EMAIL", result["counters"])
+
+    def test_span_ending_at_a_hyphen_widens_to_the_full_word(self) -> None:
+        """Direct, low-level regression test for the same bug as
+        test_visual_redaction_widens_a_span_ending_mid_hyphenated_word,
+        exercising compute_redaction_rects directly instead of through
+        the full NER pipeline."""
+        with workspace_temp_dir() as temp_dir:
+            source_path = Path(temp_dir) / "hyphen_span.pdf"
+            write_fitz_text_pdf(source_path, ["Zaremba-Wojciechowski"])
+            word_pages = extract_pdf_word_pages(source_path)
+            page_text = word_pages[0].text
+            end = page_text.index("Zaremba") + len("Zaremba")
+            span = PdfRedactionSpan(
+                label="NER_PERSON",
+                page_number=1,
+                start_offset=0,
+                end_offset=end,
+                replacement_label="[NER_PERSON]",
+                source="ner",
+            )
+
+            rects, counters, unmapped = compute_redaction_rects(word_pages, [span])
+
+            self.assertEqual(unmapped, {})
+            self.assertEqual(counters, {"NER_PERSON": 1})
+            self.assertEqual(len(rects), 1)
+
+    def test_span_ending_mid_word_with_no_hyphen_stays_unmapped(self) -> None:
+        """The fix above is deliberately narrow: a span that stops in the
+        middle of a word with no hyphen at the boundary is NOT widened -
+        that would risk sweeping in a genuinely unrelated word that just
+        happens to share a prefix with the detected entity, with no
+        hyphen indicating they're one compound. Must still be reported
+        as unmapped, exactly like before this fix."""
+        with workspace_temp_dir() as temp_dir:
+            source_path = Path(temp_dir) / "no_hyphen_span.pdf"
+            write_fitz_text_pdf(source_path, ["Kowalskiewicz"])
+            word_pages = extract_pdf_word_pages(source_path)
+            page_text = word_pages[0].text
+            end = page_text.index("Kowal") + len("Kowal")
+            span = PdfRedactionSpan(
+                label="NER_PERSON",
+                page_number=1,
+                start_offset=0,
+                end_offset=end,
+                replacement_label="[NER_PERSON]",
+                source="ner",
+            )
+
+            rects, counters, unmapped = compute_redaction_rects(word_pages, [span])
+
+            self.assertEqual(rects, [])
+            self.assertEqual(counters, {})
+            self.assertEqual(unmapped, {"NER_PERSON": 1})
+
+    def test_span_starting_at_a_hyphen_widens_backward_to_the_full_word(self) -> None:
+        """Symmetric case to test_span_ending_at_a_hyphen_widens_to_the_full_word:
+        the entity is the SECOND half of the hyphenated compound (NER
+        tags only "Wojciechowski"), so the widening must reach backward
+        through the hyphen to include "Zaremba-" too, exercising the
+        hyphen_at_start=False branch - untested before this."""
+        with workspace_temp_dir() as temp_dir:
+            source_path = Path(temp_dir) / "hyphen_span_backward.pdf"
+            write_fitz_text_pdf(source_path, ["Zaremba-Wojciechowski"])
+            word_pages = extract_pdf_word_pages(source_path)
+            page_text = word_pages[0].text
+            start = page_text.index("Wojciechowski")
+            span = PdfRedactionSpan(
+                label="NER_PERSON",
+                page_number=1,
+                start_offset=start,
+                end_offset=len(page_text),
+                replacement_label="[NER_PERSON]",
+                source="ner",
+            )
+
+            rects, counters, unmapped = compute_redaction_rects(word_pages, [span])
+
+            self.assertEqual(unmapped, {})
+            self.assertEqual(counters, {"NER_PERSON": 1})
+            self.assertEqual(len(rects), 1)
+
+    def test_span_tagging_only_one_end_of_a_triple_barreled_name_still_widens(
+        self,
+    ) -> None:
+        """Regression test for a real gap code review found in the first
+        version of this fix: remainder.isalpha() still rejected the span
+        outright for a 3+-part hyphenated name when NER only tagged one
+        end segment - e.g. "Anna" out of "Anna-Maria-Zaremba" leaves a
+        remainder of "Maria-Zaremba", which itself contains a hyphen and
+        isn't pure alpha. Reproduced the exact zero-protection bug this
+        fix exists to close, just one hyphen further along."""
+        with workspace_temp_dir() as temp_dir:
+            source_path = Path(temp_dir) / "triple_barreled.pdf"
+            write_fitz_text_pdf(source_path, ["Anna-Maria-Zaremba"])
+            word_pages = extract_pdf_word_pages(source_path)
+            page_text = word_pages[0].text
+            end = page_text.index("Anna") + len("Anna")
+            span = PdfRedactionSpan(
+                label="NER_PERSON",
+                page_number=1,
+                start_offset=0,
+                end_offset=end,
+                replacement_label="[NER_PERSON]",
+                source="ner",
+            )
+
+            rects, counters, unmapped = compute_redaction_rects(word_pages, [span])
+
+            self.assertEqual(unmapped, {})
+            self.assertEqual(counters, {"NER_PERSON": 1})
+            self.assertEqual(len(rects), 1)
+
+    def test_hyphen_widening_is_not_limited_to_person_labeled_spans(self) -> None:
+        """The fix lives in the shared word-to-rect mapping every span
+        source (regex and NER, any label) funnels through - confirms
+        that generically, not just for NER_PERSON, since nothing in the
+        implementation inspects the label."""
+        with workspace_temp_dir() as temp_dir:
+            source_path = Path(temp_dir) / "hyphen_span_org.pdf"
+            write_fitz_text_pdf(source_path, ["Zaklady-Precyzyjne"])
+            word_pages = extract_pdf_word_pages(source_path)
+            page_text = word_pages[0].text
+            end = page_text.index("Zaklady") + len("Zaklady")
+            span = PdfRedactionSpan(
+                label="NER_ORG",
+                page_number=1,
+                start_offset=0,
+                end_offset=end,
+                replacement_label="[NER_ORG]",
+                source="ner",
+            )
+
+            rects, counters, unmapped = compute_redaction_rects(word_pages, [span])
+
+            self.assertEqual(unmapped, {})
+            self.assertEqual(counters, {"NER_ORG": 1})
+            self.assertEqual(len(rects), 1)
 
     def test_compute_redaction_rects_matches_what_gets_written_to_file(self) -> None:
         with workspace_temp_dir() as temp_dir:
