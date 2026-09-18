@@ -391,6 +391,162 @@ class NerFoundationTests(unittest.TestCase):
         self.assertEqual(exclusions[NER_EXCLUSION_LINEBREAK_NON_PERSON], 1)
         self.assertEqual(linebreak_count, 0)
 
+    def test_unrelated_entity_is_not_double_counted_when_a_real_bridge_exists(
+        self,
+    ) -> None:
+        """detect_entities_with_details now runs the model twice - once on
+        the raw text, once on the line-break-bridged text - so that a
+        genuine cross-line person name (see
+        test_ner_detects_person_across_soft_line_break) can still be
+        found without corrupting every other, unrelated entity in the
+        same document (see
+        test_ner_skips_non_person_entity_that_only_exists_via_line_break_bridging
+        for the corruption this exists to avoid). The risk that fix
+        itself introduces: if the second pass ever reprocessed an entity
+        the first pass had already handled, its exclusion (or its count)
+        would be recorded twice. "ECDC" here sits on its own line with
+        no line break involved at all - it must be excluded exactly
+        once, not once per pass, even though the same document also
+        contains a genuine bridged person name elsewhere."""
+        model = FakeNerModel([("ECDC", "orgName"), ("Jan Kowalski", "persName")])
+        text = "ECDC opublikowalo raport.\nUczestnik Jan\nKowalski zglosil sprawe."
+
+        with patch("ner._spacy_module", return_value=FakeSpacy(model=model)):
+            context = prepare_ner_context(enabled=True)
+            entities, counters, exclusions, linebreak_count = detect_entities_with_details(
+                text,
+                context,
+            )
+
+        self.assertEqual([entity.label for entity in entities], ["NER_PERSON"])
+        self.assertEqual(counters["NER_PERSON"], 1)
+        self.assertEqual(exclusions["PUBLIC_INSTITUTION_PHRASE"], 1)
+        self.assertEqual(linebreak_count, 1)
+
+    def test_bridged_pass_runs_before_raw_pass_so_the_full_name_wins(self) -> None:
+        """Regression test for a real PII-leak bug code review caught in
+        the two-pass redesign: the raw (unbridged) pass sees "Jan" and
+        "Kowalski" as two separate lines, and a preceding title ("Pan")
+        makes the single-token exclusion accept lone "Jan" as a complete
+        name on its own. If that fragment were accepted *before* the
+        bridged pass ever ran, its span would block the bridged pass's
+        correct, wider "Jan Kowalski" from being added at all (they
+        overlap) - leaving "Kowalski" exposed in plain text, a worse
+        outcome than the single-pass code this replaced (which only ever
+        saw the pre-merged "Jan Kowalski"). Running the bridged pass
+        first means its correct span claims the region before the raw
+        pass's narrower fragment is ever evaluated, so the raw pass's
+        own overlap check is what suppresses the fragment - not the
+        other way around."""
+        model = FakeNerModel(
+            [
+                ("Jan", "persName"),
+                ("Kowalski", "persName"),
+                ("Jan Kowalski", "persName"),
+            ]
+        )
+        text = "Pan Jan\nKowalski zglosil sprawe."
+
+        with patch("ner._spacy_module", return_value=FakeSpacy(model=model)):
+            context = prepare_ner_context(enabled=True)
+            entities, counters, exclusions, linebreak_count = detect_entities_with_details(
+                text,
+                context,
+            )
+
+        self.assertEqual(len(entities), 1)
+        redacted_text = text[entities[0].start:entities[0].end]
+        self.assertIn("Jan", redacted_text)
+        self.assertIn("Kowalski", redacted_text)
+        self.assertEqual(counters["NER_PERSON"], 1)
+        self.assertEqual(exclusions["SINGLE_TOKEN_PERSON_SKIPPED"], 0)
+        self.assertEqual(linebreak_count, 1)
+
+    def test_excluded_entity_spanning_a_real_linebreak_is_not_double_counted(
+        self,
+    ) -> None:
+        """Direct regression test for evaluated_spans, the guard that's
+        otherwise untested: a scientific-name-shaped entity whose OWN
+        real line break doesn't qualify for bridging ("pneumoniae"
+        starts lowercase) is found identically by both the bridged pass
+        and the raw pass - unlike an *accepted* duplicate (already
+        caught by the accepted-ranges overlap check), an *excluded*
+        duplicate has nowhere else to be caught, so without
+        evaluated_spans this would count twice."""
+        model = FakeNerModel(
+            [
+                ("Streptococcus\npneumoniae", "orgName"),
+                ("Jan Kowalski", "persName"),
+            ]
+        )
+        text = "Streptococcus\npneumoniae wykryto. Jan\nKowalski zglosil sprawe."
+
+        with patch("ner._spacy_module", return_value=FakeSpacy(model=model)):
+            context = prepare_ner_context(enabled=True)
+            entities, _counters, exclusions, linebreak_count = detect_entities_with_details(
+                text,
+                context,
+            )
+
+        self.assertEqual([entity.label for entity in entities], ["NER_PERSON"])
+        self.assertEqual(exclusions["SCIENTIFIC_NAME"], 1)
+        self.assertEqual(linebreak_count, 1)
+
+    def test_bridged_pass_is_skipped_when_nothing_needs_bridging(self) -> None:
+        """The model must be invoked only once (not twice) when the
+        document has no line break eligible for bridging - the "only run
+        the second pass if bridged_text != raw_text" check exists
+        specifically to avoid a wasted second full-document inference
+        call, but nothing previously asserted on the call count itself."""
+        call_count = 0
+        base_model = FakeNerModel([("Firma Testowa S.A.", "orgName")])
+
+        def counting_model(text: str) -> FakeDoc:
+            nonlocal call_count
+            call_count += 1
+            return base_model(text)
+
+        text = "Sprzedawca: Firma Testowa S.A. dostarcza uslugi biurowe."
+
+        with patch("ner._spacy_module", return_value=FakeSpacy(model=counting_model)):
+            context = prepare_ner_context(enabled=True)
+            _entities, counters, _exclusions, _linebreak_count = (
+                detect_entities_with_details(text, context)
+            )
+
+        self.assertEqual(call_count, 1)
+        self.assertEqual(counters["NER_ORG"], 1)
+
+    def test_two_independent_bridges_in_one_document_are_each_handled(self) -> None:
+        """A document with two separate qualifying line breaks - one a
+        genuine person-name split, one an unrelated accidental merge -
+        must resolve both correctly in the same call: the real name kept
+        whole, the accidental merge discarded, neither affecting the
+        other."""
+        model = FakeNerModel(
+            [
+                ("Jan Kowalski", "persName"),
+                ("Rozdzial Pierwszy Podsumowanie", "orgName"),
+            ]
+        )
+        text = (
+            "Uczestnik Jan\nKowalski zglosil sprawe. "
+            "Rozdzial Pierwszy\nPodsumowanie wynikow badania."
+        )
+
+        with patch("ner._spacy_module", return_value=FakeSpacy(model=model)):
+            context = prepare_ner_context(enabled=True)
+            entities, counters, exclusions, linebreak_count = detect_entities_with_details(
+                text,
+                context,
+            )
+
+        self.assertEqual([entity.label for entity in entities], ["NER_PERSON"])
+        self.assertEqual(counters["NER_PERSON"], 1)
+        self.assertEqual(counters["NER_ORG"], 0)
+        self.assertEqual(exclusions["LINEBREAK_NON_PERSON_SKIPPED"], 1)
+        self.assertEqual(linebreak_count, 1)
+
     def test_person_left_expansion_masks_simple_capitalized_previous_token(self) -> None:
         person_first = "Jan"
         person_last = "Kowalski"

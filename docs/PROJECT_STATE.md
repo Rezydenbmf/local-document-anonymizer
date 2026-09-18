@@ -4083,6 +4083,74 @@ one.
 `test_category_selection.py`, `test_pdf_io.py`), lint at 75 (still below
 the established 77-error baseline).
 
+### General NER quality: two-pass line-break-bridging fix (2026-09-18)
+
+User picked this up directly after confirming the NAZWA_FIRMY fix
+above: "ogólna jakość NER dla nazw firm" - not just the legal-form-
+suffix case, the underlying detection quality itself. Root cause was
+already identified while investigating NAZWA_FIRMY: `src/ner.py`'s
+line-break-bridging heuristic (`_linebreak_between_name_like_tokens`)
+exists to let a person's name split across a PDF line-wrap still be
+detected as one entity, but it can't know in advance what an entity
+will turn out to be - so it also merges any two unrelated capitalized
+words from separate lines/table rows into one bogus phrase. When that
+merged phrase isn't a person, `NER_EXCLUSION_LINEBREAK_NON_PERSON`
+discards it *whole* - taking a perfectly ordinary, single-line company/
+location name down with it if it happened to sit next to the bridge.
+Confirmed directly on the invoice fixture: "Warszawa" (a table row
+above) bridged into "Firma Wzorcowa S.A." (the row below), producing
+one non-person entity that got discarded in full - the buyer's name
+was never even a candidate, let alone truncated.
+
+Fixed with a two-pass redesign of `detect_entities_with_details`: a
+bridged pass (line breaks merged) runs first and only ever contributes
+entities that themselves cross a bridged line break; a raw pass (no
+bridging, NBSP/dash cleanup only) runs second and is the correct,
+uncorrupted source for anything whole on one line - the overwhelming
+majority. Confirmed end-to-end: "Firma Wzorcowa S.A." is now detected
+by NER alone (previously silently discarded), and
+`NER_EXCLUSION_LINEBREAK_NON_PERSON` dropped to 0 on the fixture. This
+fix is generic - it helps `NER_LOCATION`/`NER_MISC` the same way, not
+just `NER_ORG`, closing the gap flagged as a known limitation in the
+NAZWA_FIRMY entry above.
+
+`code-review` (required by judgment call - `src/ner.py` isn't on
+CLAUDE.md's literal required-review list, but this touches core
+detection logic every category relies on; 5 finder angles) caught a
+**real PII-leak regression** before it could ship: the two passes ran
+raw-then-bridged, so on `"Pan Jan\nKowalski..."` the raw pass could
+accept lone `"Jan"` as a complete name (a preceding title suppresses
+the single-token exclusion) *before* the bridged pass ever ran - and
+since the bridged pass's correct, wider `"Jan Kowalski"` then overlapped
+that already-claimed span, it was silently dropped, leaving `"Kowalski"`
+exposed in plain text. Worse than the single-pass code this replaced,
+which only ever saw the pre-merged full name. Fixed by running the
+bridged pass *first*, so its correct span claims the region before the
+raw pass's narrower fragment is ever evaluated - the raw pass's own
+overlap check is what suppresses the fragment now, not the reverse.
+Also moved the overlap checks ahead of the exclusion-counting checks
+within each pass, so a fragment already covered by the other pass's
+accepted entity is silently dropped rather than separately logged as
+"excluded for an unrelated reason" (report-metadata noise, found
+alongside the leak).
+
+Also from the same review pass: removed a `offsets` list that was
+provably dead (an always-identity mapping neither call site ever read);
+softened a docstring claim that overstated what the raw pass could
+never find on its own (risked a future reader deleting the
+`evaluated_spans` dedup guard as apparently-dead code); documented the
+real, previously-unstated cost this fix pays - whenever any bridge
+candidate exists, the model now runs on the *entire* text twice, not
+just the bridged region; and added the three tests that were missing
+before merge: `evaluated_spans` actually deduplicating an *excluded*
+cross-pass duplicate (the one case the accepted-entities overlap check
+doesn't also catch), the second pass being skipped entirely when
+nothing needs bridging, and two independent bridge points in the same
+document each resolving correctly.
+
+625 tests passing (11 new across `test_ner.py`), lint at 75 (still
+below the established 77-error baseline).
+
 ## Warning
 
 This repository is still an early-stage portfolio MVP. Do not use it to
