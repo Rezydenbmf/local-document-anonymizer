@@ -943,6 +943,87 @@ def compute_redaction_rects(
     return applied_rects, counters, unmapped
 
 
+def _page_in_scope(page_number: int, active_pages: frozenset[int] | None) -> bool:
+    return active_pages is None or page_number in active_pages
+
+
+def _strip_signature_widgets(
+    fitz_module,
+    document,
+    *,
+    active_pages: frozenset[int] | None = None,
+    strip_signatures: bool = False,
+) -> int:
+    """Remove every AcroForm signature field (Etap 7 - a real case showed
+    a digitally-signed PDF's visual "Podpisano elektronicznie przez: ..."
+    box routinely names the signer, and this app's regex/NER detection
+    never sees it: it lives in a form-field appearance stream, not the
+    page's own text content. Deleting the widget removes its appearance
+    (the visible box, whatever it renders - text, a scanned handwritten
+    signature image, or both) and its value together, in one PyMuPDF
+    call - no new dependency needed beyond PyMuPDF, already bundled for
+    every other PDF operation in this module.
+
+    ``strip_signatures`` defaults to ``False`` and the whole function is
+    a no-op unless it is explicitly ``True`` - the user's own decision
+    (2026-09-18: "usuwanie podpisu to osobna opcja - nie dziala
+    automatycznie") is enforced here, inside the shared helper, rather
+    than at each call site - a future third writer of a full document
+    copy (see the paragraph below) then cannot forget the off-by-default
+    guard by only remembering to add the call but not the gate.
+
+    Every function in this module that writes out a full copy of the
+    source document (not a synthetic from-scratch one, like the review
+    PDF's blank canvas) must call this - it is not wired in centrally
+    because the two current callers don't share a document-opening
+    helper to hook into; a third such writer needs its own call here.
+
+    Scope: only real AcroForm signature widgets (``field_type ==
+    PDF_WIDGET_TYPE_SIGNATURE``). A signature-like image pasted onto a
+    page as ordinary content (not a form field) is indistinguishable
+    from any other picture without content analysis this app doesn't
+    attempt - a known, documented limitation, not silently promised
+    coverage.
+
+    ``active_pages`` (Etap 5) is honored the same way every other PDF
+    redaction path honors it: a page outside the chosen range is left
+    completely untouched, signature fields included.
+
+    Deliberately re-queries ``page.widgets(...)`` fresh after every
+    single deletion rather than deleting from one materialized list -
+    a real crash a synthetic co-signed (two widgets, one page) test
+    fixture caught: PyMuPDF's own ``delete_widget`` walks the deleted
+    widget's ``.next`` link to relink the remaining chain, and for a
+    document opened from a file path (exactly how every caller in this
+    codebase opens one - never from an in-memory stream) a second
+    ``Widget`` object fetched before the first deletion had already
+    gone stale by the time its own deletion ran, raising
+    ``FzErrorArgument: annotation not bound to any page``. Re-fetching
+    every iteration costs one extra page scan per widget removed - on
+    real documents, always a small, bounded number - and is the only
+    variant proven safe against a real multi-signer page."""
+    if not strip_signatures or not document.is_form_pdf:
+        return 0
+    removed = 0
+    for page_number, page in enumerate(document, start=1):
+        if not _page_in_scope(page_number, active_pages):
+            continue
+        while True:
+            target = next(
+                (
+                    widget
+                    for widget in (page.widgets() or ())
+                    if widget.field_type == fitz_module.PDF_WIDGET_TYPE_SIGNATURE
+                ),
+                None,
+            )
+            if target is None:
+                break
+            page.delete_widget(target)
+            removed += 1
+    return removed
+
+
 def save_word_coordinate_redacted_pdf_copy(
     source_path: str | Path,
     *,
@@ -952,6 +1033,8 @@ def save_word_coordinate_redacted_pdf_copy(
     output_path: str | Path | None = None,
     removed_span_keys: object = frozenset(),
     extra_redaction_rects: Iterable[tuple[int, object]] = (),
+    active_pages: frozenset[int] | None = None,
+    strip_signatures: bool = False,
 ) -> dict[str, object]:
     """Create an original-layout true-redacted PDF from word-coordinate spans.
 
@@ -964,6 +1047,10 @@ def save_word_coordinate_redacted_pdf_copy(
     exactly as before. When ``output_path`` is given, that exact path is
     (over)written instead of picking a fresh collision-safe name — used to
     regenerate an existing visual PDF in place after manual edits.
+    ``strip_signatures`` (Etap 7) is ``False`` by default - a deliberate
+    per-task opt-in, not automatic - and ``active_pages`` (Etap 5)
+    additionally scopes it when it is on - see
+    ``_strip_signature_widgets``.
     """
     fitz = _load_fitz_module()
     source = Path(source_path)
@@ -982,6 +1069,12 @@ def save_word_coordinate_redacted_pdf_copy(
     }
 
     with fitz.open(source) as document:
+        signature_fields_removed = _strip_signature_widgets(
+            fitz,
+            document,
+            active_pages=active_pages,
+            strip_signatures=strip_signatures,
+        )
         for rect_info in applied_rects:
             page = document[int(rect_info["page"]) - 1]
             rect = fitz.Rect(
@@ -1015,13 +1108,15 @@ def save_word_coordinate_redacted_pdf_copy(
             page.apply_redactions()
         document.save(resolved_output_path, garbage=4, deflate=True, clean=True)
 
-    return build_pdf_visual_redaction_metadata(
+    metadata = build_pdf_visual_redaction_metadata(
         output_path=resolved_output_path,
         redaction_count=len(applied_rects),
         counters=counters,
         unmapped_categories=unmapped,
         applied_rects=applied_rects,
     )
+    metadata["signature_fields_removed"] = signature_fields_removed
+    return metadata
 
 
 def save_word_coordinate_redacted_image_copy(
@@ -1215,6 +1310,7 @@ def save_redacted_pdf_copy(
     output_path: str | Path | None = None,
     active_labels: frozenset[str] | None = None,
     active_pages: frozenset[int] | None = None,
+    strip_signatures: bool = False,
 ) -> dict[str, object]:
     """Create a true-redacted PDF copy and return safe metadata.
 
@@ -1230,7 +1326,9 @@ def save_redacted_pdf_copy(
     gap code review caught: this "experimental original-layout
     redaction" output mode is a separate code path from the default
     visual-redaction one and was burning PII out of every page
-    regardless of the user's chosen page range."""
+    regardless of the user's chosen page range. ``strip_signatures``
+    (Etap 7) is ``False`` by default - a deliberate per-task opt-in,
+    never automatic - see ``_strip_signature_widgets``."""
     fitz = _load_fitz_module()
     source = Path(source_path)
     if output_path is not None:
@@ -1242,8 +1340,14 @@ def save_redacted_pdf_copy(
     counters: dict[str, int] = {}
 
     with fitz.open(source) as document:
+        signature_fields_removed = _strip_signature_widgets(
+            fitz,
+            document,
+            active_pages=active_pages,
+            strip_signatures=strip_signatures,
+        )
         for page_number, page in enumerate(document, start=1):
-            if active_pages is not None and page_number not in active_pages:
+            if not _page_in_scope(page_number, active_pages):
                 continue
             page_text = page.get_text("text") or ""
             _merge_counters(
@@ -1273,4 +1377,5 @@ def save_redacted_pdf_copy(
     metadata["original_layout_redaction_used"] = True
     metadata["original_layout_redaction_experimental"] = True
     metadata["text_extraction"] = PDF_TEXT_EXTRACTION_TEXT_LAYER
+    metadata["signature_fields_removed"] = signature_fields_removed
     return metadata

@@ -12,6 +12,27 @@ przenoszę ją do „Potwierdzone" albo usuwam. Jeśli lista urośnie powyżej
 
 ## Do sprawdzenia
 
+- [ ] **Etap 7 — usuwanie podpisów elektronicznych z PDF-a, osobna
+      opcja, domyślnie WYŁĄCZONA (2026-09-18).** Realny przypadek z
+      Twoich notatek: dokument z podpisem elektronicznym, którego
+      wizualnej „ramki” (imię i nazwisko podpisującego) nasz mechanizm
+      w ogóle nie widział — bo to nie jest zwykły tekst na stronie,
+      tylko osobny obiekt formularza PDF (pole podpisu). Twój feedback
+      po pierwszej wersji: „usuwanie podpisu to osobna opcja - nie
+      dziala automatycznie” — zrobione. W panelu „Kategorie do
+      anonimizacji” pojawiło się nowe, osobno oznaczone (żółta ramka,
+      inna niż reszta) pole „Usuń podpisy elektroniczne (PDF)” —
+      **domyślnie odznaczone**, nic nie usuwa dopóki sam go nie
+      zaznaczysz dla konkretnego zadania. Code-review złapał i
+      naprawiłem po drodze realny błąd: pierwsza wersja psuła się
+      (program się wywalał) na dokumencie podpisanym przez dwie osoby
+      na tej samej stronie — naprawione, przetestowane bezpośrednio na
+      takim przypadku. Sprawdź na żywo: (1) domyślnie, bez zaznaczania
+      niczego, podpis w PDF-ie ma zostać nietknięty po anonimizacji;
+      (2) po zaznaczeniu pola i ponownej anonimizacji tego samego
+      dokumentu podpis (razem z widoczną „ramką”) ma zniknąć; (3) dymek
+      po najechaniu na pole powinien jasno tłumaczyć, że to nieodwracalne.
+
 - [ ] **Magic pen — nowy system trybów interakcji myszy (Etap 3,
       2026-09-16)** — trzy tryby: „Domyślny" (LPM=zaznacz, PPM=przesuń
       widok, środkowy=przytrzymaj i kliknij/przeciągnij żeby odznaczyć),

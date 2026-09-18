@@ -4380,6 +4380,141 @@ tests for the out-of-bounds branch, 1 end-to-end `anonymize_batch` test,
 1 regression test pinning the OCR-double-fallback fix), lint at 75
 (still below the established 77-error baseline).
 
+## Etap 7: stripping AcroForm signature fields from PDFs (2026-09-18,
+NOT YET MERGED - awaiting the user's explicit decision, see below)
+
+Real case from `notatki.txt`: a document to anonymize contained an
+electronic signature whose visual "Podpisano elektronicznie przez: ..."
+box named the signer, but this app's regex/NER pipeline never touched
+it - it lives in a PDF form-field (AcroForm) appearance stream, not the
+page's own text content, so nothing in the existing detection model
+could ever see it. A colleague's `qpdf` command-line workaround removed
+it manually for that one document. Implemented in DocShield itself
+using PyMuPDF (already a bundled dependency, adding `qpdf`/`pikepdf`
+was considered and rejected - no new external tool or installer
+packaging burden needed).
+
+New `_strip_signature_widgets(fitz_module, document, *, active_pages=None)`
+in `pdf_redaction.py` walks each in-scope page's form widgets and
+deletes every one whose `field_type == PDF_WIDGET_TYPE_SIGNATURE`
+(`page.delete_widget`), removing both its value and its visual
+appearance - whatever it renders, text metadata or an embedded scanned
+handwritten-signature image - in one call. Scope is deliberately narrow:
+only real AcroForm signature fields. A signature-shaped image pasted
+onto a page as ordinary content (not a form field) is indistinguishable
+from any other picture without content analysis this app doesn't
+attempt - a documented limitation, not silently promised coverage.
+Wired into both real PDF-writing functions - `save_word_coordinate_redacted_pdf_copy`
+(the default `_ANON_VISUAL.pdf` path) and `save_redacted_pdf_copy` (the
+experimental original-layout mode) - each already opening `fitz.open(source)`
+independently; no shared choke point between them exists yet to hook
+into centrally, so each has its own call (documented explicitly in
+`_strip_signature_widgets`'s own docstring as a convention a future
+third PDF-writing function must also follow). `active_pages` (Etap 5)
+is honored the same way every other redaction mechanism honors it - a
+page outside the chosen range is left completely untouched, signature
+fields included. `save_rebuilt_review_pdf_from_text` (the `_ANON_REVIEW.pdf`
+auxiliary output) needs no change - verified by reading its full body,
+it builds a genuinely blank `fitz.open()` document and never re-opens
+the source as a PDF, so it can't carry over the original AcroForm
+regardless. A new `pdf_redaction_result["signature_fields_removed"]`
+count surfaces in the per-file developer report as
+`"Signature fields removed: N"`, mirroring the existing
+`weak_phone_like_skipped` pattern.
+
+`code-review` (**high effort** - new detection/removal logic on the
+mandatory-review `pdf_redaction.py`, not a contained extension) caught,
+and this session fixed, one genuinely serious bug plus several smaller
+ones before this branch went anywhere near `main`:
+
+- **The crash that mattered most**: the first implementation
+  materialized a page's signature widgets into a list, then deleted
+  each one in a loop - correct-looking, and it even passed a quick
+  manual sanity check. But a synthetic **co-signed** test fixture (two
+  signature widgets, one page - a real, ordinary case for any
+  two-party contract) crashed with PyMuPDF's own
+  `FzErrorArgument: annotation not bound to any page` on the *second*
+  deletion, for a document opened from a real file path - exactly how
+  every caller in this app opens a PDF, never from an in-memory
+  stream. `delete_widget` internally walks the widget's own `.next`
+  link to relink the remaining chain; the second widget object, having
+  been fetched before the first deletion ran, was already stale by the
+  time its own turn came. Confirmed by direct reproduction (not just
+  theorized by review), then fixed by re-querying `page.widgets()`
+  fresh after every single deletion instead of trusting one
+  pre-materialized list - the only variant proven safe against a real
+  multi-signer page. Without the review's insistence on multi-widget
+  test coverage, this would have shipped as a crash on the very first
+  real-world co-signed document anyone tried it on.
+- Added an `document.is_form_pdf` short-circuit so a plain PDF with no
+  AcroForm at all (the overwhelming majority of documents this app
+  processes) pays one O(1) catalog lookup instead of a per-page
+  annotation scan it never needed.
+- Extracted a small `_page_in_scope` helper - the exact same
+  `active_pages` skip-check was being hand-written twice in this file
+  against the identical page-enumeration shape.
+- Added direct test coverage `save_word_coordinate_redacted_image_copy`
+  (the scanned-image path) was previously missing: confirmed, not just
+  claimed in a comment, that its synthetic single-page PDF can never
+  carry a signature widget through.
+
+**Held for a design decision before merging - not a silent autonomous
+merge.** Code review's altitude pass flagged something worth taking
+seriously: unlike every Etap-4 category label, the first implementation
+had **no opt-out toggle** - it ran unconditionally on every PDF this
+app touches, and it **structurally deletes** a legally-relevant
+document object rather than visually redacting text - irreversible in
+the produced output. That combination - data-handling behavior change,
+and effectively irreversible - is exactly what this project's own
+`CLAUDE.md` carves out as always requiring a stop-and-ask before a
+routine autonomous merge, separate from (in addition to) the
+code-review gate. The question was put to the user directly; their
+answer (2026-09-18, verbatim): **"usuwanie podpisu to osobna opcja -
+nie dziala automatycznie"** (signature removal must be a separate
+option, not automatic).
+
+## Etap 7 follow-up: made signature removal an explicit, off-by-default
+opt-in (2026-09-18)
+
+Converted the feature into a `strip_signatures: bool = False` parameter
+threaded end-to-end: a new GUI checkbox ("Usuń podpisy elektroniczne
+(PDF)", unchecked by default) → `anonymize_batch` → `_anonymize_file_result`
+→ `_anonymize_pdf_file_result` → `save_word_coordinate_redacted_pdf_copy`/
+`save_redacted_pdf_copy`, where `_strip_signature_widgets` itself now
+carries the off-by-default guard (`if not strip_signatures or not
+document.is_form_pdf: return 0`) - moved inside the shared helper
+rather than duplicated at each call site, per code review, so a future
+third PDF-writing function can't forget the guard by only remembering
+to add the call. Persisted into the existing category-selection
+sidecar via a new `save_category_selection(..., strip_signatures=...)`
+kwarg and a sibling loader `load_signature_stripping_selection` (a
+plain bool, `False` on anything missing/corrupt/old-format - the safe
+direction, no "unfiltered" middle ground the way `active_labels`/
+`active_pages` have), read by the comparison window at open time
+(`self._original_strip_signatures`) so a magic-pen regenerate never
+silently flips the choice the user actually made when the document was
+first produced. `manual_redaction.regenerate_pdf_with_manual_overrides`
+carries the same parameter through.
+
+`code-review` (medium effort - a contained extension gating already-
+reviewed logic, not new detection logic) found no correctness bugs in
+the threading (confirmed complete end-to-end by grepping every call
+site) but caught one real UX gap: the new checkbox had been placed
+inside the existing "Kategorie do anonimizacji" card, whose own header
+text ("Odznacz, czego NIE anonimizować") trains the user that checking/
+unchecking an item there *narrows* what happens - the opposite polarity
+of this toggle, where checking *adds* an irreversible removal. Fixed by
+giving it its own visually distinct, warning-colored card
+(`COLOR_WARNING`/`COLOR_WARNING_SOFT`/`COLOR_WARNING_TEXT`, already
+used elsewhere in this file) with an always-visible one-line warning
+beneath the checkbox, not only in the hover tooltip.
+
+678 tests passing (15 total in `tests/test_signature_stripping.py`,
+covering both the default-off and opted-in path at every layer, plus a
+sidecar freeze-at-save-time round-trip test), lint at 75 (still below
+the established 77-error baseline). Branch:
+`feature/etap7-signature-stripping`, ready to merge.
+
 ## Warning
 
 This repository is still an early-stage portfolio MVP. Do not use it to

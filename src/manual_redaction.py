@@ -197,6 +197,7 @@ def regenerate_pdf_with_manual_overrides(
     active_categories: Sequence[str] | None = None,
     active_labels: frozenset[str] | None = None,
     active_pages: frozenset[int] | None = None,
+    strip_signatures: bool = False,
 ) -> dict[str, object]:
     """Rebuild the true-redacted visual PDF in place, applying manual overrides.
 
@@ -221,7 +222,11 @@ def regenerate_pdf_with_manual_overrides(
     again, overriding whatever the user originally chose to leave
     unredacted. ``active_pages`` (Etap 5) is the same freeze-at-save-time
     story for the page-range restriction - see
-    anonymizer.load_active_pages_selection.
+    anonymizer.load_active_pages_selection. ``strip_signatures``
+    (Etap 7) is the same freeze-at-save-time story again - see
+    anonymizer.load_signature_stripping_selection - so a magic-pen
+    regenerate never silently turns signature removal on (or off) from
+    what the user actually chose when the document was first produced.
     """
     word_pages, spans = _resolve_word_pages_and_spans(
         source_path,
@@ -256,6 +261,8 @@ def regenerate_pdf_with_manual_overrides(
         output_path=output_path,
         removed_span_keys=edits.removed,
         extra_redaction_rects=extra_rects,
+        active_pages=active_pages,
+        strip_signatures=strip_signatures,
     )
 
 
