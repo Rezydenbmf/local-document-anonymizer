@@ -490,6 +490,45 @@ class ReportTests(unittest.TestCase):
         self.assertIn("PDF redaction warning: PDF redaction may be partial", report_text)
         self.assertNotIn("Example Test Clinic", report_text)
 
+    def test_pdf_report_surfaces_signature_fields_removed_count(self) -> None:
+        report_text = build_report_text(
+            counters={"EMAIL": 1},
+            input_extension=".pdf",
+            output_extension=".txt",
+            category_order=SUPPORTED_LABELS,
+            pdf_redaction_result={
+                "used": True,
+                "status": "completed",
+                "output_name": "document_ANON_VISUAL.pdf",
+                "text_extraction": "text_layer",
+                "redaction_count": 1,
+                "counters": {"EMAIL": 1},
+                "true_redaction": True,
+                "signature_fields_removed": 2,
+            },
+        )
+
+        self.assertIn("Signature fields removed: 2", report_text)
+
+    def test_pdf_report_defaults_signature_fields_removed_to_zero(self) -> None:
+        report_text = build_report_text(
+            counters={"EMAIL": 1},
+            input_extension=".pdf",
+            output_extension=".txt",
+            category_order=SUPPORTED_LABELS,
+            pdf_redaction_result={
+                "used": True,
+                "status": "completed",
+                "output_name": "document_ANON_VISUAL.pdf",
+                "text_extraction": "text_layer",
+                "redaction_count": 1,
+                "counters": {"EMAIL": 1},
+                "true_redaction": True,
+            },
+        )
+
+        self.assertIn("Signature fields removed: 0", report_text)
+
     def test_pdf_report_omits_visual_redaction_fallback_reason_by_default(self) -> None:
         report_text = build_report_text(
             counters={"EMAIL": 1},

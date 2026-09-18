@@ -256,6 +256,7 @@ def regenerate_pdf_with_manual_overrides(
         output_path=output_path,
         removed_span_keys=edits.removed,
         extra_redaction_rects=extra_rects,
+        active_pages=active_pages,
     )
 
 

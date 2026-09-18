@@ -457,6 +457,8 @@ def _pdf_redaction_section_lines(
     unmapped_categories = pdf_redaction_result.get("unmapped_categories", {})
     weak_phone_like_skipped = pdf_redaction_result.get("weak_phone_like_skipped", 0)
     _validate_count(weak_phone_like_skipped)
+    signature_fields_removed = pdf_redaction_result.get("signature_fields_removed", 0)
+    _validate_count(signature_fields_removed)
     for label, value in (
         ("PDF detected categories", detected_categories),
         ("TXT anonymized categories", txt_anonymized_categories),
@@ -490,6 +492,7 @@ def _pdf_redaction_section_lines(
         f"PDF true redaction used: {'yes' if true_redaction else 'no'}",
         f"PDF redaction blocks: {redaction_count}",
         f"Weak phone-like numeric values skipped: {weak_phone_like_skipped}",
+        f"Signature fields removed: {signature_fields_removed}",
         "PDF redaction color legend:",
     ]
     if visual_redaction_fallback_reason is not None:

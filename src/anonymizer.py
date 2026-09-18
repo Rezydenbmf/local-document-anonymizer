@@ -2327,6 +2327,7 @@ def _anonymize_pdf_file_result(
                 word_pages=active_word_pages,
                 spans=pdf_detection_spans,
                 output_path=pdf_visual_output_path,
+                active_pages=active_pages,
             )
             pdf_redaction_result["text_extraction"] = text_extraction_label
             try:
