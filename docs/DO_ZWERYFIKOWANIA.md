@@ -110,6 +110,20 @@ przenoszę ją do „Potwierdzone" albo usuwam. Jeśli lista urośnie powyżej
       nazwiskiem rozdzielonym na dwa wiersze — czy nazwy nadal są
       wykrywane w całości, nie tylko fragmentami.
 
+- [ ] **Nazwisko z myślnikiem w PDF-ie już nie znika w całości
+      (2026-09-18)** — to zauważyłeś sam na screenshocie z
+      `5_pismo_nazwisko_dwa_wiersze.pdf`: pierwsze wystąpienie
+      „Bartlomiej Zaremba-Wojciechowski" nie było zamazane w ogóle, ani
+      trochę. Przyczyna była głębsza niż samo AI: PDF traktuje
+      „Zaremba-Wojciechowski" (bez spacji wokół myślnika) jako jedno
+      słowo, a mechanizm rysujący ramki odrzucał całe dopasowanie, gdy
+      AI wskazało tylko część słowa („Zaremba") — więc całe nazwisko
+      zostawało bez żadnej ochrony, gorzej niż zwykłe pominięcie.
+      Naprawione — teraz taki przypadek rozszerza zaznaczenie na całe
+      słowo. Sprawdź na żywo: zanonimizuj ponownie
+      `5_pismo_nazwisko_dwa_wiersze.pdf` — oba wystąpienia nazwiska
+      powinny być teraz w pełni zamazane (nie tylko drugie, w podpisie).
+
 ## Potwierdzone
 
 - [x] **Eksport zatwierdzonych plików z wyborem lokalizacji** (2026-09-15,

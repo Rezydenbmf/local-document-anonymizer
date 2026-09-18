@@ -4151,6 +4151,76 @@ document each resolving correctly.
 625 tests passing (11 new across `test_ner.py`), lint at 75 (still
 below the established 77-error baseline).
 
+### PDF redaction was silently skipping a whole word on a partial NER match (2026-09-18)
+
+Found live while testing the two-pass NER fix above, on the new
+`5_pismo_nazwisko_dwa_wiersze.pdf` fixture: a hyphenated surname
+("Zaremba-Wojciechowski") pasted into the comparison window's redacted
+side showed the FIRST occurrence of the name completely untouched -
+not truncated, not even partially boxed, just fully visible. Root
+cause was one level deeper than the NER fix: spaCy correctly tagged
+`"Zaremba"` as a PERSON entity, but PyMuPDF's own word extraction
+treats `"Zaremba-Wojciechowski"` (no space around the hyphen) as ONE
+PDF word token - and `pdf_redaction.py`'s `_span_maps_to_full_words`,
+which maps a detected span to the word rectangles a visual PDF actually
+draws, REJECTED the whole span outright whenever it landed mid-word
+with anything but whitespace/punctuation left over (`_padding_is_safe`).
+The leftover `"-Wojciechowski"` contained real letters, so the entire
+name - not just the untagged half - ended up with zero redaction
+boxes. Worse than a plain NER miss: a real, detected PII entity got no
+protection at all.
+
+Fixed by extending `_padding_is_safe` to also accept padding that is a
+hyphen-like character immediately followed/preceded by more letters (a
+hyphenated-compound continuation) - when it applies,
+`_span_maps_to_full_words` widens the redaction rectangle to cover the
+FULL PDF word, not just the detected fragment. Confirmed generic (not
+NER- or PERSON-specific): both `_padding_is_safe`/`_span_maps_to_full_words`
+are shared by every span source (regex and NER alike) via
+`compute_redaction_rects`, with no label check anywhere in the path.
+
+`code-review` (required - touches `pdf_redaction.py`; 5 finder angles,
+2 of the first round hit a session rate limit partway through and were
+relaunched in full afterward) caught a real gap in the first version of
+this fix before it shipped: the remainder check used `remainder.isalpha()`,
+which still rejected the whole span for a 3+-part hyphenated name when
+NER only tagged one end segment (e.g. "Anna" out of
+"Anna-Maria-Zaremba" leaves a remainder of "Maria-Zaremba", itself
+containing a hyphen) - reproducing the exact zero-protection bug one
+hyphen further along - and separately rejected a hyphenated word with
+trailing punctuation glued on with no space (e.g.
+"Zaremba-Wojciechowski,"). Fixed by generalizing the remainder check to
+allow more hyphens, letters, whitespace, and safe punctuation, still
+excluding digits and anything else that would suggest an unrelated
+token got glued on rather than a genuine name continuation. Also fixed
+from the same review: `_NAME_HYPHEN_CHARS` was a hand-copied twin of
+the pre-existing `_NAME_HYPHEN` regex fragment (now derived from one
+shared literal), and the `hyphen_at` parameter was an untyped string
+literal a caller could silently typo (now a bool). Added the three
+tests that were missing: the symmetric backward-widening case, a
+3+-part hyphenated name tagged only at one end, and a non-PERSON label
+confirming the fix isn't scoped to persons.
+
+One review finding was deliberately left open, not chased in this
+diff: `manual_edit_span_key` (the magic-pen "remove this auto-detected
+box" mechanism) keys purely on rectangle geometry, not on the
+underlying span's text/offsets - so a document whose redaction geometry
+changes between app versions (as this fix does, for any hyphenated word
+that was previously under-redacted) can silently invalidate a user's
+previously-saved "un-redact this box" choice on regenerate, since the
+old narrower key stops matching the new wider rectangle. This is not
+unique to this fix - it's an inherent property of the whole
+geometry-keyed manual-edits design, and would equally affect every
+future detection-quality improvement that changes span boundaries for
+any already-processed document. A real fix (schema-versioning/migration
+for `_MANUAL_EDITS.json`, mirroring the `category_selection_path`
+pattern already built for a structurally identical problem) is its own,
+larger feature - recorded here as a known, accepted architectural gap
+rather than something to patch inside an unrelated bug fix.
+
+631 tests passing (6 new across `test_pdf_io.py`), lint at 75 (still
+below the established 77-error baseline).
+
 ## Warning
 
 This repository is still an early-stage portfolio MVP. Do not use it to
