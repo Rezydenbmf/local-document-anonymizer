@@ -45,6 +45,7 @@ def make_bare_window(source_path: Path, app: FakeApp) -> ComparisonWindow:
     window._detection_cache = None
     window._detection_cache_key = None
     window._original_active_labels = None
+    window._original_active_pages = None
     return window
 
 

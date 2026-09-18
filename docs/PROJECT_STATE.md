@@ -4221,6 +4221,103 @@ rather than something to patch inside an unrelated bug fix.
 631 tests passing (6 new across `test_pdf_io.py`), lint at 75 (still
 below the established 77-error baseline).
 
+### Etap 5: page-range restriction for automatic PDF redaction (2026-09-18)
+
+Next planned item off the 2026-09-15 staged roadmap, picked up directly
+after confirming the day's detection-quality fixes. Traced to the user's
+own `notatki.txt` (never committed): "musi być możliwość np.
+automatycznej anonimizacji imion i nazwisk... na konkretnych stronach...
+możliwość wyboru konkretnych stron może być też ustawiana dla trybu
+auto" - Etap 4 (2026-09-17) already let the user pick *which categories*
+get redacted per task; this closes the other half, *which pages*.
+Scoped via a plan-mode conversation before any code: **v1 is a single
+page range for the whole task** (not per-category-per-page rules - that
+richer version was explicitly deferred as its own, larger feature),
+**PDF-only** (TXT/DOCX/images have no page concept in this app), and
+**restricts only the visual PDF redaction**, deliberately not the
+parallel `_ANON.txt`/report output (which still reflects full-document
+detection - a documented scope boundary, not an oversight).
+
+Architecture mirrors Etap 4's `active_labels`/`resolve_active_labels`/
+category-selection-sidecar mechanism almost exactly, confirmed via
+direct code exploration before writing anything: a new
+`resolve_active_pages(page_range: str | None) -> frozenset[int] | None`
+parses the user's raw "Strony" text (`"1-3,5"` style, comma-separated
+single pages and inclusive ranges); a new `active_pages` parameter
+threads through the same call chain `active_labels` already uses
+(`_pdf_detection_spans_for_word_pages`'s per-page loop skips a whole
+out-of-scope page - dictionary spans included, unlike category
+filtering which never touches the user's own dictionary terms, since
+"which pages" and "which categories" are different questions);
+`compute_pdf_redaction_spans` → `_anonymize_pdf_file_result` →
+`_anonymize_file_result` → `anonymize_batch`; `manual_redaction.py`'s
+`_resolve_word_pages_and_spans`/`regenerate_pdf_with_manual_overrides`/
+`compute_visible_redaction_rects`; `gui_comparison_window.py`'s
+`self._original_active_pages`, loaded once at window-init alongside the
+existing `self._original_active_labels` so a magic-pen regenerate never
+silently redacts an out-of-scope page again. The sidecar JSON gained an
+`"active_pages"` field, read back by a new sibling function
+`load_active_pages_selection` (kept independent from the existing
+`load_category_selection` rather than widening its return type, so
+every existing caller/test of the label-only loader stayed untouched).
+GUI: a "Strony" text field in the same category panel Etap 4 built,
+validated via `resolve_active_pages` in `start_anonymize()` before the
+batch run (a friendly `messagebox.showerror`, not a silent no-op, on a
+typo).
+
+`code-review` (required - touches `anonymizer.py`/`manual_redaction.py`;
+run at **medium effort** per the token-budget calibration agreed
+earlier the same session, since this extends an existing, already-
+tested mechanism rather than introducing new detection logic) caught
+five real gaps before merge, the most significant being an interaction
+with a mechanism this feature's own plan never considered:
+- `_attach_pdf_coverage_metadata` (the "PDF redaction may be partial"
+  warning) compares whole-document detection against PDF-redacted
+  counts with no page awareness - so restricting to page 1 with a
+  PESEL sitting on page 2 fired that warning on the *normal, expected*
+  case, directly contradicting the "Strony" field's own promise that
+  the rest of the document stays untouched. Building true per-page
+  detected-vs-redacted reconciliation would need the whole-document
+  counters to become page-aware first - a bigger change than this
+  feature's own scope - so the warning is suppressed entirely (not
+  narrowed) whenever any page restriction is active, coarser than the
+  existing per-category suppression but honest about what the check
+  can no longer verify.
+- The "experimental original-layout redaction" PDF output mode
+  (`save_redacted_pdf_copy`, a separate code path from the default
+  visual-redaction mode selectable in Settings) had no `active_pages`
+  parameter at all and was burning PII out of every page regardless of
+  the chosen range - fixed the same way as the default mode.
+- `resolve_active_pages` had no upper bound, so a typo like
+  `"1-999999999"` would build a set with hundreds of millions of
+  entries synchronously on the GUI thread during `start_anonymize`'s
+  own pre-batch validation, before the friendly error path is even
+  reached - capped at 20,000 pages (far beyond any real document,
+  purely to reject a typo loudly and fast).
+- `load_active_pages_selection` accepted any int from the sidecar,
+  including non-positive ones - a hand-edited/corrupted
+  `{"active_pages": [-1, 0]}` would silently make every real page
+  (always >= 1) look "out of scope" on the next magic-pen regenerate,
+  removing every redaction with no error surfaced anywhere.
+- The "weak phone-like numeric values skipped" report count iterated
+  every page regardless of `active_pages`, unlike the redaction-span
+  computation right above it in the same function - could claim a
+  value was "skipped" on a page that was never touched at all.
+
+Also simplified per the same review: the "Strony" field's live
+`StringVar`/`trace_add` per-keystroke sync was unforced complexity
+(the value is only ever read once, in `start_anonymize()`) - replaced
+with a plain `.get()` read at that one point, matching how the rest of
+this panel already works. One review finding was deliberately left
+open: `load_active_pages_selection` duplicates most of
+`load_category_selection`'s body (only the key name and item type
+differ) - a small shared-loader helper would remove the duplication,
+but was judged low priority relative to the correctness fixes above
+given the same token-budget calibration.
+
+656 tests passing (25 new across `test_category_selection.py`), lint at
+75 (still below the established 77-error baseline).
+
 ## Warning
 
 This repository is still an early-stage portfolio MVP. Do not use it to

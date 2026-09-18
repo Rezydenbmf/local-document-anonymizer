@@ -37,8 +37,10 @@ from anonymizer import (
     anonymize_batch,
     category_selection_path,
     compute_pdf_redaction_spans,
+    load_active_pages_selection,
     load_category_selection,
     resolve_active_labels,
+    resolve_active_pages,
     save_category_selection,
 )
 from audit import audit_text
@@ -59,6 +61,22 @@ def write_fitz_text_pdf(path: Path, lines: list[str]) -> None:
     for line in lines:
         page.insert_text((72, y), line, fontsize=12)
         y += 18
+    document.save(path)
+    document.close()
+
+
+def write_fitz_multi_page_pdf(path: Path, pages: list[list[str]]) -> None:
+    """Etap 5 page-range tests need more than one page - write_fitz_text_pdf
+    only ever produces a single page."""
+    import pymupdf as fitz
+
+    document = fitz.open()
+    for lines in pages:
+        page = document.new_page()
+        y = 72
+        for line in lines:
+            page.insert_text((72, y), line, fontsize=12)
+            y += 18
     document.save(path)
     document.close()
 
@@ -134,6 +152,60 @@ class ResolveActiveLabelsTests(unittest.TestCase):
     def test_unknown_category_id_is_ignored_not_an_error(self) -> None:
         active = resolve_active_labels(["not_a_real_category"])
         self.assertEqual(active, ALWAYS_ON_LABELS)
+
+
+class ResolveActivePagesTests(unittest.TestCase):
+    """Etap 5: restricting automatic PDF redaction to a chosen page
+    range, the same "None means no filtering" contract
+    resolve_active_labels already established for categories."""
+
+    def test_none_means_no_filtering(self) -> None:
+        self.assertIsNone(resolve_active_pages(None))
+
+    def test_empty_or_whitespace_string_means_no_filtering(self) -> None:
+        self.assertIsNone(resolve_active_pages(""))
+        self.assertIsNone(resolve_active_pages("   "))
+
+    def test_single_pages(self) -> None:
+        self.assertEqual(resolve_active_pages("1,3,5"), frozenset({1, 3, 5}))
+
+    def test_inclusive_range(self) -> None:
+        self.assertEqual(resolve_active_pages("1-3"), frozenset({1, 2, 3}))
+
+    def test_mixed_ranges_and_single_pages(self) -> None:
+        self.assertEqual(resolve_active_pages("1-3,5"), frozenset({1, 2, 3, 5}))
+
+    def test_tolerates_extra_whitespace(self) -> None:
+        self.assertEqual(resolve_active_pages(" 1 - 3 , 5 "), frozenset({1, 2, 3, 5}))
+
+    def test_non_numeric_token_raises_value_error(self) -> None:
+        with self.assertRaises(ValueError):
+            resolve_active_pages("1-3,abc")
+
+    def test_zero_or_negative_page_raises_value_error(self) -> None:
+        with self.assertRaises(ValueError):
+            resolve_active_pages("0-3")
+
+    def test_reversed_range_raises_value_error(self) -> None:
+        with self.assertRaises(ValueError):
+            resolve_active_pages("5-3")
+
+    def test_excessively_large_page_number_raises_value_error(self) -> None:
+        """Regression test for a real gap code review caught: without an
+        upper bound, a typo like "1-999999999" (meant to be "1-9") would
+        build a set with hundreds of millions of entries synchronously
+        on the GUI thread during start_anonymize's own validation call,
+        before any processing/progress screen shows - freezing/risking
+        an OOM instead of surfacing the same friendly error every other
+        bad input gets."""
+        with self.assertRaises(ValueError):
+            resolve_active_pages("1-999999999")
+
+    def test_page_number_exceeding_actual_page_count_is_harmless(self) -> None:
+        """No page_count-based validation is built deliberately - a range
+        naming a page beyond the real document (e.g. "1-99" on a 2-page
+        PDF) is not itself an error, it just never matches anything."""
+        self.assertEqual(resolve_active_pages("1-99"), frozenset(range(1, 100)))
 
 
 class ApplyDictionaryAndRegexFilteringTests(unittest.TestCase):
@@ -377,6 +449,55 @@ class PdfSpanFilteringTests(unittest.TestCase):
         self.assertIn("PESEL", labels)
         self.assertIn("EMAIL", labels)
 
+    def test_active_pages_skips_out_of_scope_pages_entirely(self) -> None:
+        """Etap 5: a page outside active_pages must produce zero spans
+        from every source (dictionary, regex, NER together) - the page
+        is meant to stay completely untouched, not just have some
+        categories suppressed on it."""
+        from pdf_redaction import extract_pdf_word_pages
+
+        with workspace_temp_dir() as temp_dir:
+            source_path = Path(temp_dir) / "source.pdf"
+            write_fitz_multi_page_pdf(
+                source_path,
+                [
+                    ["PESEL 00000000000 on page one."],
+                    ["PESEL 11111111111 on page two."],
+                ],
+            )
+            word_pages = extract_pdf_word_pages(source_path)
+
+            spans = _pdf_detection_spans_for_word_pages(
+                word_pages,
+                sensitive_terms=None,
+                ner_context=None,
+                active_pages=frozenset({1}),
+            )
+
+            pages_with_spans = {span.page_number for span in spans}
+        self.assertEqual(pages_with_spans, {1})
+
+    def test_active_pages_none_produces_spans_on_every_page(self) -> None:
+        from pdf_redaction import extract_pdf_word_pages
+
+        with workspace_temp_dir() as temp_dir:
+            source_path = Path(temp_dir) / "source.pdf"
+            write_fitz_multi_page_pdf(
+                source_path,
+                [
+                    ["PESEL 00000000000 on page one."],
+                    ["PESEL 11111111111 on page two."],
+                ],
+            )
+            word_pages = extract_pdf_word_pages(source_path)
+
+            spans = _pdf_detection_spans_for_word_pages(
+                word_pages, sensitive_terms=None, ner_context=None
+            )
+
+            pages_with_spans = {span.page_number for span in spans}
+        self.assertEqual(pages_with_spans, {1, 2})
+
 
 class EndToEndPdfCategorySelectionTests(unittest.TestCase):
     def test_visual_pdf_redacts_only_the_selected_category(self) -> None:
@@ -404,6 +525,40 @@ class EndToEndPdfCategorySelectionTests(unittest.TestCase):
                 visible_text = "\n".join(page.get_text("text") for page in document)
         self.assertNotIn("00000000000", visible_text)
         self.assertIn("tester@example.test", visible_text)
+
+    def test_visual_pdf_page_range_leaves_out_of_scope_pages_untouched(self) -> None:
+        """Etap 5 end-to-end: a page outside the chosen range must come
+        through the visual PDF exactly as in the source, while a page
+        inside the range is redacted as normal."""
+        with workspace_temp_dir() as temp_dir:
+            source_dir = Path(temp_dir) / "source"
+            output_dir = Path(temp_dir) / "output"
+            source_dir.mkdir()
+            output_dir.mkdir()
+            source_path = source_dir / "document.pdf"
+            write_fitz_multi_page_pdf(
+                source_path,
+                [
+                    ["PESEL 00000000000 on page one."],
+                    ["PESEL 11111111111 on page two."],
+                ],
+            )
+
+            anonymize_batch(
+                [source_path],
+                output_dir,
+                page_range="1",
+            )
+
+            import pymupdf as fitz
+
+            visual_pdf = output_dir / "document_ANON_VISUAL.pdf"
+            self.assertTrue(visual_pdf.exists())
+            with fitz.open(visual_pdf) as document:
+                page_one_text = document[0].get_text("text")
+                page_two_text = document[1].get_text("text")
+        self.assertNotIn("00000000000", page_one_text)
+        self.assertIn("11111111111", page_two_text)
 
     def test_visual_pdf_redacts_table_separated_nip_and_regon(self) -> None:
         """anonymizer.py's own PDF word-coordinate path
@@ -571,6 +726,59 @@ class MagicPenRegenerateRespectsCategorySelectionTests(unittest.TestCase):
         self.assertIn("EMAIL", loaded)
         self.assertNotIn("TELEFON", loaded)
 
+    def test_page_range_sidecar_round_trips(self) -> None:
+        """Sibling of test_category_selection_sidecar_round_trips for
+        Etap 5's page-range field, via load_active_pages_selection - an
+        independent function reading the same sidecar file rather than
+        widening load_category_selection's return shape, so every
+        existing caller/test of the label-only loader above keeps
+        working unchanged."""
+        with workspace_temp_dir() as temp_dir:
+            output_path = Path(temp_dir) / "document_ANON_VISUAL.pdf"
+            path = category_selection_path(output_path)
+
+            save_category_selection(path, ["pesel"], page_range="1-3,5")
+
+            loaded_labels = load_category_selection(path)
+            loaded_pages = load_active_pages_selection(path)
+        self.assertEqual(loaded_labels, resolve_active_labels(["pesel"]))
+        self.assertEqual(loaded_pages, frozenset({1, 2, 3, 5}))
+
+    def test_old_format_sidecar_without_active_pages_loads_as_none(self) -> None:
+        """A sidecar written before Etap 5 existed has no "active_pages"
+        key at all - must fall back to None ("no filtering"), the same
+        safe direction test_old_format_sidecar_without_active_labels_loads_as_none
+        already established for the label-only case."""
+        with workspace_temp_dir() as temp_dir:
+            output_path = Path(temp_dir) / "document_ANON_VISUAL.pdf"
+            path = category_selection_path(output_path)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                json.dumps({"active_categories": ["pesel"]}), encoding="utf-8"
+            )
+
+            self.assertIsNone(load_active_pages_selection(path))
+
+    def test_malformed_sidecar_with_non_positive_pages_loads_as_none(self) -> None:
+        """Regression test for a real bug code review caught: without
+        this check, a hand-edited/corrupted sidecar containing
+        {"active_pages": [-1, 0]} would load as a literal frozenset no
+        real page.page_number (always >= 1) ever matches - silently
+        making every page look "out of scope" on the next magic-pen
+        regenerate, redacting nothing anywhere with no error surfaced.
+        Falling back to None (no filtering) is the same safe direction
+        every other malformed-sidecar case in this mechanism already
+        takes."""
+        with workspace_temp_dir() as temp_dir:
+            output_path = Path(temp_dir) / "document_ANON_VISUAL.pdf"
+            path = category_selection_path(output_path)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                json.dumps({"active_pages": [-1, 0]}), encoding="utf-8"
+            )
+
+            self.assertIsNone(load_active_pages_selection(path))
+
     def test_sidecar_freezes_the_label_set_active_at_save_time(self) -> None:
         """Regression test for a real bug found live (2026-09-17):
         CATEGORY_GROUPS's mapping can itself change between app versions
@@ -656,6 +864,27 @@ class MagicPenRegenerateRespectsCategorySelectionTests(unittest.TestCase):
         self.assertNotIn("EMAIL", {s.label for s in filtered_spans})
         self.assertIn("PESEL", {s.label for s in filtered_spans})
 
+    def test_compute_pdf_redaction_spans_respects_page_range(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            source_path = Path(temp_dir) / "source.pdf"
+            write_fitz_multi_page_pdf(
+                source_path,
+                [
+                    ["PESEL 00000000000 on page one."],
+                    ["PESEL 11111111111 on page two."],
+                ],
+            )
+
+            _word_pages, unfiltered_spans = compute_pdf_redaction_spans(source_path)
+            _word_pages, filtered_spans = compute_pdf_redaction_spans(
+                source_path, page_range="1"
+            )
+
+        self.assertEqual(
+            {s.page_number for s in unfiltered_spans}, {1, 2}
+        )
+        self.assertEqual({s.page_number for s in filtered_spans}, {1})
+
     def test_batch_run_writes_a_category_selection_sidecar_for_the_visual_pdf(
         self,
     ) -> None:
@@ -677,6 +906,76 @@ class MagicPenRegenerateRespectsCategorySelectionTests(unittest.TestCase):
             self.assertTrue(visual_pdf.exists())
             recorded = load_category_selection(category_selection_path(visual_pdf))
         self.assertEqual(recorded, resolve_active_labels([CATEGORY_PESEL]))
+
+    def test_batch_run_writes_a_page_range_sidecar_for_the_visual_pdf(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            source_dir = Path(temp_dir) / "source"
+            output_dir = Path(temp_dir) / "output"
+            source_dir.mkdir()
+            output_dir.mkdir()
+            source_path = source_dir / "document.pdf"
+            write_fitz_multi_page_pdf(
+                source_path,
+                [
+                    ["PESEL 00000000000 on page one."],
+                    ["PESEL 11111111111 on page two."],
+                ],
+            )
+
+            anonymize_batch([source_path], output_dir, page_range="1")
+
+            visual_pdf = output_dir / "document_ANON_VISUAL.pdf"
+            self.assertTrue(visual_pdf.exists())
+            recorded = load_active_pages_selection(category_selection_path(visual_pdf))
+        self.assertEqual(recorded, frozenset({1}))
+
+    def test_magic_pen_regenerate_reuses_the_frozen_page_range(self) -> None:
+        """End-to-end regression guard, mirroring
+        MagicPenRegenerateRespectsCategorySelectionTests' own reasoning
+        for active_labels: a manual edit's "regenerate" pass must keep
+        honoring the page range the document was first produced with,
+        loaded from the same sidecar - never silently redact an
+        out-of-scope page again just because an unrelated manual edit
+        was saved."""
+        from manual_redaction import (
+            EMPTY_MANUAL_EDITS,
+            regenerate_pdf_with_manual_overrides,
+        )
+
+        with workspace_temp_dir() as temp_dir:
+            source_dir = Path(temp_dir) / "source"
+            output_dir = Path(temp_dir) / "output"
+            source_dir.mkdir()
+            output_dir.mkdir()
+            source_path = source_dir / "document.pdf"
+            write_fitz_multi_page_pdf(
+                source_path,
+                [
+                    ["PESEL 00000000000 on page one."],
+                    ["PESEL 11111111111 on page two."],
+                ],
+            )
+
+            anonymize_batch([source_path], output_dir, page_range="1")
+            visual_pdf = output_dir / "document_ANON_VISUAL.pdf"
+            frozen_pages = load_active_pages_selection(
+                category_selection_path(visual_pdf)
+            )
+
+            regenerate_pdf_with_manual_overrides(
+                source_path,
+                output_path=visual_pdf,
+                edits=EMPTY_MANUAL_EDITS,
+                active_pages=frozen_pages,
+            )
+
+            import pymupdf as fitz
+
+            with fitz.open(visual_pdf) as document:
+                page_one_text = document[0].get_text("text")
+                page_two_text = document[1].get_text("text")
+        self.assertNotIn("00000000000", page_one_text)
+        self.assertIn("11111111111", page_two_text)
 
 
 class AttachPdfCoverageMetadataCategoryAwarenessTests(unittest.TestCase):
@@ -723,6 +1022,38 @@ class AttachPdfCoverageMetadataCategoryAwarenessTests(unittest.TestCase):
 
         self.assertIn("warning", metadata)
 
+    def test_active_pages_suppresses_the_coverage_warning_entirely(self) -> None:
+        """Regression test for a real bug code review caught: every count
+        this function compares is whole-document (the parallel TXT/
+        report pipeline is never page-scoped), so a category detected
+        only on a deliberately out-of-scope page looked identical to a
+        genuine redaction gap - firing PDF_COVERAGE_WARNING on the
+        *normal, expected* case of a user restricting to page 1 and
+        having, say, a PESEL on page 2. That directly contradicts the
+        "Strony" field's own promise that the rest of the document stays
+        untouched, so the whole gap check must be suppressed (not just
+        narrowed) whenever any page restriction is active."""
+        metadata = _attach_pdf_coverage_metadata(
+            {"counters": {}},  # nothing redacted on the in-scope page
+            counters={"PESEL": 1},  # detected somewhere in the whole document
+            audit_result={"findings": {}},
+            ner_result={"counters": {}},
+            active_pages=frozenset({1}),
+        )
+
+        self.assertNotIn("warning", metadata)
+        self.assertEqual(metadata.get("detected_not_pdf_redacted_categories"), {})
+
+    def test_active_pages_none_behaves_like_before(self) -> None:
+        metadata = _attach_pdf_coverage_metadata(
+            {"counters": {}},
+            counters={"PESEL": 1},
+            audit_result={"findings": {}},
+            ner_result={"counters": {}},
+        )
+
+        self.assertIn("warning", metadata)
+
 
 class SaveRedactedPdfCopyCategoryFilteringTests(unittest.TestCase):
     """Direct coverage for the "original_redaction" text-search fallback
@@ -751,6 +1082,116 @@ class SaveRedactedPdfCopyCategoryFilteringTests(unittest.TestCase):
         self.assertNotIn("00000000000", visible_text)
         self.assertIn("tester@example.test", visible_text)
         self.assertNotIn("EMAIL", result["counters"])
+
+    def test_active_pages_filters_the_fallback_redaction_path_too(self) -> None:
+        """Regression test for a real gap code review caught: this
+        "experimental original-layout redaction" output mode is a
+        separate code path from the default visual-redaction one and
+        was burning PII out of every page regardless of the user's
+        chosen page range."""
+        with workspace_temp_dir() as temp_dir:
+            source_path = Path(temp_dir) / "source.pdf"
+            write_fitz_multi_page_pdf(
+                source_path,
+                [
+                    ["PESEL 00000000000 on page one."],
+                    ["PESEL 11111111111 on page two."],
+                ],
+            )
+
+            save_redacted_pdf_copy(
+                source_path,
+                output_path=Path(temp_dir) / "out.pdf",
+                active_pages=frozenset({1}),
+            )
+
+            import pymupdf as fitz
+
+            with fitz.open(Path(temp_dir) / "out.pdf") as document:
+                page_one_text = document[0].get_text("text")
+                page_two_text = document[1].get_text("text")
+        self.assertNotIn("00000000000", page_one_text)
+        self.assertIn("11111111111", page_two_text)
+
+
+class WeakPhoneLikeSkippedCountPageRangeTests(unittest.TestCase):
+    """Regression test for a real gap code review caught: this count
+    fed the "PDF redaction blocks" report section and iterated every
+    page regardless of active_pages, so the report could claim a weak
+    phone-like value was "skipped" on a page that was never touched at
+    all when a page range was active."""
+
+    def test_batch_report_only_counts_weak_phone_like_values_on_in_scope_pages(
+        self,
+    ) -> None:
+        with workspace_temp_dir() as temp_dir:
+            source_dir = Path(temp_dir) / "source"
+            output_dir = Path(temp_dir) / "output"
+            source_dir.mkdir()
+            output_dir.mkdir()
+            source_path = source_dir / "document.pdf"
+            # A bare 9-digit run with no phone-context keyword nearby is
+            # exactly what _weak_phone_like_without_context_count flags.
+            write_fitz_multi_page_pdf(
+                source_path,
+                [
+                    ["Reference number 123 456 789 for this record."],
+                    ["Reference number 987 654 321 for this record."],
+                ],
+            )
+
+            anonymize_batch([source_path], output_dir, page_range="2")
+
+            report_text = (
+                output_dir / "_wewnetrzne" / "document_RAPORT.txt"
+            ).read_text(encoding="utf-8")
+            blocks_line = next(
+                line
+                for line in report_text.splitlines()
+                if line.startswith("Weak phone-like numeric values skipped:")
+            )
+        self.assertEqual(int(blocks_line.rsplit(":", 1)[1].strip()), 1)
+
+
+class PageRangeDoesNotApplyToImagesTests(unittest.TestCase):
+    """Regression test for a real gap code review checked (and confirmed
+    correct): page_range must never silently apply to an image input's
+    single "page" - the "Strony" field's own label says "tylko PDF"."""
+
+    def test_image_input_ignores_page_range(self) -> None:
+        from ocr import (
+            OCR_INPUT_TYPE_IMAGE,
+            OCR_STATUS_AVAILABLE,
+            OcrExtraction,
+            build_ocr_metadata,
+        )
+
+        extraction = OcrExtraction(
+            text="PESEL 00000000000",
+            metadata=build_ocr_metadata(
+                used=True,
+                status=OCR_STATUS_AVAILABLE,
+                input_type=OCR_INPUT_TYPE_IMAGE,
+                items_processed=1,
+            ),
+        )
+
+        with workspace_temp_dir() as temp_dir:
+            source_dir = Path(temp_dir) / "source"
+            output_dir = Path(temp_dir) / "output"
+            source_dir.mkdir()
+            output_dir.mkdir()
+            source_path = source_dir / "scan.png"
+            source_path.write_bytes(b"synthetic image placeholder")
+
+            with patch("anonymizer.extract_text_with_ocr", return_value=extraction):
+                # An out-of-range page number ("99") would be a no-op even
+                # for a PDF - the point here is that it must not somehow
+                # suppress redaction on the image's own single "page".
+                anonymize_batch([source_path], output_dir, page_range="99")
+
+            output_text = (output_dir / "scan_ANON.txt").read_text(encoding="utf-8")
+        self.assertIn("[PESEL]", output_text)
 
 
 if __name__ == "__main__":

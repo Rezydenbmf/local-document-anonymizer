@@ -1214,6 +1214,7 @@ def save_redacted_pdf_copy(
     output_dir: str | Path | None = None,
     output_path: str | Path | None = None,
     active_labels: frozenset[str] | None = None,
+    active_pages: frozenset[int] | None = None,
 ) -> dict[str, object]:
     """Create a true-redacted PDF copy and return safe metadata.
 
@@ -1224,7 +1225,12 @@ def save_redacted_pdf_copy(
     patterns get redacted here - the dictionary pass and
     ``extra_redaction_terms`` (already filtered by the caller, if at
     all) are unaffected, matching every other redaction path's rule that
-    the user's own dictionary is always-on."""
+    the user's own dictionary is always-on. ``active_pages`` (Etap 5)
+    skips an out-of-scope page entirely, dictionary included - a real
+    gap code review caught: this "experimental original-layout
+    redaction" output mode is a separate code path from the default
+    visual-redaction one and was burning PII out of every page
+    regardless of the user's chosen page range."""
     fitz = _load_fitz_module()
     source = Path(source_path)
     if output_path is not None:
@@ -1236,7 +1242,9 @@ def save_redacted_pdf_copy(
     counters: dict[str, int] = {}
 
     with fitz.open(source) as document:
-        for page in document:
+        for page_number, page in enumerate(document, start=1):
+            if active_pages is not None and page_number not in active_pages:
+                continue
             page_text = page.get_text("text") or ""
             _merge_counters(
                 counters,
