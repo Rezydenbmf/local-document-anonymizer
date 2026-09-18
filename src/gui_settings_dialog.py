@@ -149,7 +149,15 @@ class SettingsDialog:
         self.show_hints_var = tk.BooleanVar(value=app.show_usage_hints)
         self.sensitive_terms_path = app.sensitive_terms_path
         self.environment_status = environment_status_lookup(app.environment_items)
-        self.installed_ocr_languages = list_installed_languages()
+        # Cached on the app (not recomputed fresh on every dialog open) -
+        # real user report: this used to shell out to Tesseract every
+        # single time Settings opened, adding a visible 3-5s stall on the
+        # main thread. Refreshed for real after a language pack install
+        # actually changes what's installed (see
+        # _on_ocr_language_install_done).
+        if app._installed_ocr_languages_cache is None:
+            app._installed_ocr_languages_cache = list_installed_languages()
+        self.installed_ocr_languages = app._installed_ocr_languages_cache
         self.ocr_language_installing = False
         self.ocr_language_status_label: ctk.CTkLabel | None = None
         self.ocr_language_add_var: tk.StringVar | None = None
@@ -796,8 +804,11 @@ class SettingsDialog:
             return
         # Refresh the installed-language list from the real, current state
         # rather than assuming success - confirms the file actually landed
-        # somewhere Tesseract will read it from.
+        # somewhere Tesseract will read it from. Also updates the app-level
+        # cache above, so a later Settings open sees the new language too
+        # instead of serving the stale pre-install list.
         self.installed_ocr_languages = list_installed_languages()
+        self.app._installed_ocr_languages_cache = self.installed_ocr_languages
         self.environment_status[ENV_ITEM_OCR] = True
         if self.ocr_language_status_label is not None:
             self.ocr_language_status_label.configure(

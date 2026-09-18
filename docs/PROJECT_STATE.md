@@ -4515,6 +4515,82 @@ sidecar freeze-at-save-time round-trip test), lint at 75 (still below
 the established 77-error baseline). Branch:
 `feature/etap7-signature-stripping`, ready to merge.
 
+## Live-feedback fixes from the user's actual test pass (2026-09-18)
+
+The user tested Etap 5's page-range out-of-bounds warning and Etap 7's
+signature removal for real, plus explored the app generally, and
+reported four things. Two were genuine bugs, one a feature request
+logged but not built yet, and one already worked.
+
+**The page-range out-of-bounds warning ("ad7") was reported as not
+working** - the user set a range that didn't overlap a 3-page document
+and got no warning at all. Investigation showed the warning *was*
+correctly computed (confirmed directly: `_attach_pdf_coverage_metadata`
+set `metadata["warning"]` exactly as designed), but it only ever
+reached the hidden internal report file
+(`_wewnetrzne/..._RAPORT.txt`/`_BATCH_SUMMARY.txt`) - nowhere a user
+would normally look. Worse, the earlier `docs/DO_ZWERYFIKOWANIA.md`
+entry pointed at a filename (`_ANON_raport_deweloperski.txt`) that
+doesn't exist at all, so even someone hunting for it by name would have
+failed. This was a real UX gap, not just a wrong filename: the whole
+point of the feature was to stop a silent no-op, and a warning nobody
+ever sees is functionally silent regardless of whether the string
+exists on disk somewhere.
+
+Fixed by surfacing it directly on the "Wyniki anonimizacji" (review)
+screen: a new `format_batch_pdf_warning_items` helper in
+`gui_helpers.py` (re-exported through `gui.py`'s facade, mirroring the
+existing `format_batch_error_items`) filters `batch_result.results` for
+successful files that still carry a `pdf_redaction_warning`, and a new
+`_build_batch_pdf_warnings_card` in `gui_app.py` renders them as a
+yellow warning card right below the existing red "processing failed"
+card - same visual pattern, `COLOR_WARNING`/`COLOR_WARNING_SOFT`/
+`COLOR_WARNING_TEXT` instead of the high-risk red. Wired in right after
+`_build_batch_errors_card` in `show_review_screen`.
+
+**Settings opening after the comparison window took a reported 3-5
+seconds.** Root-caused (not just guessed at) by reading
+`SettingsDialog.__init__`: it called `ocr.list_installed_languages()` -
+a real Tesseract subprocess call via pytesseract - fresh on *every*
+single dialog open, synchronously on the main thread, despite the
+startup environment check (`check_environment()`, run once in a
+background thread) already paying that exact cost. On this sandbox the
+call itself only measured ~0.2s, but this project has already
+documented (installer packaging session) that a freshly-spawned exe can
+take much longer under real-world antivirus scanning on the user's
+actual Windows machine - consistent with a report specific to their
+machine, not reproducible here at the same magnitude. Fixed with a lazy
+cache on the app object (`AnonymizerApp._installed_ocr_languages_cache`,
+`None` until first needed), reused on every later `SettingsDialog`
+open, and explicitly refreshed (not just invalidated) right after a
+real language-pack install
+(`SettingsDialog._on_ocr_language_install_done`) so the cache can never
+silently miss a language the user just added. Not something to
+independently confirm reproduces the original 3-5s report was fixed
+without the user re-testing on their own machine - flagged in
+`docs/DO_ZWERYFIKOWANIA.md` accordingly rather than claimed as
+confirmed-fixed.
+
+**Feature request, not built yet**: removing a signature from within
+the comparison/magic-pen window directly, instead of only as a
+pre-anonymization checkbox requiring a full reprocess from scratch.
+The user's own words: "czy nie mozemy dac opcji usun podpis na oknie
+podgladu? bo tak troche na okolo". Technically feasible - the
+"freeze the choice at first anonymization" sidecar mechanism
+`strip_signatures` already uses (matching `active_pages`/`active_labels`)
+is exactly the infrastructure a magic-pen-side toggle would need - but
+deliberately not started without the user's explicit go-ahead, logged
+in `docs/DO_ZWERYFIKOWANIA.md` as an open question instead.
+
+**Already confirmed working, moved to "Potwierdzone"**: all three magic
+pen interaction modes (Etap 3), the category-checkbox label readability
+fix, the table-adjacent field-label fix, and the NIP/REGON
+separate-cell detection fix.
+
+683 tests passing (3 new: two `format_batch_pdf_warning_items` unit
+tests, one settings-dialog OCR-language-cache test suite with 3 cases),
+lint at 75 (still below the established 77-error baseline).
+
 ## Warning
 
 This repository is still an early-stage portfolio MVP. Do not use it to

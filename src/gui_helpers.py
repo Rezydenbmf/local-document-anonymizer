@@ -1589,6 +1589,24 @@ def format_batch_error_items(batch_result: BatchResult) -> list[tuple[str, str]]
     ]
 
 
+def format_batch_pdf_warning_items(batch_result: BatchResult) -> list[tuple[str, str]]:
+    """Return (input_name, warning_text) for every successfully processed
+    PDF that still carries a ``pdf_redaction_warning`` - e.g. Etap 5's
+    page-range-doesn't-match-the-document warning. Without this, that
+    warning previously only ever reached the hidden developer report
+    (`_wewnetrzne/..._RAPORT.txt`) a user has no reason to open - a real
+    gap: the file processing "successfully" with nothing visibly wrong
+    reads as silent success, exactly what the warning was meant to
+    prevent. The English warning text itself is not translated here -
+    it is a narrow, factual sentence (chosen pages vs. real page count),
+    not full report prose."""
+    return [
+        (str(result.get("input_name", "?")), str(result.get("pdf_redaction_warning", "")))
+        for result in batch_result.results
+        if result.get("status") == "success" and result.get("pdf_redaction_warning")
+    ]
+
+
 def apply_subtle_scrollbar(scrollable_frame) -> None:
     """Restyle one CTkScrollableFrame's built-in scrollbar to stay out of
     the way: an invisible track, a low-contrast thumb the rest of the

@@ -43,6 +43,7 @@ class FakeApp:
         self.show_usage_hints = True
         self.sensitive_terms_path = None
         self.environment_items = []
+        self._installed_ocr_languages_cache = None
         self.magic_pen_interaction_mode = MAGIC_PEN_MODE_DEFAULT
         self.magic_pen_custom_bindings = dict(
             MAGIC_PEN_BUILTIN_BINDINGS[MAGIC_PEN_MODE_DEFAULT]
