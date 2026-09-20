@@ -12,103 +12,111 @@ przenoszę ją do „Potwierdzone" albo usuwam. Jeśli lista urośnie powyżej
 
 ## Do sprawdzenia
 
-- [ ] **Etap 7 — usuwanie podpisów elektronicznych z PDF-a, osobna
-      opcja, domyślnie WYŁĄCZONA (2026-09-18).** Realny przypadek z
-      Twoich notatek: dokument z podpisem elektronicznym, którego
-      wizualnej „ramki” (imię i nazwisko podpisującego) nasz mechanizm
-      w ogóle nie widział — bo to nie jest zwykły tekst na stronie,
-      tylko osobny obiekt formularza PDF (pole podpisu). Twój feedback
-      po pierwszej wersji: „usuwanie podpisu to osobna opcja - nie
-      dziala automatycznie” — zrobione. W panelu „Kategorie do
-      anonimizacji” pojawiło się nowe, osobno oznaczone (żółta ramka,
-      inna niż reszta) pole „Usuń podpisy elektroniczne (PDF)” —
-      **domyślnie odznaczone**, nic nie usuwa dopóki sam go nie
-      zaznaczysz dla konkretnego zadania. Code-review złapał i
-      naprawiłem po drodze realny błąd: pierwsza wersja psuła się
-      (program się wywalał) na dokumencie podpisanym przez dwie osoby
-      na tej samej stronie — naprawione, przetestowane bezpośrednio na
-      takim przypadku. Sprawdź na żywo: (1) domyślnie, bez zaznaczania
-      niczego, podpis w PDF-ie ma zostać nietknięty po anonimizacji;
-      (2) po zaznaczeniu pola i ponownej anonimizacji tego samego
-      dokumentu podpis (razem z widoczną „ramką”) ma zniknąć; (3) dymek
-      po najechaniu na pole powinien jasno tłumaczyć, że to nieodwracalne.
+- [ ] **Ustawienia ładowały się 3-4 sekundy nawet po pierwszej poprawce
+      (zgłoszone 2026-09-18 i ponownie 2026-09-20, druga, głębsza
+      przyczyna znaleziona i naprawiona)** — pierwsza poprawka
+      zapamiętywała wynik zapytania do Tesseracta po **pierwszym**
+      otwarciu Ustawień w sesji, ale nie pomagała za **pierwszym** razem
+      — a Ty za każdym razem testowałeś świeże otwarcie (po przejściu
+      main → podgląd → Ustawienia), więc realnie nigdy nie trafiałeś na
+      przyspieszone, drugie otwarcie. Naprawione głębiej: apka i tak już
+      sprawdza dostępność Tesseracta w tle zaraz po starcie (żeby
+      pokazać status na ekranie głównym) — teraz ten sam wynik trafia od
+      razu do pamięci podręcznej Ustawień, więc nawet pierwsze otwarcie
+      w danej sesji nie musi już same z siebie pytać Tesseracta.
+      Sprawdź na żywo: uruchom apkę na czysto, poczekaj chwilę na
+      ekranie startowym (aż zniknie ewentualny baner ładowania), potem
+      wejdź do podglądu jakiegoś pliku i stamtąd otwórz Ustawienia —
+      powinno być zauważalnie szybciej niż wcześniej. Jeśli nadal wolno
+      — to znaczy, że przyczyna leży gdzie indziej, nie w sprawdzaniu
+      Tesseracta, i będę musiał szukać dalej.
 
-      **Twoja uwaga po teście (2026-09-18)**: „czy nie mozemy dac opcji
-      usun podpis na oknie podgladu? bo tak troche na okolo ze trzba od
-      poczatku anonimizowac i zaznaczyc podpis - mniej wygodnie”. To
-      rozsądna prośba o wygodę, ale **jeszcze niezrobiona w tej turze** —
-      dziś rzeczywiście trzeba zaznaczyć pole przed pierwszym
-      uruchomieniem anonimizacji; nie da się dodać usuwania podpisu z
-      poziomu okna porównania/magic pena bez ponownego przetworzenia
-      całego dokumentu od zera. Jest to technicznie wykonalne (mechanizm
-      "zamrożonego wyboru" już działa dla zakresu stron i kategorii),
-      ale to osobny kawałek pracy — powiedz, czy mam się tym zająć w
-      następnej kolejności.
+- [ ] **„Eksportuj zatwierdzone” nie pokazywał wyeksportowanego pliku
+      (zgłoszone 2026-09-20, przyczyna znaleziona i naprawiona)** —
+      Twój feedback: po kliknięciu i wybraniu folderu podgląd, który się
+      otwierał, nie miał związku z wybranym folderem — bo faktycznie
+      otwierał się plik z **wcześniejszego, innego** momentu (kliknięcia
+      „Zatwierdź” na liście), z **oryginalnego** folderu wyjściowego, nie
+      z folderu, który właśnie wskazałeś w eksporcie. Sam eksport
+      (kopiowanie plików do wybranego folderu) działał cały czas
+      poprawnie — brakowało tylko widocznego potwierdzenia, że to się
+      udało, i to we właściwym miejscu. Naprawione: po udanym eksporcie
+      apka teraz sama otwiera plik z **nowego** folderu (jeśli
+      eksportujesz jeden plik) albo otwiera **cały folder** w Eksploratorze
+      (jeśli eksportujesz kilka naraz — żeby nie otwierać naraz kilku
+      okien PDF). Sprawdź na żywo: zatwierdź jeden plik, kliknij
+      „Eksportuj zatwierdzone”, wybierz folder — powinien otworzyć się
+      podgląd pliku z tego właśnie folderu (nie z oryginalnego).
 
-- [ ] **Ustawienia ładowały się 3-5 sekund po powrocie z okna podglądu
-      (zgłoszone 2026-09-18, przyczyna znaleziona i naprawiona)** —
-      Twój feedback: „odkrylem ze jak mam okno podgladu wracam do
-      glownego i wlaczam ustawienia, to strasznie dlugo sie laduja (3-5
-      SEK)". Przyczyna: okno Ustawień za każdym otwarciem od nowa
-      pytało silnik OCR (Tesseract) o listę zainstalowanych języków —
-      osobny, realny proces uruchamiany na nowo przy każdym kliknięciu
-      w Ustawienia, mimo że ta sama informacja jest już policzona raz
-      przy starcie aplikacji. Naprawione: wynik jest teraz zapamiętywany
-      po pierwszym otwarciu Ustawień w danej sesji i tylko odświeżany na
-      świeżo po realnym dograniu nowego pakietu językowego. Sprawdź na
-      żywo: otwórz Ustawienia dwa razy pod rząd (najlepiej po powrocie z
-      okna podglądu, tak jak zgłosiłeś) — drugie i kolejne otwarcie
-      powinno być zauważalnie szybsze niż pierwsze.
+- [ ] **Ograniczenie anonimizacji do wybranych stron — NOWA strategia
+      UX zamiast obecnego pola „Strony” (zgłoszone 2026-09-20, jeszcze
+      NIE zaplanowane ani rozpoczęte)** — obecne ostrzeżenie o zakresie
+      spoza dokumentu już działa (potwierdziłeś to zrzutem ekranu —
+      przenoszę do „Potwierdzone”), ale zgłosiłeś, że chcesz zmienić
+      całe podejście: zamiast jednego wspólnego pola „Strony” dla
+      całego wsadu, chcesz kontrolkę **przy każdym pliku z osobna** (na
+      liście wybranych plików, obok nazwy), z domyślnym „wszystkie
+      strony”, i z **walidacją opartą o rzeczywistą liczbę stron danego
+      pliku** wczytaną zaraz po przeciągnięciu go do apki (żeby nie dało
+      się wpisać strony, której dokument w ogóle nie ma). To osobny,
+      spory kawałek pracy architektonicznej — opisany dokładniej niżej w
+      „Do zaplanowania”, nie coś, co już zrobiłem.
 
-- [ ] **Wersjonowanie wyboru kategorii w pliku JSON (2026-09-17,
-      techniczna poprawka, trudna do bezpośredniego sprawdzenia)** —
-      przy okazji poprzedniego punktu code-review znalazł powiązany,
-      poważniejszy błąd: plik JSON zapamiętujący wybór kategorii przy
-      pierwszej anonimizacji zapisywał tylko nazwy kategorii, a nie to,
-      co dokładnie wtedy oznaczały. Gdyby ta zmiana (jak wyżej) trafiła
-      do apki bez tej poprawki, otwarcie **starszego** dokumentu w oknie
-      porównania i zapisanie jakiejkolwiek niepowiązanej ręcznej edycji
-      mogłoby po cichu odsłonić wcześniej zanonimizowaną nazwę
-      firmy/adres. Naprawione zanim to się mogło zdarzyć — plik JSON
-      zapamiętuje teraz dokładny, zamrożony zestaw danych z momentu
-      pierwszej anonimizacji, nie samą nazwę kategorii. Nie ma tu nic
-      konkretnego do klikania — samo pilnowanie, żeby ręczna edycja
-      starszego dokumentu w oknie porównania nigdy nie odsłaniała
-      danych, które wcześniej były ukryte, jest wystarczającym testem
-      na żywo.
+## Do zaplanowania (dwie prośby, jeszcze nierozpoczęte — czekają na Twoje
+„tak, zaczynamy”)
 
-- [ ] **Ograniczenie automatycznej anonimizacji PDF-a do wybranych stron
-      (Etap 5) — ostrzeżenie o zakresie spoza dokumentu (ad7 z
-      2026-09-18, zgłoszone jako niedziałające — przyczyna znaleziona i
-      naprawiona 2026-09-18)** — Twój test: 3-stronicowy dokument,
-      zakres „6-7”, „mnie puściło” (bez żadnego ostrzeżenia). Sprawdziłem
-      bezpośrednio w kodzie: ostrzeżenie **technicznie już wtedy
-      powstawało** poprawnie, ale trafiało tylko do ukrytego pliku
-      wewnętrznego (`_wewnetrzne/..._RAPORT.txt` / `_BATCH_SUMMARY.txt`)
-      — miejsca, do którego normalnie nikt nie zagląda. Poza tym w
-      poprzedniej instrukcji podałem Ci zresztą złą nazwę pliku do
-      szukania (`_ANON_raport_deweloperski.txt` — taki plik w ogóle nie
-      istnieje), więc nawet ktoś, kto by szukał, by go nie znalazł. To
-      był realny błąd UX, nie tylko pomyłka w opisie — samo ostrzeżenie
-      było praktycznie niewidoczne. Naprawione: po przetworzeniu wsadu
-      na ekranie „Wyniki anonimizacji” pojawia się teraz żółta karta z
-      ostrzeżeniem wprost na liście plików (ten sam styl co istniejąca
-      czerwona karta „Nie udało się przetworzyć..."), więc nie trzeba
-      niczego szukać w ukrytych folderach. Sprawdź na żywo: wczytaj
-      `6_umowa_trzy_strony.pdf`, wpisz w polu „Strony” zakres spoza
-      dokumentu (np. „6-7”), zanonimizuj — na ekranie wyników powinna od
-      razu pojawić się żółta karta ostrzeżenia z nazwą pliku i treścią
-      mówiącą, że podany zakres nie pasuje do żadnej strony dokumentu.
-      **Nadal do sprawdzenia z poprzedniej tury** (nie testowane w tej
-      rundzie): dymek po najechaniu na pole „Strony” — czy jasno
-      tłumaczy format (przecinek/myślnik/kombinacja).
-      **Wciąż otwarte, świadomie odłożone**: zmiana zakresu stron już w
-      trakcie pracy w edytorze magic pen (dziś trzeba ustawić zakres
-      przed uruchomieniem anonimizacji, nie da się go zmienić bez
-      ponownego przetworzenia całego dokumentu).
+- **Nowa strategia zakresu stron, per plik.** Twój opis (2026-09-20):
+  kontrolka przy nazwie każdego pliku zamiast jednego wspólnego pola
+  „Strony”; domyślnie cały dokument; zakres wpisywany jako numer-myślnik-
+  numer, kilka zakresów/stron oddzielonych przecinkami (np. „1-2, 4-7”
+  albo „3,6,9,11” — dokładnie ta sama składnia co dziś, więc to się nie
+  zmienia); apka po wczytaniu pliku (drag&drop) ma znać jego rzeczywistą
+  liczbę stron i nie pozwalać wpisać nic spoza niej. To realna zmiana
+  architektury — dziś jeden zakres stron dotyczy całego wsadu naraz, a
+  to by znaczyło osobny zakres na plik, plus odczyt liczby stron w
+  momencie wczytania (nie dopiero przy anonimizacji). Zanim zacznę
+  kodować, wolę to porządnie zaplanować (tak jak przy Etapie 5) —
+  napiszę osobny plan i pokażę Ci go do akceptacji, zamiast zgadywać
+  szczegóły UI.
+
+- **Usuwanie podpisu elektronicznego z poziomu okna podglądu (magic
+  pen).** Twój feedback (2026-09-18): „czy nie mozemy dac opcji usun
+  podpis na oknie podgladu? bo tak troche na okolo". Technicznie
+  wykonalne — mechanizm „zamrożonego wyboru” już działa dla zakresu
+  stron i kategorii, podpis mógłby działać tak samo — ale to osobny
+  kawałek pracy, nie zacząłem bez Twojego potwierdzenia.
+
+Powiedz, od którego (jeśli w ogóle, i w jakiej kolejności) mam zacząć —
+albo czy wolisz najpierw dokończyć testowanie tego, co już jest gotowe.
 
 ## Potwierdzone
 
+- [x] **Etap 7 — usuwanie podpisów elektronicznych z PDF-a: usuwanie
+      naprawdę działa** (potwierdzone 2026-09-20) — Twój feedback:
+      „usuwanie podpisu jak rozumiem dziala bo zniklo to pomarańczowe
+      pole sign", potwierdzone przeze mnie bezpośrednio w przesłanym
+      pliku (0 pól podpisu, plik przestał być formularzem PDF).
+      **Wciąż otwarte**: prośba o wygodę (usuwanie z poziomu okna
+      podglądu) — patrz „Do zaplanowania” wyżej.
+- [x] **Ostrzeżenie o zakresie stron spoza dokumentu — teraz widoczne
+      na ekranie wyników** (potwierdzone 2026-09-20) — Twój feedback:
+      „wychwytywanie zakresu z poza stron dokumentu niby dziala"
+      (potwierdzone zrzutem ekranu z żółtą kartą ostrzeżenia). Sama
+      **strategia** pola „Strony” się zmienia — patrz „Do zaplanowania”
+      wyżej — ale to jest osobna sprawa od tego, czy ostrzeżenie się w
+      ogóle pokazuje, co teraz działa.
+- [x] **Wersjonowanie wyboru kategorii w pliku JSON — nie wymaga
+      osobnego testu z Twojej strony** (2026-09-20) — Twój feedback:
+      „z jsopne to nie czaje w ogóle co mam sprawdzić". Masz rację, że
+      to było niejasne — bo w praktyce **nie da się tego przetestować
+      przez samo klikanie w apce**: to zabezpieczenie chroni przed
+      sytuacją, która mogłaby wystąpić tylko po **aktualizacji kodu**
+      apki między dwoma anonimizacjami tego samego dokumentu (np. gdy ja
+      zmienię, co dokładnie oznacza dana kategoria) — nie da się tego
+      wywołać z poziomu samego interfejsu. Pilnują tego automatyczne
+      testy w kodzie (uruchamiane przy każdej zmianie), nie Ty na żywo.
+      Zdejmuję to z Twojej listy na stałe — to była moja pomyłka, że w
+      ogóle prosiłem Cię o to sprawdzenie.
 - [x] **Magic pen — nowy system trybów interakcji myszy (Etap 3)**
       (potwierdzone 2026-09-18) — Twój feedback: „wszystkie tryby
       magicc pena dzialaj". Podczas tego testu znalazłeś osobny,

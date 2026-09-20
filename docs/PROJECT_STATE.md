@@ -4591,6 +4591,85 @@ separate-cell detection fix.
 tests, one settings-dialog OCR-language-cache test suite with 3 cases),
 lint at 75 (still below the established 77-error baseline).
 
+## Second round of live-feedback fixes (2026-09-20)
+
+The user re-tested the previous round's fixes and reported the Settings
+slow-open fix wasn't enough, plus found a genuinely new bug and asked
+for a bigger UX redesign.
+
+**Settings was still slow (3-4s) after the earlier lazy-cache fix.**
+Root cause of *that*: the cache only paid off starting on a dialog's
+*second* open in a session - but the user was always testing a session's
+*first* Settings open (main screen → comparison window → Settings), so
+they never actually observed the speedup. Fixed properly this time:
+`_start_environment_check`'s background worker (already running off the
+main thread at startup to populate `self.environment_items`) now also
+calls `list_installed_languages()` and lands the result directly into
+`self._installed_ocr_languages_cache` via the same `root.after(0, ...)`
+callback. `SettingsDialog.__init__`'s lazy fallback (`if cache is None:
+compute`) stays as a safety net for the edge case of opening Settings
+before that background check has finished, but the common case - any
+realistic amount of time after startup - now has a warm cache before
+Settings is ever opened, first time included. Calling
+`list_installed_languages()` twice at startup (once inside
+`check_environment()`'s own OCR check, once here) is deliberately
+accepted as free, since both calls happen on the same background daemon
+thread, invisible behind the startup loading banner - the actual bug
+was ever calling it synchronously on the *main* thread, which this
+closes off entirely except for the explicit post-install refresh
+(itself a background-thread callback).
+
+**New bug: "Eksportuj zatwierdzone" appeared to ignore the folder the
+user picked.** Root cause: the preview that opened after clicking
+Export was left over from an earlier, unrelated moment -
+`_open_on_approve` firing when the file was first approved on the
+review screen, opening it from the *original* output folder. Export
+itself (`export_approved_workspace`, copying files to the chosen
+destination) worked correctly the whole time; it just never opened
+anything from the *new* location, so the folder picker's effect was
+invisible. Fixed: `export_approved` now opens the newly exported file
+directly (single-file export) or the destination folder itself
+(multi-file export, to avoid popping open several PDF viewer windows at
+once) right after a successful export.
+
+**Confirmed working via direct file inspection**: the user uploaded a
+file processed with Etap 7's signature-removal opted in; a direct check
+(`page.widgets()`, `document.is_form_pdf`) confirmed zero signature
+widgets and `is_form_pdf == 0` - the removal is real and structural, not
+a rendering artifact. Also confirmed via screenshot: the page-range
+out-of-bounds warning card (from the previous round's fix) does render
+on the review screen as designed.
+
+**`docs/DO_ZWERYFIKOWANIA.md`'s "JSON versioning" item was genuinely
+untestable through the GUI** - the user said outright they didn't
+understand what to check. Correct: the sidecar's frozen-label-set
+guarantee only matters across an *app code update* between two
+anonymizations of the same document (e.g. a future CATEGORY_GROUPS
+mapping change) - not something reachable by clicking through the app.
+Removed from the user's action list entirely; the guarantee is pinned
+by `MagicPenRegenerateRespectsCategorySelectionTests` in
+`tests/test_category_selection.py`, not a live-test responsibility.
+
+**Two requests logged, not started**: (1) removing a signature from
+within the comparison/magic-pen window directly, instead of only as a
+pre-anonymization checkbox; (2) a bigger page-range UX redesign - a
+per-file page-range control (attached to each file in the selected-files
+list, not one shared batch-wide "Strony" field) with input validated
+against that specific file's real page count, read at drag-and-drop
+time. Both are logged in `docs/DO_ZWERYFIKOWANIA.md`'s new "Do
+zaplanowania" section, awaiting the user's go-ahead - (2) in particular
+is a real architecture change (`anonymize_batch`'s `page_range` is
+today one value for the whole batch) that deserves its own plan, not a
+quick patch.
+
+683 tests passing (no new tests this round - both fixes are thin
+GUI-layer wiring around already-tested lower-level functions
+(`list_installed_languages`, `export_approved_workspace`,
+`open_path_with_default_app`), matching this project's existing
+practice of not unit-testing individual button-handler wiring like
+`_open_on_approve`), lint at 75 (still below the established 77-error
+baseline).
+
 ## Warning
 
 This repository is still an early-stage portfolio MVP. Do not use it to
