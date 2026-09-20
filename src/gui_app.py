@@ -133,6 +133,7 @@ try:
         truncate_filename_middle,
     )
     from .gui_settings_dialog import SettingsDialog
+    from .ocr import list_installed_languages
     from .output_cleanup import (
         apply_output_cleanup_plan,
         build_history_cleanup_plan,
@@ -270,6 +271,7 @@ except ImportError:
         truncate_filename_middle,
     )
     from gui_settings_dialog import SettingsDialog
+    from ocr import list_installed_languages
     from output_cleanup import (
         apply_output_cleanup_plan,
         build_history_cleanup_plan,
@@ -667,12 +669,30 @@ class AnonymizerApp:
     def _start_environment_check(self) -> None:
         def worker() -> None:
             items = check_environment()
-            self.root.after(0, lambda: self._on_environment_check_done(items))
+            # Same OCR check check_environment() already ran internally,
+            # called again here deliberately - not to detect anything new,
+            # but to land the result in _installed_ocr_languages_cache
+            # before Settings ever needs it. Both calls run on this
+            # background thread, so paying the Tesseract subprocess cost
+            # twice at startup is free in practice (still hidden behind
+            # the loading banner); the real user-facing bug this fixes is
+            # SettingsDialog otherwise having to make its OWN first,
+            # synchronous, main-thread call - the cache added earlier
+            # only helped the *second* Settings open, not the first,
+            # which is what a real report of "still slow" after that fix
+            # turned out to mean.
+            languages = list_installed_languages()
+            self.root.after(
+                0, lambda: self._on_environment_check_done(items, languages)
+            )
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _on_environment_check_done(self, items: list) -> None:
+    def _on_environment_check_done(
+        self, items: list, installed_ocr_languages: list[str]
+    ) -> None:
         self.environment_items = items
+        self._installed_ocr_languages_cache = installed_ocr_languages
         if self.active_screen == "start":
             self.show_start_screen()
 
@@ -3247,7 +3267,9 @@ class AnonymizerApp:
             )
             return
         try:
-            export_approved_workspace(self.review_dir, destination_dir=destination)
+            export_result = export_approved_workspace(
+                self.review_dir, destination_dir=destination
+            )
         except (FileNotFoundError, ValueError, OSError) as error:
             messagebox.showerror(
                 "Eksport",
@@ -3259,6 +3281,24 @@ class AnonymizerApp:
             self.review_summary_label.configure(
                 text=self._review_summary_text() + " - wyeksportowano"
             )
+        # Confirms the export actually landed in the folder the user just
+        # picked, not the earlier "opens automatically when you approve a
+        # file" preview (a separate, already-passed moment using the
+        # *original* output folder) - direct feedback was that seeing no
+        # visible result here made the folder picker feel like it had no
+        # effect. One exported file opens directly; several open the
+        # destination folder instead of flooding the screen with that
+        # many PDF viewer windows.
+        try:
+            if len(export_result.copied_output_names) == 1:
+                open_path_with_default_app(
+                    export_result.approved_dir
+                    / export_result.copied_output_names[0]
+                )
+            else:
+                open_path_with_default_app(export_result.approved_dir)
+        except OSError:
+            pass
 
     def open_summary(self, item: ReviewItem) -> None:
         if self.review_dir is None or item.report_name is None:
