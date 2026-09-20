@@ -12,41 +12,41 @@ przenoszę ją do „Potwierdzone" albo usuwam. Jeśli lista urośnie powyżej
 
 ## Do sprawdzenia
 
-- [ ] **Ustawienia ładowały się 3-4 sekundy nawet po pierwszej poprawce
-      (zgłoszone 2026-09-18 i ponownie 2026-09-20, druga, głębsza
-      przyczyna znaleziona i naprawiona)** — pierwsza poprawka
-      zapamiętywała wynik zapytania do Tesseracta po **pierwszym**
-      otwarciu Ustawień w sesji, ale nie pomagała za **pierwszym** razem
-      — a Ty za każdym razem testowałeś świeże otwarcie (po przejściu
-      main → podgląd → Ustawienia), więc realnie nigdy nie trafiałeś na
-      przyspieszone, drugie otwarcie. Naprawione głębiej: apka i tak już
-      sprawdza dostępność Tesseracta w tle zaraz po starcie (żeby
-      pokazać status na ekranie głównym) — teraz ten sam wynik trafia od
-      razu do pamięci podręcznej Ustawień, więc nawet pierwsze otwarcie
-      w danej sesji nie musi już same z siebie pytać Tesseracta.
-      Sprawdź na żywo: uruchom apkę na czysto, poczekaj chwilę na
-      ekranie startowym (aż zniknie ewentualny baner ładowania), potem
-      wejdź do podglądu jakiegoś pliku i stamtąd otwórz Ustawienia —
-      powinno być zauważalnie szybciej niż wcześniej. Jeśli nadal wolno
-      — to znaczy, że przyczyna leży gdzie indziej, nie w sprawdzaniu
-      Tesseracta, i będę musiał szukać dalej.
-
-- [ ] **„Eksportuj zatwierdzone” nie pokazywał wyeksportowanego pliku
+- [ ] **Miganie 2-3 okien terminala kilka sekund po starcie apki
       (zgłoszone 2026-09-20, przyczyna znaleziona i naprawiona)** —
-      Twój feedback: po kliknięciu i wybraniu folderu podgląd, który się
-      otwierał, nie miał związku z wybranym folderem — bo faktycznie
-      otwierał się plik z **wcześniejszego, innego** momentu (kliknięcia
-      „Zatwierdź” na liście), z **oryginalnego** folderu wyjściowego, nie
-      z folderu, który właśnie wskazałeś w eksporcie. Sam eksport
-      (kopiowanie plików do wybranego folderu) działał cały czas
-      poprawnie — brakowało tylko widocznego potwierdzenia, że to się
-      udało, i to we właściwym miejscu. Naprawione: po udanym eksporcie
-      apka teraz sama otwiera plik z **nowego** folderu (jeśli
-      eksportujesz jeden plik) albo otwiera **cały folder** w Eksploratorze
-      (jeśli eksportujesz kilka naraz — żeby nie otwierać naraz kilku
-      okien PDF). Sprawdź na żywo: zatwierdź jeden plik, kliknij
-      „Eksportuj zatwierdzone”, wybierz folder — powinien otworzyć się
-      podgląd pliku z tego właśnie folderu (nie z oryginalnego).
+      Twój feedback: „po 2-3 sek migaja jakies 2-3 okna terminala...
+      juz chce cos kliknac a tu nagle mryga okno terminala". Przyczyna:
+      apka zaraz po starcie w tle sprawdza dostępność Tesseracta,
+      aktualizacji bibliotek i modelu AI — każde z tych sprawdzeń
+      uruchamia osobny, krótki proces w tle, a żaden z nich (łącznie z
+      wbudowaną biblioteką do obsługi OCR, której kodu nie edytujemy)
+      nie mówił Windowsowi „nie pokazuj dla mnie okna" — stąd te
+      błyski. Naprawione dla wszystkich takich procesów naraz, w jednym
+      miejscu (nie osobno dla każdego sprawdzenia). Sprawdź na żywo:
+      uruchom apkę na czysto i obserwuj pierwsze kilka sekund — okna
+      terminala nie powinny się już pojawiać wcale. Pasek postępu/
+      informacja „apka się jeszcze ładuje” to osobny, dodatkowy pomysł
+      z Twojej wiadomości — nie zrobiłem go w tej turze (naprawa okien
+      terminala powinna już wystarczyć, ale daj znać, jeśli nadal wolisz
+      jawny wskaźnik ładowania).
+
+- [ ] **„Eksportuj zatwierdzone” — głębszy problem niż wybór folderu:
+      wizualny PDF w ogóle nie był kopiowany (zgłoszone 2026-09-20,
+      poprzednia poprawka niewystarczająca, prawdziwa przyczyna
+      znaleziona i naprawiona)** — pierwsza poprawka (otwieranie pliku
+      z nowego folderu) naprawiła *który folder*, ale Twój kolejny test
+      pokazał, że otwiera się TXT zamiast PDF-a. Kopanie głębiej
+      pokazało prawdziwy problem: eksport **nigdy w ogóle nie kopiował**
+      kolorowego, zamazanego PDF-a do wybranego folderu — kopiował
+      tylko sam plik tekstowy (`_ANON.txt`) i raport, nawet gdy
+      oryginałem był PDF. To działało tak od zawsze, nie coś, co
+      zepsuła poprzednia poprawka. Naprawione: eksport teraz kopiuje
+      też towarzyszący plik `_ANON_VISUAL.pdf`, jeśli istnieje, i to
+      właśnie jego otwiera po zakończeniu. Sprawdź na żywo: zatwierdź
+      jeden plik pochodzący z PDF-a, kliknij „Eksportuj zatwierdzone”,
+      wybierz folder — w tym folderze powinien wylądować zarówno plik
+      `_ANON.txt`, jak i `_ANON_VISUAL.pdf`, a po eksporcie powinien się
+      otworzyć ten drugi (kolorowy PDF), nie plik tekstowy.
 
 - [ ] **Ograniczenie anonimizacji do wybranych stron — NOWA strategia
       UX zamiast obecnego pola „Strony” (zgłoszone 2026-09-20, jeszcze
@@ -91,6 +91,8 @@ albo czy wolisz najpierw dokończyć testowanie tego, co już jest gotowe.
 
 ## Potwierdzone
 
+- [x] **Ustawienia — wolne ładowanie naprawione** (potwierdzone
+      2026-09-20) — Twój feedback: „ustawienie dzialaja juz dobrze".
 - [x] **Etap 7 — usuwanie podpisów elektronicznych z PDF-a: usuwanie
       naprawdę działa** (potwierdzone 2026-09-20) — Twój feedback:
       „usuwanie podpisu jak rozumiem dziala bo zniklo to pomarańczowe

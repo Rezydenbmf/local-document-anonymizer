@@ -4670,6 +4670,66 @@ practice of not unit-testing individual button-handler wiring like
 `_open_on_approve`), lint at 75 (still below the established 77-error
 baseline).
 
+## Third round of live-feedback fixes (2026-09-20)
+
+Settings confirmed fixed. Two more things surfaced: a genuinely new
+report (console windows flashing at startup) and a deeper layer under
+the export bug than the previous round's fix reached.
+
+**Console windows (2-3 of them) flashed a few seconds after the GUI
+appeared.** Every background startup check this app runs (the Tesseract
+OCR check, the pip dependency-update check, the spaCy/NER model check)
+spawns a short-lived subprocess, and none of those call sites - nor
+pytesseract's own internal `subprocess.run`/`check_output` calls inside
+`get_languages()`/`get_tesseract_version()`, a vendored third-party
+library this app can't edit - pass Windows' console-suppression flags.
+A windowed (console-less) parent process spawning a child via
+`subprocess` without those flags still gets a new, briefly-visible
+console window per Windows' own default behavior - unrelated to the
+earlier, already-fixed "Uruchamianie bez widocznej konsoli" item, which
+only covered the main process's own console, not children it spawns.
+Fixed centrally rather than at each call site: `main.py` gained
+`_suppress_child_console_windows()`, called once at the top of `main()`
+before `start_gui()`, which monkeypatches `subprocess.Popen.__init__`
+itself to inject `creationflags |= CREATE_NO_WINDOW` into every
+subprocess call the process ever makes (since `subprocess.run`/
+`check_output`/`Popen` all construct a `Popen` internally, this covers
+all of them, including inside pytesseract) - a no-op on non-Windows
+platforms. Preserves any `creationflags` a caller already passed
+(merges rather than overwrites). The user's own suggested alternative
+(a "still loading" progress indicator) was not built - the root cause
+turned out fixable outright, making a loading indicator unnecessary for
+this specific symptom.
+
+**The export bug went deeper than the previous round's fix reached.**
+That fix corrected *which folder* got opened after export, but the
+user's next test showed a TXT opening instead of the expected PDF.
+Investigation found the real bug: `export_approved_workspace` never
+copied the companion visual PDF at all, for any PDF-sourced document,
+ever - only the plain-text output every `ReviewItem` is tracked under
+(`item.output_name`, always the TXT even for PDF sources - see
+`preferred_review_output_path`'s docstring) and its report. This
+predates the previous round's fix entirely; it was never caused by that
+change, only exposed by it (the "open something after export" fix
+finally made the *contents* of the destination folder visible enough to
+notice the PDF was missing). Fixed: `export_approved_workspace` now
+also copies the companion PDF (resolved via the same
+`preferred_review_output_path` the "open on approve"/comparison-window
+code already uses) alongside the TXT, under its own collision-safe
+name. `ApprovedExportResult` gained a new `preferred_output_names`
+field (one entry per approved item - the PDF's new name when one was
+copied, the TXT's otherwise) for `gui_app.export_approved` to open the
+right file; `copied_output_names`/`exported_output_count` deliberately
+keep their existing "one entry per approved item" meaning so nothing
+that already depended on that count changes behavior.
+
+685 tests passing before this round's console-window fix (3 new:
+`_suppress_child_console_windows`'s Windows-only patch behavior, its
+no-op on other platforms, and that it preserves a caller's own
+`creationflags`), 688 after; 2 new in `tests/test_review_workflow.py`
+for the companion-PDF export fix (with vs. without a companion PDF
+present), lint at 75 (still below the established 77-error baseline).
+
 ## Warning
 
 This repository is still an early-stage portfolio MVP. Do not use it to
