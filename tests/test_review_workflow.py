@@ -348,6 +348,70 @@ class ReviewWorkflowTests(unittest.TestCase):
             self.assertFalse((approved_dir / "rejected_ANON.txt").exists())
             self.assertFalse((approved_dir / "original.txt").exists())
 
+    def test_export_also_copies_the_companion_visual_pdf_for_pdf_sources(
+        self,
+    ) -> None:
+        """Regression test for a real user report (2026-09-20): export
+        appeared to ignore the folder the user picked because the file
+        that opened afterward was stale, from an earlier unrelated
+        moment. Root cause dug deeper than that, though - the companion
+        visual PDF (what a user actually wants to hand off for a
+        PDF-sourced document) was never copied by export at all, only
+        the plain-text output every review item is tracked under."""
+        with workspace_temp_dir() as temp_dir:
+            output_dir = Path(temp_dir)
+            internal_dir = output_dir / "_wewnetrzne"
+            internal_dir.mkdir(exist_ok=True)
+            (output_dir / "umowa_ANON.txt").write_text(
+                "Approved anonymized content.", encoding="utf-8"
+            )
+            (output_dir / "umowa_ANON_VISUAL.pdf").write_bytes(b"%PDF-1.4 fake")
+            (internal_dir / "umowa_RAPORT.txt").write_text(
+                "Post-anonymization audit:\nRisk level: ok\n", encoding="utf-8"
+            )
+            workspace = detect_review_workspace(output_dir)
+            items = apply_review_statuses(
+                workspace.items, {"umowa_ANON.txt": REVIEW_STATUS_APPROVED}
+            )
+            save_review_files(output_dir, items=items, saved_at="2026-06-18T10:00:00Z")
+
+            export_result = export_approved_workspace(
+                output_dir, exported_at="2026-06-18T11:00:00Z"
+            )
+
+            approved_dir = output_dir / "approved"
+            self.assertTrue((approved_dir / "umowa_ANON.txt").exists())
+            self.assertTrue((approved_dir / "umowa_ANON_VISUAL.pdf").exists())
+            self.assertEqual(
+                export_result.preferred_output_names, ["umowa_ANON_VISUAL.pdf"]
+            )
+            # copied_output_names/exported_output_count stay "one entry
+            # per approved item" (the TXT), not "one per file written to
+            # disk" - existing callers rely on that count meaning.
+            self.assertEqual(export_result.exported_output_count, 1)
+
+    def test_export_preferred_output_name_falls_back_to_txt_without_a_companion_pdf(
+        self,
+    ) -> None:
+        with workspace_temp_dir() as temp_dir:
+            output_dir = Path(temp_dir)
+            (output_dir / "notatka_ANON.txt").write_text(
+                "Approved anonymized content.", encoding="utf-8"
+            )
+            workspace = detect_review_workspace(output_dir)
+            items = apply_review_statuses(
+                workspace.items, {"notatka_ANON.txt": REVIEW_STATUS_APPROVED}
+            )
+            save_review_files(output_dir, items=items, saved_at="2026-06-18T10:00:00Z")
+
+            export_result = export_approved_workspace(
+                output_dir, exported_at="2026-06-18T11:00:00Z"
+            )
+
+            self.assertEqual(
+                export_result.preferred_output_names, ["notatka_ANON.txt"]
+            )
+
     def test_export_can_target_a_user_chosen_destination_outside_output_dir(
         self,
     ) -> None:

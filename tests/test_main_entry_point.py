@@ -6,6 +6,7 @@ startup would otherwise be completely silent. _log_crash exists so a
 real crash leaves a diagnosable trail instead.
 """
 
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -52,6 +53,67 @@ class LogCrashTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 main.main()
             mock_log.assert_called_once()
+
+
+class SuppressChildConsoleWindowsTests(unittest.TestCase):
+    """Regression test for a real user report: 2-3 terminal windows
+    flashing a couple seconds after the GUI appears, from background
+    startup checks (OCR language list, pip update check, ...) each
+    spawning a subprocess with no console-suppression flags of their
+    own - including inside the vendored pytesseract library, which
+    this app can't edit directly."""
+
+    def setUp(self) -> None:
+        self._original_popen_init = subprocess.Popen.__init__
+
+    def tearDown(self) -> None:
+        # Never leave the process-wide patch applied past this test -
+        # every other test in the same run shares this one process.
+        subprocess.Popen.__init__ = self._original_popen_init
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows-only behavior")
+    def test_patches_popen_to_inject_create_no_window(self) -> None:
+        main._suppress_child_console_windows()
+
+        result = subprocess.run(
+            ["cmd", "/c", "echo suppressed"], capture_output=True, check=False
+        )
+
+        self.assertEqual(result.stdout.strip(), b"suppressed")
+        self.assertIsNot(subprocess.Popen.__init__, self._original_popen_init)
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows-only behavior")
+    def test_preserves_a_caller_supplied_creationflags_value(self) -> None:
+        # Spy installed *before* _suppress_child_console_windows runs, so
+        # it wraps the spy - the spy then sees the already-merged flags
+        # the real Popen.__init__ would receive, not the pre-merge value.
+        captured: dict[str, int] = {}
+        original_init = subprocess.Popen.__init__
+
+        def spy_init(self, *args, **kwargs):
+            captured["creationflags"] = kwargs.get("creationflags")
+            original_init(self, *args, **kwargs)
+
+        subprocess.Popen.__init__ = spy_init
+        main._suppress_child_console_windows()
+
+        subprocess.run(
+            ["cmd", "/c", "echo flags"],
+            capture_output=True,
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
+            check=False,
+        )
+
+        self.assertEqual(
+            captured["creationflags"],
+            subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW,
+        )
+
+    def test_is_a_no_op_off_windows(self) -> None:
+        with patch("main.sys.platform", "linux"):
+            main._suppress_child_console_windows()
+
+        self.assertIs(subprocess.Popen.__init__, self._original_popen_init)
 
 
 if __name__ == "__main__":

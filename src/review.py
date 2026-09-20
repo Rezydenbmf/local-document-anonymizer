@@ -95,6 +95,13 @@ class ApprovedExportResult:
     missing_report_names: list[str]
     copied_output_names: list[str]
     copied_report_names: list[str]
+    # One entry per approved item, parallel to the *items* (not 1:1 with
+    # copied_output_names, which can hold two names per item once the
+    # companion PDF below is copied too) - the file a caller should
+    # actually open/show the user for that item: the companion visual
+    # PDF's *new* name in approved_dir when one was copied, otherwise the
+    # same name already in copied_output_names for that item.
+    preferred_output_names: list[str]
 
 
 def _now_timestamp() -> str:
@@ -593,6 +600,7 @@ def export_approved_workspace(
     copied_report_names: list[str] = []
     missing_report_names: list[str] = []
     exported_items: list[ReviewItem] = []
+    preferred_output_names: list[str] = []
 
     for item in approved_items:
         source_output_path = folder / item.output_name
@@ -602,6 +610,26 @@ def export_approved_workspace(
         output_destination = build_collision_safe_path(approved_dir / item.output_name)
         shutil.copy2(source_output_path, output_destination)
         copied_output_names.append(output_destination.name)
+        preferred_output_names.append(output_destination.name)
+
+        # item.output_name is always the plain-text output, even for a
+        # PDF source document - the companion, colored-redaction visual
+        # PDF a user actually wants to hand off lives under a different
+        # name and was never copied here at all until this fix (a real
+        # gap: "export approved files" silently only ever exported the
+        # TXT for every PDF, never the PDF itself). Copied alongside,
+        # under its own name, whenever one exists - tracked separately
+        # from copied_output_names/exported_output_count, which stay
+        # "one entry per approved item" (the TXT), not "one per file
+        # written to disk", so existing counts/tests keep their meaning.
+        preferred_source_path = preferred_review_output_path(folder, item.output_name)
+        if preferred_source_path != source_output_path and preferred_source_path.is_file():
+            preferred_destination = build_collision_safe_path(
+                approved_dir / preferred_source_path.name
+            )
+            shutil.copy2(preferred_source_path, preferred_destination)
+            preferred_output_names[-1] = preferred_destination.name
+
         exported_items.append(
             ReviewItem(
                 output_name=output_destination.name,
@@ -648,6 +676,7 @@ def export_approved_workspace(
         missing_report_names=missing_report_names,
         copied_output_names=copied_output_names,
         copied_report_names=copied_report_names,
+        preferred_output_names=preferred_output_names,
     )
 
 

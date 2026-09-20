@@ -3290,10 +3290,10 @@ class AnonymizerApp:
         # destination folder instead of flooding the screen with that
         # many PDF viewer windows.
         try:
-            if len(export_result.copied_output_names) == 1:
+            if len(export_result.preferred_output_names) == 1:
                 open_path_with_default_app(
                     export_result.approved_dir
-                    / export_result.copied_output_names[0]
+                    / export_result.preferred_output_names[0]
                 )
             else:
                 open_path_with_default_app(export_result.approved_dir)
