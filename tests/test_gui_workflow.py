@@ -643,6 +643,31 @@ class GuiWorkflowTests(unittest.TestCase):
         self.assertNotIn("PESEL", combined)
         self.assertNotIn("@", combined)
 
+    def test_format_pending_edit_summary_lines_signature_toggle_on_own(
+        self,
+    ) -> None:
+        # A magic-pen signature-toggle-only pending change (Etap 7) has
+        # zero rect edits - without this, the confirmation dialog would
+        # show an empty summary list for a real pending change.
+        lines = format_pending_edit_summary_lines(
+            0, [], 0, [],
+            signature_removal_changed=True,
+            strip_signatures=True,
+        )
+        self.assertEqual(len(lines), 1)
+        self.assertIn("włączone", lines[0])
+
+    def test_format_pending_edit_summary_lines_signature_toggle_off(
+        self,
+    ) -> None:
+        lines = format_pending_edit_summary_lines(
+            1, [1], 0, [],
+            signature_removal_changed=True,
+            strip_signatures=False,
+        )
+        self.assertEqual(len(lines), 2)
+        self.assertIn("wyłączone", lines[1])
+
     def test_format_pending_edit_confirmation_title_pluralizes(self) -> None:
         self.assertEqual(
             format_pending_edit_confirmation_title(1), "Zatwierdzić 1 edycję?"

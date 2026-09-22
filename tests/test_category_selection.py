@@ -39,9 +39,11 @@ from anonymizer import (
     compute_pdf_redaction_spans,
     load_active_pages_selection,
     load_category_selection,
+    load_signature_stripping_selection,
     resolve_active_labels,
     resolve_active_pages,
     save_category_selection,
+    update_signature_stripping_selection,
 )
 from audit import audit_text
 from ner import NerContext, NerEntity, anonymize_text_with_ner
@@ -1151,6 +1153,69 @@ class MagicPenRegenerateRespectsCategorySelectionTests(unittest.TestCase):
                 page_two_text = document[1].get_text("text")
         self.assertNotIn("00000000000", page_one_text)
         self.assertIn("11111111111", page_two_text)
+
+
+class UpdateSignatureStrippingSelectionTests(unittest.TestCase):
+    """Coverage for the sidecar patch ComparisonWindow's magic-pen
+    signature-removal toggle uses (see _save_pending_changes) - rewrites
+    only strip_signatures, from already-resolved active_labels/
+    active_pages, without re-resolving raw category names/page-range
+    text (which ComparisonWindow never retains - see the function's own
+    docstring for why re-resolving would reopen the CATEGORY_GROUPS-
+    mapping staleness problem load_category_selection guards against)."""
+
+    def test_round_trips_the_new_strip_signatures_value(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            output_path = Path(temp_dir) / "document_ANON_VISUAL.pdf"
+            path = category_selection_path(output_path)
+            save_category_selection(path, ["pesel"], strip_signatures=False)
+
+            update_signature_stripping_selection(
+                path,
+                active_labels=frozenset({"PESEL"}),
+                active_pages=None,
+                strip_signatures=True,
+            )
+
+            self.assertTrue(load_signature_stripping_selection(path))
+
+    def test_preserves_active_labels_and_active_pages(self) -> None:
+        """The whole point of this function over re-calling
+        save_category_selection: active_labels/active_pages must pass
+        through unchanged, exactly as ComparisonWindow already had them
+        resolved at window-open time."""
+        with workspace_temp_dir() as temp_dir:
+            output_path = Path(temp_dir) / "document_ANON_VISUAL.pdf"
+            path = category_selection_path(output_path)
+
+            update_signature_stripping_selection(
+                path,
+                active_labels=frozenset({"PESEL", "EMAIL"}),
+                active_pages=frozenset({1, 3}),
+                strip_signatures=True,
+            )
+
+            self.assertEqual(
+                load_category_selection(path), frozenset({"PESEL", "EMAIL"})
+            )
+            self.assertEqual(load_active_pages_selection(path), frozenset({1, 3}))
+            self.assertTrue(load_signature_stripping_selection(path))
+
+    def test_none_active_labels_and_pages_round_trip_as_no_filtering(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            output_path = Path(temp_dir) / "document_ANON_VISUAL.pdf"
+            path = category_selection_path(output_path)
+
+            update_signature_stripping_selection(
+                path,
+                active_labels=None,
+                active_pages=None,
+                strip_signatures=False,
+            )
+
+            self.assertIsNone(load_category_selection(path))
+            self.assertIsNone(load_active_pages_selection(path))
+            self.assertFalse(load_signature_stripping_selection(path))
 
 
 class AttachPdfCoverageMetadataCategoryAwarenessTests(unittest.TestCase):

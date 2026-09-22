@@ -21,6 +21,7 @@ try:
         load_active_pages_selection,
         load_category_selection,
         load_signature_stripping_selection,
+        update_signature_stripping_selection,
     )
     from .file_readers import (
         read_docx_file,
@@ -43,6 +44,7 @@ try:
         COLOR_TEXT_MUTED,
         COLOR_WARNING,
         COLOR_WARNING_SOFT,
+        COLOR_WARNING_TEXT,
         FLOATING_ACTIONS_HIDDEN,
         FLOATING_ACTIONS_SAVED,
         FONT_FAMILY,
@@ -86,6 +88,7 @@ try:
         regenerate_pdf_with_manual_overrides,
         save_manual_edits,
     )
+    from .pdf_redaction import pdf_has_signature_widget
     from .review import (
         REVIEW_STATUS_APPROVED,
         REVIEW_STATUS_NEEDS_REVIEW,
@@ -98,6 +101,7 @@ except ImportError:
         load_active_pages_selection,
         load_category_selection,
         load_signature_stripping_selection,
+        update_signature_stripping_selection,
     )
     from file_readers import (
         read_docx_file,
@@ -120,6 +124,7 @@ except ImportError:
         COLOR_TEXT_MUTED,
         COLOR_WARNING,
         COLOR_WARNING_SOFT,
+        COLOR_WARNING_TEXT,
         FLOATING_ACTIONS_HIDDEN,
         FLOATING_ACTIONS_SAVED,
         FONT_FAMILY,
@@ -163,6 +168,7 @@ except ImportError:
         regenerate_pdf_with_manual_overrides,
         save_manual_edits,
     )
+    from pdf_redaction import pdf_has_signature_widget
     from review import (
         REVIEW_STATUS_APPROVED,
         REVIEW_STATUS_NEEDS_REVIEW,
@@ -512,6 +518,13 @@ class ComparisonWindow:
         self._original_strip_signatures: bool = load_signature_stripping_selection(
             category_selection_path(result_path)
         )
+        # Live, user-toggleable value for this window's magic-pen
+        # signature-removal checkbox (see _build_signature_removal_toggle)
+        # - starts equal to the frozen original choice, and only diverges
+        # once the user actually flips the checkbox. _has_pending_changes
+        # compares the two to know whether the toggle itself, with zero
+        # rect edits, is still a save-worthy pending change.
+        self._current_strip_signatures: bool = self._original_strip_signatures
         self._images: list[ctk.CTkImage] = []
         self._tk_images: list[ImageTk.PhotoImage] = []
         self._page_canvases: dict[int, tk.Canvas] = {}
@@ -544,8 +557,8 @@ class ComparisonWindow:
         self._floating_actions: ctk.CTkFrame | None = None
         self._home_icon_image: ctk.CTkImage | None = None
         self.right_container: ctk.CTkFrame | None = None
-        self._edit_undo_stack: list[tuple[list[ManualRect], set]] = []
-        self._edit_redo_stack: list[tuple[list[ManualRect], set]] = []
+        self._edit_undo_stack: list[tuple[list[ManualRect], set, bool]] = []
+        self._edit_redo_stack: list[tuple[list[ManualRect], set, bool]] = []
         self.pen_status_label: ctk.CTkLabel | None = None
         # Etap 3: each mouse button (left/right/middle) is independently
         # bound to one of three actions (mark/erase/pan) per
@@ -602,6 +615,12 @@ class ComparisonWindow:
         self.legend_sidebar_collapsed = False
         self.content_row: ctk.CTkFrame | None = None
         self._sidebar_widget: ctk.CTkFrame | None = None
+        # Rebuilt fresh each time _build_signature_removal_toggle runs
+        # (the sidebar itself is torn down/rebuilt on collapse toggle) -
+        # kept so _cancel_pending_changes can resync the checkbox's
+        # displayed state after reverting self._current_strip_signatures,
+        # without the checkbox itself needing to re-read app state.
+        self._strip_signatures_var: tk.BooleanVar | None = None
 
         self.magic_pen_available = bool(
             original_path is not None
@@ -619,6 +638,25 @@ class ComparisonWindow:
         # once here from the snapshot passed in, not re-checked live
         # against self.app.review_items while the window stays open.
         self.locked = item.status == REVIEW_STATUS_APPROVED
+        # Etap 7 magic-pen toggle: only offer it when the *source* (not
+        # the already-redacted result) actually has an in-scope signature
+        # field to remove (active_pages=self._original_active_pages, the
+        # same frozen page range _strip_signature_widgets itself honors -
+        # a signature field outside that range can never actually be
+        # removed, so offering the toggle for it would be a guaranteed
+        # no-op) - avoids cluttering the sidebar with a checkbox that
+        # would do nothing. Also skipped entirely for an already-approved
+        # (locked) window, where the toggle could never be shown anyway.
+        # Checked once here, not live, matching magic_pen_available's own
+        # once-per-window-open evaluation.
+        self._document_has_signature_widget = bool(
+            self.magic_pen_available
+            and not self.locked
+            and original_path is not None
+            and pdf_has_signature_widget(
+                original_path, active_pages=self._original_active_pages
+            )
+        )
 
         window = ctk.CTkToplevel(app.root)
         self.window = window
@@ -1833,6 +1871,78 @@ class ComparisonWindow:
 
     # -- magic pen: toolbar -------------------------------------------------
 
+    def _build_signature_removal_toggle(self, parent: ctk.CTkFrame) -> None:
+        """The Etap 7 "Usuń podpisy elektroniczne" checkbox, mirrored into
+        the comparison window so the choice can be revisited per document
+        from inside the magic pen, not only once at pre-anonymization time
+        (see gui_app.py's own copy of this card for the original). Only
+        built when the caller has already confirmed
+        self._document_has_signature_widget, which itself already implies
+        not self.locked (see __init__).
+
+        Its own warning-colored card, same COLOR_WARNING_SOFT/COLOR_WARNING
+        framing as the pre-anonymization checkbox, for the same reason:
+        this is an irreversible, structural removal, unlike anything else
+        in this sidebar (the color legend below it is static, not even a
+        toggle).
+
+        CTkCheckBox has no wraplength support at all (see the same note
+        on gui_app.py's category checkboxes) - a label long enough to
+        explain itself inline would just overflow this 200px-wide sidebar
+        column. Mirrors gui_app.py's own split here: a short bold label on
+        the checkbox itself, the actual explanation in a separate wrapped
+        CTkLabel underneath.
+        """
+        card = ctk.CTkFrame(
+            parent,
+            corner_radius=8,
+            fg_color=COLOR_WARNING_SOFT,
+            border_width=1,
+            border_color=COLOR_WARNING,
+        )
+        card.pack(fill="x", pady=(0, 4))
+        card_inner = ctk.CTkFrame(card, fg_color="transparent")
+        card_inner.pack(fill="x", padx=10, pady=8)
+
+        strip_signatures_var = tk.BooleanVar(value=self._current_strip_signatures)
+        self._strip_signatures_var = strip_signatures_var
+
+        def _on_toggle(var=strip_signatures_var) -> None:
+            self._current_strip_signatures = var.get()
+            self._update_pending_state()
+
+        checkbox = ctk.CTkCheckBox(
+            card_inner,
+            text="Usuń podpisy elektroniczne",
+            variable=strip_signatures_var,
+            command=_on_toggle,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11, weight="bold"),
+            text_color=COLOR_WARNING_TEXT,
+            fg_color=COLOR_WARNING,
+            hover_color=COLOR_WARNING,
+        )
+        checkbox.pack(anchor="w", pady=(0, 4))
+        ctk.CTkLabel(
+            card_inner,
+            text=(
+                "Nieodwracalnie usuwa pole podpisu elektronicznego z PDF-a "
+                "po zaakceptowaniu edycji."
+            ),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+            text_color=COLOR_WARNING_TEXT,
+            anchor="w",
+            wraplength=150,
+            justify="left",
+        ).pack(fill="x")
+        IconTooltip(
+            checkbox,
+            "Domyślnie zgodnie z pierwotnym wyborem sprzed anonimizacji. "
+            "Gdy zaznaczone, kolejny zapis usunie z PDF-a pole podpisu "
+            "elektronicznego razem z jego widoczną treścią - nieodwracalne "
+            "w wyniku. Zmiana zacznie obowiązywać dopiero po zaakceptowaniu "
+            "edycji.",
+        )
+
     def _build_magic_pen_sidebar(self, parent: ctk.CTkFrame) -> ctk.CTkFrame:
         """The right-hand "Korekta anonimizacji" panel: the lock notice
         (approved files) or a short reminder of how the pen works, plus
@@ -1939,6 +2049,12 @@ class ComparisonWindow:
             ).pack(fill="x", pady=(0, 10))
 
         ctk.CTkFrame(inner, fg_color=COLOR_BORDER, height=1).pack(fill="x", pady=14)
+
+        if self._document_has_signature_widget:
+            self._build_signature_removal_toggle(inner)
+            ctk.CTkFrame(inner, fg_color=COLOR_BORDER, height=1).pack(
+                fill="x", pady=14
+            )
 
         ctk.CTkLabel(
             inner,
@@ -2408,13 +2524,26 @@ class ComparisonWindow:
 
     # -- magic pen: undo/redo for pending (unsaved) edits --------------------
 
-    def _snapshot_pending_edit_state(self) -> tuple[list[ManualRect], set]:
-        return (list(self.pending_add_rects), set(self.pending_remove_keys))
+    def _snapshot_pending_edit_state(self) -> tuple[list[ManualRect], set, bool]:
+        # Includes the signature toggle alongside the rects it has sat next
+        # to ever since _has_pending_changes/_pending_change_count started
+        # treating it as a pending change too - without this, cancelling a
+        # toggle-only change (or a change made alongside rect edits) then
+        # pressing Ctrl+Z would leave the toggle silently un-undone even
+        # though the rects came back, a real bug code review caught.
+        return (
+            list(self.pending_add_rects),
+            set(self.pending_remove_keys),
+            self._current_strip_signatures,
+        )
 
     def _restore_pending_edit_state(
-        self, snapshot: tuple[list[ManualRect], set]
+        self, snapshot: tuple[list[ManualRect], set, bool]
     ) -> None:
-        self.pending_add_rects, self.pending_remove_keys = snapshot
+        self.pending_add_rects, self.pending_remove_keys, strip_signatures = snapshot
+        self._current_strip_signatures = strip_signatures
+        if self._strip_signatures_var is not None:
+            self._strip_signatures_var.set(strip_signatures)
         self._redraw_all_overlays()
         self._update_pending_state()
         self._update_undo_redo_buttons()
@@ -2478,11 +2607,31 @@ class ComparisonWindow:
             text_color=COLOR_ACCENT if enabled else COLOR_TEXT_MUTED,
         )
 
+    def _signature_choice_changed(self) -> bool:
+        return self._current_strip_signatures != self._original_strip_signatures
+
     def _has_pending_changes(self) -> bool:
-        return bool(self.pending_remove_keys) or bool(self.pending_add_rects)
+        return (
+            bool(self.pending_remove_keys)
+            or bool(self.pending_add_rects)
+            or self._signature_choice_changed()
+        )
+
+    def _pending_change_count(self) -> int:
+        """Rect edits plus the signature toggle, the latter counted as
+        one unit when changed - so every count-based label (save button,
+        floating status, confirmation title) stays accurate without each
+        needing its own separate "plus a signature change" branch, and a
+        toggle-only change (0 rect edits) reads as "(1)" instead of a
+        misleading "(0)"."""
+        return (
+            len(self.pending_remove_keys)
+            + len(self.pending_add_rects)
+            + int(self._signature_choice_changed())
+        )
 
     def _update_pending_state(self) -> None:
-        count = len(self.pending_remove_keys) + len(self.pending_add_rects)
+        count = self._pending_change_count()
         mode = self._floating_actions_mode()
         if self.save_button is not None:
             # Always enabled/accent-colored: the whole overlay only exists
@@ -2499,6 +2648,9 @@ class ComparisonWindow:
         self._push_undo_snapshot()
         self.pending_remove_keys = set()
         self.pending_add_rects = []
+        self._current_strip_signatures = self._original_strip_signatures
+        if self._strip_signatures_var is not None:
+            self._strip_signatures_var.set(self._original_strip_signatures)
         for page_number in list(self._page_canvases.keys()):
             self._redraw_overlay(page_number)
         self._update_pending_state()
@@ -2521,16 +2673,19 @@ class ComparisonWindow:
                 if rect_info_key(rect_info) in self.pending_remove_keys
             }
         )
+        signature_removal_changed = self._signature_choice_changed()
         summary_lines = format_pending_edit_summary_lines(
             len(self.pending_add_rects),
             added_pages,
             len(self.pending_remove_keys),
             removed_pages,
+            signature_removal_changed=signature_removal_changed,
+            strip_signatures=self._current_strip_signatures,
         )
         self._build_save_confirmation_dialog(summary_lines)
 
     def _build_save_confirmation_dialog(self, summary_lines: list[str]) -> None:
-        total = len(self.pending_remove_keys) + len(self.pending_add_rects)
+        total = self._pending_change_count()
         window = ctk.CTkToplevel(self.window)
         dialog_height = 190 + 24 * len(summary_lines)
         window.title(format_pending_edit_confirmation_title(total))
@@ -2634,7 +2789,7 @@ class ComparisonWindow:
                 spans=spans,
                 active_labels=self._original_active_labels,
                 active_pages=self._original_active_pages,
-                strip_signatures=self._original_strip_signatures,
+                strip_signatures=self._current_strip_signatures,
             )
             os.replace(staging_path, self.result_path)
             save_manual_edits(manual_edits_path(self.result_path), new_edits)
@@ -2652,6 +2807,24 @@ class ComparisonWindow:
             if self.pen_status_label is not None:
                 self.pen_status_label.configure(text="Nie udało się zapisać zmian.")
             return
+
+        if self._signature_choice_changed():
+            try:
+                update_signature_stripping_selection(
+                    category_selection_path(self.result_path),
+                    active_labels=self._original_active_labels,
+                    active_pages=self._original_active_pages,
+                    strip_signatures=self._current_strip_signatures,
+                )
+            except OSError:
+                # Cosmetic-adjacent app state, not the anonymization
+                # itself - see save_category_selection's docstring. The
+                # regenerated PDF above already reflects the new choice
+                # either way; only a *later* regenerate would silently
+                # fall back to the stale sidecar value if this write
+                # failed.
+                pass
+            self._original_strip_signatures = self._current_strip_signatures
 
         self.edits = new_edits
         self.pending_remove_keys = set()

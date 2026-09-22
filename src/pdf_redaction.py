@@ -585,6 +585,43 @@ def pdf_page_count(source_path: str | Path) -> int | None:
         return None
 
 
+def pdf_has_signature_widget(
+    source_path: str | Path,
+    *,
+    active_pages: frozenset[int] | None = None,
+) -> bool:
+    """Return whether a PDF has at least one *in-scope* AcroForm signature
+    field (the same ``PDF_WIDGET_TYPE_SIGNATURE`` scope, and the same
+    ``active_pages``/``_page_in_scope`` filtering, ``_strip_signature_widgets``
+    actually removes) - never raises, ``False`` on any failure (missing
+    PyMuPDF, a corrupt/non-PDF file, ...).
+
+    Used to only show the magic-pen signature-removal toggle for
+    documents that actually have a signature field the removal step
+    would touch. Without the same ``active_pages`` filtering
+    ``_strip_signature_widgets`` applies, a document whose Etap 5 page
+    range excludes the only page carrying a signature would still show
+    the toggle - and flipping it would silently do nothing, exactly the
+    no-op this gate exists to prevent."""
+    try:
+        fitz = _load_fitz_module()
+    except RuntimeError:
+        return False
+    try:
+        with fitz.open(source_path) as document:
+            if not document.is_form_pdf:
+                return False
+            for page_number, page in enumerate(document, start=1):
+                if not _page_in_scope(page_number, active_pages):
+                    continue
+                for widget in page.widgets() or []:
+                    if widget.field_type == fitz.PDF_WIDGET_TYPE_SIGNATURE:
+                        return True
+            return False
+    except Exception:  # noqa: BLE001 - a bad/corrupt file must never crash the GUI
+        return False
+
+
 def _build_word_page(
     fitz,
     page_number: int,

@@ -86,6 +86,8 @@ class ComparisonWindowMouseDispatchTests(unittest.TestCase):
         window.pen_status_label = None
         window._floating_actions = None
         window._edits_saved = False
+        window._original_strip_signatures = False
+        window._current_strip_signatures = False
 
         window.right_frame = ctk.CTkScrollableFrame(self._root, width=300, height=300)
         window.right_frame.pack()
