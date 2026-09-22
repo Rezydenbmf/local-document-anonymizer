@@ -104,7 +104,7 @@ APP_SUBTITLE = "Chroń dane wrażliwe. Szybko, bezpiecznie i lokalnie."
 # a script-style font so it reads as a handwritten note, not a generic
 # label (see the app's own design notes in pomysly/).
 APP_PERSONAL_NOTE = "Twoje dokumenty. Tylko u Ciebie."
-APP_VERSION = "0.1.0-alpha"
+APP_VERSION = "0.2.0-alpha"
 # Shown as a small badge next to the brand title and repeated in the
 # About dialog - this build is pre-release: not yet broadly tested, and
 # one feature (local-LLM review) is present in the code but disabled
