@@ -279,6 +279,32 @@ class PdfHasSignatureWidgetTests(unittest.TestCase):
             missing_path = Path(temp_dir) / "does_not_exist.pdf"
             self.assertFalse(pdf_has_signature_widget(missing_path))
 
+    def test_active_pages_excludes_a_signature_on_an_out_of_scope_page(
+        self,
+    ) -> None:
+        """Regression guard for a real bug code review caught: without
+        the same active_pages/_page_in_scope filtering
+        _strip_signature_widgets itself applies, this gate would show the
+        magic-pen toggle for a document whose Etap 5 page range excludes
+        the only page carrying a signature - and flipping that toggle
+        would then be a guaranteed no-op."""
+        with workspace_temp_dir() as temp_dir:
+            source_path = Path(temp_dir) / "signed_page_two.pdf"
+            write_fitz_pdf_with_signature_widget(
+                source_path, page_count=2, signature_page=2
+            )
+            self.assertFalse(
+                pdf_has_signature_widget(
+                    source_path, active_pages=frozenset({1})
+                )
+            )
+            self.assertTrue(
+                pdf_has_signature_widget(
+                    source_path, active_pages=frozenset({2})
+                )
+            )
+            self.assertTrue(pdf_has_signature_widget(source_path))
+
     def test_false_for_a_corrupt_non_pdf_file_never_raises(self) -> None:
         with workspace_temp_dir() as temp_dir:
             bad_path = Path(temp_dir) / "not_a_pdf.pdf"

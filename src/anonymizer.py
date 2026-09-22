@@ -514,37 +514,21 @@ def load_active_pages_selection(path: str | Path) -> frozenset[int] | None:
     return frozenset(pages)
 
 
-def save_category_selection(
-    path: str | Path,
-    active_categories: Iterable[str] | None,
+def _write_category_selection_sidecar(
+    destination: Path,
     *,
-    page_range: str | None = None,
-    strip_signatures: bool = False,
+    active_categories: list[str] | None,
+    active_labels: frozenset[str] | None,
+    page_range: str | None,
+    active_pages: frozenset[int] | None,
+    strip_signatures: bool,
 ) -> Path:
-    """Write the category selection sidecar - ``None`` records "no
-    filtering" explicitly (as ``null``), the same as never having one
-    of the 8 categories deselected. Never raises on a write failure
+    """Shared payload shape/write for save_category_selection and
+    update_signature_stripping_selection - keeps the on-disk sidecar
+    format defined in exactly one place. Never raises on a write failure
     (e.g. a read-only folder) - a cosmetic-adjacent app-state file, not
     worth failing the whole anonymization run over; the caller decides
-    whether to log/ignore.
-
-    Stores both the category *names* (kept for a possible future "what
-    did I pick last time" display - never read back by this app today)
-    and the *resolved* label set active right now, at save time - see
-    load_category_selection for why the resolved set, not the names, is
-    what a later regenerate actually needs. ``page_range`` (Etap 5's raw
-    "Strony" field text, e.g. ``"1-3,5"``) is resolved and frozen the
-    same way, for the same reason - see load_active_pages_selection.
-    ``strip_signatures`` (Etap 7 - off by default, an explicit opt-in
-    per the user's own decision that this must never run automatically)
-    is frozen the same way too - see load_signature_stripping_selection.
-    """
-    destination = Path(path)
-    active_categories = (
-        list(active_categories) if active_categories is not None else None
-    )
-    active_labels = resolve_active_labels(active_categories)
-    active_pages = resolve_active_pages(page_range)
+    whether to log/ignore."""
     payload = {
         "active_categories": active_categories,
         "active_labels": (
@@ -563,6 +547,41 @@ def save_category_selection(
     return destination
 
 
+def save_category_selection(
+    path: str | Path,
+    active_categories: Iterable[str] | None,
+    *,
+    page_range: str | None = None,
+    strip_signatures: bool = False,
+) -> Path:
+    """Write the category selection sidecar - ``None`` records "no
+    filtering" explicitly (as ``null``), the same as never having one
+    of the 8 categories deselected.
+
+    Stores both the category *names* (kept for a possible future "what
+    did I pick last time" display - never read back by this app today)
+    and the *resolved* label set active right now, at save time - see
+    load_category_selection for why the resolved set, not the names, is
+    what a later regenerate actually needs. ``page_range`` (Etap 5's raw
+    "Strony" field text, e.g. ``"1-3,5"``) is resolved and frozen the
+    same way, for the same reason - see load_active_pages_selection.
+    ``strip_signatures`` (Etap 7 - off by default, an explicit opt-in
+    per the user's own decision that this must never run automatically)
+    is frozen the same way too - see load_signature_stripping_selection.
+    """
+    active_categories = (
+        list(active_categories) if active_categories is not None else None
+    )
+    return _write_category_selection_sidecar(
+        Path(path),
+        active_categories=active_categories,
+        active_labels=resolve_active_labels(active_categories),
+        page_range=page_range,
+        active_pages=resolve_active_pages(page_range),
+        strip_signatures=strip_signatures,
+    )
+
+
 def update_signature_stripping_selection(
     path: str | Path,
     *,
@@ -571,37 +590,30 @@ def update_signature_stripping_selection(
     strip_signatures: bool,
 ) -> Path:
     """Rewrite the category-selection sidecar after a magic-pen "regenerate"
-    changes only the Etap 7 signature-stripping choice from inside
-    ComparisonWindow, without re-resolving ``active_labels``/``active_pages``
-    from raw category names/page-range text - ComparisonWindow never
-    retains those, only the already-resolved frozensets this same sidecar
-    handed it at window-open time (see ``load_category_selection``).
-    Re-resolving from raw names here would reopen the exact
-    CATEGORY_GROUPS-mapping staleness problem ``load_category_selection``'s
-    docstring describes; writing the already-resolved values straight
-    through avoids it entirely.
+    from ComparisonWindow, using already-resolved active_labels/
+    active_pages rather than re-resolving from raw category names/page-
+    range text - ComparisonWindow never retains those, only the already-
+    resolved frozensets this same sidecar handed it at window-open time
+    (see load_category_selection). Re-resolving from raw names here would
+    reopen the exact CATEGORY_GROUPS-mapping staleness problem
+    load_category_selection's docstring describes; writing the already-
+    resolved values straight through avoids it entirely.
 
-    Sibling of ``save_category_selection``, writing the same sidecar
-    shape with ``active_categories``/``page_range`` left ``null`` (raw
-    names/text this call site never has) - safe, since neither field is
-    read back by this app today (see ``save_category_selection``)."""
-    destination = Path(path)
-    payload = {
-        "active_categories": None,
-        "active_labels": (
-            sorted(active_labels) if active_labels is not None else None
-        ),
-        "page_range": None,
-        "active_pages": (
-            sorted(active_pages) if active_pages is not None else None
-        ),
-        "strip_signatures": bool(strip_signatures),
-    }
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+    Overwrites the sidecar's ``active_categories``/``page_range`` fields
+    with ``null`` in the process (this call site never has the raw names/
+    text save_category_selection normally stores there) - safe only
+    because neither field is ever read back by this app (see
+    save_category_selection's own docstring); a future reader of this
+    sidecar must not assume those two fields survive a magic-pen
+    regenerate."""
+    return _write_category_selection_sidecar(
+        Path(path),
+        active_categories=None,
+        active_labels=active_labels,
+        page_range=None,
+        active_pages=active_pages,
+        strip_signatures=strip_signatures,
     )
-    return destination
 
 
 # audit.py's own leftover-risk scanner has a handful of broader,

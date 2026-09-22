@@ -85,5 +85,39 @@ class CancelPendingChangesResetsSignatureToggleTests(unittest.TestCase):
         self.assertFalse(window._has_pending_changes())
 
 
+class UndoRedoIncludesSignatureToggleTests(unittest.TestCase):
+    """Regression guard for a real bug code review caught: cancelling a
+    signature-toggle change used to push an undo snapshot that only
+    covered pending_add_rects/pending_remove_keys, so Ctrl+Z after
+    "Anuluj" silently left the toggle reverted instead of restoring it
+    too."""
+
+    def test_undo_after_cancel_restores_a_toggle_only_change(self) -> None:
+        window = make_bare_window(original_strip_signatures=False)
+        window._current_strip_signatures = True
+
+        window._cancel_pending_changes()
+        self.assertFalse(window._current_strip_signatures)
+
+        window._undo_last_edit()
+
+        self.assertTrue(window._current_strip_signatures)
+        self.assertTrue(window._has_pending_changes())
+
+    def test_undo_after_cancel_restores_toggle_alongside_rects(self) -> None:
+        window = make_bare_window(original_strip_signatures=False)
+        window._current_strip_signatures = True
+        window.pending_remove_keys = {"a"}
+
+        window._cancel_pending_changes()
+        self.assertFalse(window._current_strip_signatures)
+        self.assertEqual(window.pending_remove_keys, set())
+
+        window._undo_last_edit()
+
+        self.assertTrue(window._current_strip_signatures)
+        self.assertEqual(window.pending_remove_keys, {"a"})
+
+
 if __name__ == "__main__":
     unittest.main()
