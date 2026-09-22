@@ -20,6 +20,7 @@ try:
         BatchResult,
         anonymize_batch,
         resolve_active_pages,
+        resolved_path_key,
     )
     from .dependency_updates import (
         check_dependency_updates,
@@ -141,6 +142,7 @@ try:
         format_file_size,
         format_history_cleanup_summary,
     )
+    from .pdf_redaction import pdf_page_count
     from .review import (
         REVIEW_STATUS_APPROVED,
         REVIEW_STATUS_NEEDS_REVIEW,
@@ -158,6 +160,7 @@ except ImportError:
         BatchResult,
         anonymize_batch,
         resolve_active_pages,
+        resolved_path_key,
     )
     from dependency_updates import (
         check_dependency_updates,
@@ -279,6 +282,7 @@ except ImportError:
         format_file_size,
         format_history_cleanup_summary,
     )
+    from pdf_redaction import pdf_page_count
     from review import (
         REVIEW_STATUS_APPROVED,
         REVIEW_STATUS_NEEDS_REVIEW,
@@ -319,12 +323,22 @@ class AnonymizerApp:
         # like use_ner above, so it resets to "everything on" (the safe
         # default) every launch rather than being written to disk.
         self.active_categories: set[str] = set(ALL_CATEGORIES)
-        # Etap 5: raw "Strony" field text (e.g. "1-3,5") restricting
-        # automatic PDF redaction to a page range - empty string (the
-        # default) means every page, same per-task reset behavior as
-        # active_categories above. Only meaningful for PDF input; parsed
-        # via anonymizer.resolve_active_pages right before a batch run.
-        self.active_page_range: str = ""
+        # Per-file page-range redesign (2026-09-22, replaces Etap 5's
+        # single shared "Strony" field): each selected PDF gets its own
+        # raw range text and its own known real page count, keyed by the
+        # exact Path object living in self.selected_paths (safe to use
+        # as a dict key - remove_paths_by_indexes never rebuilds these
+        # objects, it only filters the list). page_counts is populated
+        # in _add_paths the moment a PDF is added (see
+        # pdf_redaction.pdf_page_count) so a page range can be validated
+        # against a specific document's real page count before the user
+        # ever runs anything, instead of only after a batch already ran.
+        # _page_range_vars holds the live tk.StringVar per file so
+        # _refresh_file_cards can drop stale traces just by discarding
+        # the dict (see its own comment).
+        self.page_counts: dict[Path, int | None] = {}
+        self.page_ranges: dict[Path, str] = {}
+        self._page_range_vars: dict[Path, tk.StringVar] = {}
         # Etap 7: "Usuń podpisy elektroniczne" - off by default per the
         # user's own explicit decision (2026-09-18: "usuwanie podpisu to
         # osobna opcja - nie dziala automatycznie"). Unlike every Etap 4
@@ -1256,36 +1270,11 @@ class AnonymizerApp:
             if detail:
                 IconTooltip(category_checkbox, detail)
 
-        page_range_row = ctk.CTkFrame(category_inner, fg_color="transparent")
-        page_range_row.pack(fill="x", pady=(6, 0))
-        ctk.CTkLabel(
-            page_range_row,
-            text="Strony (tylko PDF)",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-            text_color=COLOR_TEXT,
-            anchor="w",
-        ).pack(fill="x", pady=(0, 2))
-        # No live-sync StringVar/trace needed - self.active_page_range is
-        # only ever read once, in start_anonymize(), right before the
-        # batch run starts (same as every other "read the widget" field
-        # in this panel that isn't a checkbox needing an immediate
-        # command= callback).
-        self.page_range_entry = ctk.CTkEntry(
-            page_range_row,
-            placeholder_text="np. 1,3,5 lub 1-3 (puste = wszystkie)",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-        )
-        self.page_range_entry.insert(0, self.active_page_range)
-        self.page_range_entry.pack(fill="x")
-        IconTooltip(
-            self.page_range_entry,
-            "Automatyczne wykrywanie i zamazywanie w PDF-ie dotyczy tylko "
-            "wybranych stron - reszta zostaje nietknięta. Format: pojedyncze "
-            "numery stron po przecinku (1,3,5), zakresy z myślnikiem (1-3), "
-            "można łączyć oba naraz (1-3,5). Nie dotyczy dokumentów TXT/DOCX "
-            "ani raportu tekstowego, który nadal pokazuje pełne wykrycie na "
-            "całym dokumencie.",
-        )
+        # The old shared, whole-batch "Strony" field that used to live
+        # here was replaced by a per-file page-range control on each
+        # file's own card in the selected-files list (see
+        # _build_page_range_entry) - a single field couldn't express
+        # "different pages for different files in the same batch".
 
         # Deliberately its OWN card, not another row inside category_card
         # above - code review flagged that nesting it there was
@@ -1857,6 +1846,14 @@ class AnonymizerApp:
             return
         for widget in self.file_card_frame.winfo_children():
             widget.destroy()
+        # Replacing the dict (rather than calling trace_remove on each
+        # StringVar individually) doesn't immediately unregister the old
+        # write traces from Tcl's command table - only Python's own
+        # garbage collector eventually reclaims that reference cycle.
+        # Accepted as-is: nothing here ever calls .set() on a var whose
+        # card was already destroyed, so this is a bounded, slow memory
+        # cost in a long add/remove session, never a stale-write bug.
+        self._page_range_vars = {}
 
         for index, path in enumerate(self.selected_paths):
             self._build_file_card(self.file_card_frame, index, path)
@@ -1885,6 +1882,9 @@ class AnonymizerApp:
             anchor="w",
         ).pack(side="left", fill="x", expand=True)
 
+        if path.suffix.lower() == ".pdf":
+            self._build_page_range_entry(card, path)
+
         remove_button = ctk.CTkButton(
             card,
             text="\u2715",
@@ -1898,6 +1898,63 @@ class AnonymizerApp:
         )
         remove_button.pack(side="right", padx=8)
         IconTooltip(remove_button, "Usu\u0144 z listy")
+
+    def _build_page_range_entry(self, card: ctk.CTkFrame, path: Path) -> None:
+        """Per-file "Strony" control (replaces the old single, whole-batch
+        field) - live-validated against this specific file's own real
+        page count (see pdf_page_count in _add_paths), so a page number
+        the document doesn't have turns the border red immediately,
+        before the user ever clicks Anonimizuj."""
+        # `is not None` throughout (not plain truthiness) - a malformed
+        # 0-page PDF that PyMuPDF still opens without raising is a
+        # genuinely *known* count, not an unknown one; treating it as
+        # falsy would drop the count hint even though the bounds check
+        # below still correctly rejects every page number for it.
+        page_count = self.page_counts.get(path)
+        placeholder = (
+            f"np. 1-3 (z {page_count} str.)"
+            if page_count is not None
+            else "np. 1-3,5"
+        )
+        var = tk.StringVar(value=self.page_ranges.get(path, ""))
+        self._page_range_vars[path] = var
+        entry = ctk.CTkEntry(
+            card,
+            textvariable=var,
+            width=118,
+            height=28,
+            placeholder_text=placeholder,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            border_color=COLOR_BORDER,
+        )
+        entry.pack(side="right", padx=(0, 8), pady=8)
+        count_hint = (
+            f" Dokument ma {page_count} str." if page_count is not None else ""
+        )
+        IconTooltip(
+            entry,
+            "Zakres stron do automatycznej redakcji tego PDF-a (puste = ca\u0142y "
+            "dokument). Pojedyncze numery po przecinku (1,3,5), zakresy z "
+            "my\u015blnikiem (1-3), mo\u017cna \u0142\u0105czy\u0107 oba naraz (1-3,5)." + count_hint,
+        )
+
+        # No default-arg capture needed here (unlike the lambdas bound
+        # inside a for-loop elsewhere in this file, e.g. the remove
+        # button's `lambda i=index: ...`) - entry/path/var are already
+        # fixed for the lifetime of this one call, not a shared loop
+        # variable that changes out from under a later callback.
+        def _on_change(*_args: object) -> None:
+            text = var.get()
+            self.page_ranges[path] = text
+            try:
+                resolve_active_pages(text, page_count=self.page_counts.get(path))
+            except ValueError:
+                entry.configure(border_color=COLOR_HIGH_RISK)
+            else:
+                entry.configure(border_color=COLOR_BORDER)
+
+        var.trace_add("write", _on_change)
+        _on_change()
 
     def pick_files(self) -> None:
         # A drop on the same zone ends with a mouse-up that Tk also reports
@@ -1928,6 +1985,8 @@ class AnonymizerApp:
             if path not in self.selected_paths:
                 self.selected_paths.append(path)
                 added += 1
+                if path.suffix.lower() == ".pdf":
+                    self.page_counts[path] = pdf_page_count(path)
 
         self._refresh_file_cards()
         # A file name is not touched by anonymization, yet it travels with
@@ -1944,6 +2003,11 @@ class AnonymizerApp:
         )
 
     def remove_file_at(self, index: int) -> None:
+        if 0 <= index < len(self.selected_paths):
+            removed_path = self.selected_paths[index]
+            self.page_counts.pop(removed_path, None)
+            self.page_ranges.pop(removed_path, None)
+            self._page_range_vars.pop(removed_path, None)
         self.selected_paths = remove_paths_by_indexes(self.selected_paths, (index,))
         self._refresh_file_cards()
         self._update_readiness()
@@ -2422,20 +2486,27 @@ class AnonymizerApp:
         if not self.selected_paths or self.output_dir is None:
             return
 
-        # Read once here rather than kept in sync via a StringVar/trace on
-        # every keystroke - self.active_page_range only needs its current
-        # value at the one moment a batch run actually starts. Validated
-        # before show_processing_screen() so a typo in "Strony" (Etap 5)
-        # surfaces immediately, not after the processing screen has
-        # already flashed - matching the "fail loudly, before doing any
-        # work" pattern the export destination check uses elsewhere in
-        # this file.
-        self.active_page_range = self.page_range_entry.get()
-        try:
-            resolve_active_pages(self.active_page_range)
-        except ValueError as error:
-            messagebox.showerror("Zakres stron", str(error), parent=self.root)
-            return
+        # Per-file page ranges are already kept live in self.page_ranges
+        # via each card's own StringVar trace (see
+        # _build_page_range_entry), which also colors an invalid entry's
+        # border red as the user types - this is the final, authoritative
+        # check before anything actually runs, naming the specific file a
+        # bad range belongs to, matching the "fail loudly, before doing
+        # any work" pattern the export destination check uses elsewhere
+        # in this file.
+        page_ranges: dict[str, str] = {}
+        for path in self.selected_paths:
+            text = self.page_ranges.get(path, "")
+            if not text.strip():
+                continue
+            try:
+                resolve_active_pages(text, page_count=self.page_counts.get(path))
+            except ValueError as error:
+                messagebox.showerror(
+                    f"Zakres stron — {path.name}", str(error), parent=self.root
+                )
+                return
+            page_ranges[resolved_path_key(path)] = text
 
         self.show_processing_screen()
         self.root.update_idletasks()
@@ -2455,7 +2526,7 @@ class AnonymizerApp:
                     self.pdf_output_label
                 ),
                 active_categories=self.active_categories,
-                page_range=self.active_page_range,
+                page_ranges=page_ranges,
                 strip_signatures=self.strip_signatures,
                 progress_callback=self._update_processing,
             )

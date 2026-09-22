@@ -292,7 +292,37 @@ _PAGE_RANGE_TOKEN = re.compile(r"^\s*(\d+)\s*(?:-\s*(\d+)\s*)?$")
 _MAX_PAGE_NUMBER = 20_000
 
 
-def resolve_active_pages(page_range: str | None) -> frozenset[int] | None:
+def _pl_pages_word(count: int) -> str:
+    """Polish plural of "strona" (page) for a bare count, e.g. "1 stronę",
+    "3 strony", "5 stron" - standard Polish counting-noun grammar (not
+    just singular/plural)."""
+    if count == 1:
+        return "stronę"
+    tens_remainder = count % 100
+    units = count % 10
+    if 2 <= units <= 4 and not 12 <= tens_remainder <= 14:
+        return "strony"
+    return "stron"
+
+
+def resolved_path_key(path: Path) -> str:
+    """Return the string a per-file lookup (e.g. ``anonymize_batch``'s
+    ``page_ranges`` mapping) should use as this file's dict key -
+    ``str(path.resolve())`` when possible, falling back to the
+    unresolved ``str(path)`` on the rare ``OSError`` (a flaky network
+    share, a file removed mid-run). Shared by every caller that builds
+    or looks up such a mapping, so both sides of the same lookup always
+    agree on the fallback rule - if only one side used a different
+    fallback, a per-file range could silently stop reaching its file."""
+    try:
+        return str(path.resolve())
+    except OSError:
+        return str(path)
+
+
+def resolve_active_pages(
+    page_range: str | None, *, page_count: int | None = None
+) -> frozenset[int] | None:
     """Return the set of 1-based page numbers automatic PDF detection is
     allowed to touch, given the user's raw "Strony" field text (Etap 5).
 
@@ -305,6 +335,18 @@ def resolve_active_pages(page_range: str | None) -> frozenset[int] | None:
     page number past ``_MAX_PAGE_NUMBER``) - the caller must validate
     *before* starting the batch run rather than silently ignoring a
     range the user thought was being honored.
+
+    ``page_count`` (per-file page-range redesign) additionally rejects
+    any requested page beyond a *specific* document's real page count,
+    when the caller knows it (see ``pdf_redaction.pdf_page_count``) -
+    ``None`` (the default) skips this check entirely, exactly as before
+    this parameter existed, since most callers of this function have no
+    way to know a real page count at all. Opt-in per call site, not
+    automatically enforced by ``anonymize_batch`` itself - today only
+    the GUI's own live, per-file validation passes it; the batch/
+    redaction pipeline still relies on the separate, coarser
+    ``_page_range_out_of_bounds_warning`` safety net (post-hoc, and only
+    for a range *fully* outside the document) for callers that don't.
     """
     if page_range is None or not page_range.strip():
         return None
@@ -328,6 +370,11 @@ def resolve_active_pages(page_range: str | None) -> frozenset[int] | None:
             raise ValueError(
                 f"Numer strony jest zbyt duży: „{raw_token.strip()}” "
                 f"(maksymalnie {_MAX_PAGE_NUMBER})."
+            )
+        if page_count is not None and end > page_count:
+            raise ValueError(
+                f"Strona {end} nie istnieje w tym dokumencie "
+                f"(ma {page_count} {_pl_pages_word(page_count)})."
             )
         pages.update(range(start, end + 1))
     if not pages:
@@ -3058,6 +3105,7 @@ def anonymize_batch(
     pdf_output_mode: str = PDF_OUTPUT_MODE_VISUAL,
     active_categories: Iterable[str] | None = None,
     page_range: str | None = None,
+    page_ranges: dict[str, str] | None = None,
     strip_signatures: bool = False,
     progress_callback: Callable[[int, int, Path], None] | None = None,
 ) -> BatchResult:
@@ -3080,6 +3128,18 @@ def anonymize_batch(
     report, which still reflects detection across the whole document.
     ``None`` (the default) redacts every page, exactly as before this
     parameter existed.
+
+    ``page_ranges`` (per-file page-range redesign) overrides
+    ``page_range`` on a **per file** basis - a mapping from each file's
+    *resolved* absolute path (``str(Path(...).resolve())``) to its own
+    raw "Strony" text, letting different PDFs in the same batch use
+    different ranges. A file missing from the mapping falls back to the
+    single ``page_range`` value (``None`` by default, meaning every
+    page) - this keeps the older, whole-batch ``page_range`` fully
+    working on its own for existing callers. Everything downstream of
+    this function (the per-output-file sidecar, the magic-pen regenerate
+    flow) was already scoped per file before this parameter existed, so
+    nothing else needed to change to support it.
 
     ``strip_signatures`` (Etap 7) removes AcroForm signature fields from
     every PDF in this batch's visual/original-layout output - see
@@ -3127,6 +3187,12 @@ def anonymize_batch(
             )
             continue
 
+        effective_page_range = page_range
+        if page_ranges is not None:
+            effective_page_range = page_ranges.get(
+                resolved_path_key(path), page_range
+            )
+
         try:
             result = _anonymize_file_result(
                 path,
@@ -3140,7 +3206,7 @@ def anonymize_batch(
                 pdf_redaction_scope=pdf_redaction_scope,
                 pdf_output_mode=pdf_output_mode,
                 active_categories=active_categories,
-                page_range=page_range,
+                page_range=effective_page_range,
                 strip_signatures=strip_signatures,
             )
         except Exception as error:

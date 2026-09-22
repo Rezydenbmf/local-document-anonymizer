@@ -565,6 +565,26 @@ def _load_fitz_module():
     return fitz
 
 
+def pdf_page_count(source_path: str | Path) -> int | None:
+    """Return a PDF's real page count, or ``None`` if it can't be read
+    (missing PyMuPDF, a corrupt/non-PDF file, ...) - never raises.
+
+    Deliberately just opens the file and reads ``.page_count`` - no word/
+    text extraction (see ``extract_pdf_word_pages`` for that) - so this
+    is cheap enough to call synchronously for every PDF the GUI's file
+    list gains, right at drag-and-drop time, to know each file's real
+    page count before the user ever types a page range for it."""
+    try:
+        fitz = _load_fitz_module()
+    except RuntimeError:
+        return None
+    try:
+        with fitz.open(source_path) as document:
+            return document.page_count
+    except Exception:  # noqa: BLE001 - a bad/corrupt file must never crash the GUI
+        return None
+
+
 def _build_word_page(
     fitz,
     page_number: int,

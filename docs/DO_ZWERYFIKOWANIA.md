@@ -12,6 +12,26 @@ przenoszę ją do „Potwierdzone" albo usuwam. Jeśli lista urośnie powyżej
 
 ## Do sprawdzenia
 
+- [ ] **Nowa strategia zakresu stron — kontrolka przy każdym pliku
+      (zbudowane 2026-09-22, gotowe do sprawdzenia)** — zamiast jednego
+      wspólnego pola „Strony" dla całego wsadu, każdy plik PDF na
+      liście wybranych plików ma teraz **własne, małe pole obok nazwy**.
+      Apka od razu po wczytaniu pliku wie, ile ma on stron, i pokazuje
+      to w podpowiedzi pola (np. „np. 1-3 (z 5 str.)"). Jeśli wpiszesz
+      numer strony, której dokument nie ma, obramowanie pola **od razu
+      robi się czerwone** — nie trzeba czekać na uruchomienie
+      anonimizacji, żeby się o tym dowiedzieć. Pliki TXT/DOCX/obraz nie
+      mają tego pola w ogóle (jak dotychczas — dotyczy tylko PDF-a).
+      Sprawdź na żywo: (1) wrzuć kilka PDF-ów o różnej liczbie stron
+      (plus jeden TXT/DOCX) — każdy PDF ma własne pole z poprawną
+      podpowiedzią liczby stron, plik TXT/DOCX nie ma żadnego pola;
+      (2) wpisz w jednym polu zakres spoza dokumentu (np. „99" na
+      3-stronicowym pliku) — tylko ta jedna kontrolka ma zrobić się
+      czerwona, reszta bez zmian; (3) usuń plik z listy i dodaj go
+      ponownie — pole ma wrócić puste; (4) uruchom anonimizację z
+      różnymi zakresami na różnych plikach naraz — każdy wynik powinien
+      mieć zamazane tylko swoje, wybrane strony.
+
 - [ ] **Okno samej aplikacji miga raz przy starcie (zgłoszone
       2026-09-22, niski priorytet — Twoja własna ocena)** — Twój
       feedback: „nie migaja terminale okno samej aplikacji raz miga -
@@ -21,22 +41,15 @@ przenoszę ją do „Potwierdzone" albo usuwam. Jeśli lista urośnie powyżej
       terminal) zostaje odnotowane, ale świadomie odłożone na Twoją
       prośbę — nie coś, czym zajmuję się teraz.
 
-## W trakcie (zaczynamy, 2026-09-22 — Twoja decyzja: „to robimy 1 i 2 a
-potem na ten tydzien zaczynamy z llm-em")
+## W trakcie (2026-09-22 — Twoja decyzja: „to robimy 1 i 2 a potem na
+ten tydzien zaczynamy z llm-em"; punkt 1 zrobiony, przeniesiony wyżej
+do „Do sprawdzenia")
 
-1. **Nowa strategia zakresu stron, per plik.** Kontrolka przy nazwie
-   każdego pliku zamiast jednego wspólnego pola „Strony”; domyślnie
-   cały dokument; ta sama składnia co dziś (np. „1-2, 4-7” albo
-   „3,6,9,11”); apka po wczytaniu pliku (drag&drop) ma znać jego
-   rzeczywistą liczbę stron i nie pozwalać wpisać nic spoza niej. Realna
-   zmiana architektury (dziś jeden zakres dotyczy całego wsadu) —
-   zaplanuję to porządnie (tak jak przy Etapie 5) i pokażę plan do
-   akceptacji, zanim zacznę kodować.
-2. **Usuwanie podpisu elektronicznego z poziomu okna podglądu (magic
+1. **Usuwanie podpisu elektronicznego z poziomu okna podglądu (magic
    pen).** Mechanizm „zamrożonego wyboru” już działa dla zakresu stron
    i kategorii — podpis dołączy do tego samego wzorca.
 
-Po tych dwóch: początek prac nad wykorzystaniem lokalnego LLM (Ollama) —
+Po tym: początek prac nad wykorzystaniem lokalnego LLM (Ollama) —
 osobny, większy temat, wymaga wcześniej ustalenia dokładnego zakresu
 (patrz nasza wcześniejsza rozmowa o różnicy między dzisiejszą warstwą
 przeglądu a kontekstowym wykrywaniem, o którym mówiłeś) i zaprojektowania
