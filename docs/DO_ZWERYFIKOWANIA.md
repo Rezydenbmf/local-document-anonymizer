@@ -41,13 +41,45 @@ przenoszę ją do „Potwierdzone" albo usuwam. Jeśli lista urośnie powyżej
       terminal) zostaje odnotowane, ale świadomie odłożone na Twoją
       prośbę — nie coś, czym zajmuję się teraz.
 
-## W trakcie (2026-09-22 — Twoja decyzja: „to robimy 1 i 2 a potem na
-ten tydzien zaczynamy z llm-em"; punkt 1 zrobiony, przeniesiony wyżej
-do „Do sprawdzenia")
+- [ ] **Usuwanie podpisu elektronicznego z poziomu okna podglądu
+      (magic pen) — zbudowane 2026-09-22, gotowe do sprawdzenia** —
+      punkt 2 z Twojej decyzji „to robimy 1 i 2 a potem na ten tydzien
+      zaczynamy z llm-em". W panelu bocznym „Korekta anonimizacji"
+      (obok kategorii danych) pojawia się teraz osobny, żółty checkbox
+      „Usuń podpisy elektroniczne" — ale **tylko** dla dokumentów,
+      których oryginał faktycznie ma pole podpisu elektronicznego w
+      zasięgu wybranego wcześniej zakresu stron (dla reszty checkbox
+      się w ogóle nie pojawia, żeby nie zaśmiecać panelu). Zmiana tego
+      wyboru sama w sobie liczy się jako „niezapisana zmiana" — przycisk
+      „Zaakceptuj edycję" aktywuje się nawet bez żadnego ręcznego
+      zaznaczenia. Sprawdź na żywo: (1) otwórz w oknie porównania
+      dokument z prawdziwym podpisem elektronicznym — checkbox powinien
+      się pojawić, odznaczony lub zaznaczony zgodnie z tym, co wybrałeś
+      przed anonimizacją; (2) otwórz dokument bez podpisu — checkboxa
+      nie powinno być w ogóle; (3) zaznacz/odznacz checkbox bez żadnej
+      innej edycji i kliknij „Zaakceptuj edycję" — PDF powinien się
+      przebudować z (lub bez) polem podpisu, zgodnie z nowym wyborem;
+      (4) zamknij i otwórz okno ponownie dla tego samego pliku —
+      checkbox ma pokazywać już zapisany wybór, nie domyślny; (5)
+      zaznacz checkbox i kliknij „Anuluj" zamiast zapisywać — wybór ma
+      wrócić do poprzedniego stanu.
 
-1. **Usuwanie podpisu elektronicznego z poziomu okna podglądu (magic
-   pen).** Mechanizm „zamrożonego wyboru” już działa dla zakresu stron
-   i kategorii — podpis dołączy do tego samego wzorca.
+## W trakcie (2026-09-22 — nowe zgłoszenie, jeszcze nie zaimplementowane)
+
+**Reorganizacja folderów wynikowych i „approved" wg daty.** Twój
+feedback: czyszczenie działa poprawnie w głównym folderze wyników, ale
+folder „approved" nie jest czyszczony (świadomie, jako Twoja „baza
+danych") i **zbiera się tam bałagan** plików PDF + kilka TXT na jeden
+dokument. Chcesz: w obu miejscach (wyniki i approved) osobny podfolder
+na każdy dzień w formacie `DD.MM.RRRR`, a wewnątrz niego podfolder
+`txt` — PDF-y zostają bezpośrednio w folderze daty, wszystkie pliki TXT
+trafiają do `txt`. Czyszczenie w „wynikach" ma nadal kasować wszystko
+(w tym te podfoldery dat), „approved" zostaje nietykalne jak dziś. To
+dotyka literalnie każdej funkcji budującej ścieżkę wyjściową w apce oraz
+tego, jak ekran recenzji odnajduje pliki do wyświetlenia — w trakcie
+sprawdzania architektury (file_writers.py, review.py, mechanizmu
+czyszczenia w gui_app.py), zanim zacznę cokolwiek zmieniać, żeby nie
+zepsuć odnajdywania plików w recenzji ani mechanizmu „Wyczyść historię".
 
 Po tym: początek prac nad wykorzystaniem lokalnego LLM (Ollama) —
 osobny, większy temat, wymaga wcześniej ustalenia dokładnego zakresu

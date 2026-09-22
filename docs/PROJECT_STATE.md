@@ -4819,6 +4819,95 @@ tests - different ranges per file in one batch, and a file missing
 from the mapping falling back to the shared `page_range`), lint at 75
 (still below the established 77-error baseline).
 
+## Magic-pen Etap 7 follow-up: signature-removal toggle inside
+ComparisonWindow (2026-09-22)
+
+Second half of the user's "to robimy 1 i 2 a potem na ten tydzien
+zaczynamy z llm-em" instruction (item 1 was the per-file page-range
+redesign above). Etap 7's "Usuń podpisy elektroniczne" choice, until
+now only made once at pre-anonymization time in `gui_app.py`, can now
+also be revisited per document from inside the magic-pen
+`ComparisonWindow` - a small, warning-colored checkbox in the
+"Korekta anonimizacji" sidebar, right after the divider and before the
+category legend.
+
+**Gating** (`pdf_redaction.pdf_has_signature_widget(source_path, *,
+active_pages=None) -> bool`, new): the checkbox is only shown for a
+document whose *source* PDF actually has an in-scope AcroForm
+signature widget - scanning every page unconditionally would offer a
+checkbox that silently does nothing for a document whose signature
+sits outside the Etap 5 page range frozen at first-anonymization time,
+since `_strip_signature_widgets` itself skips out-of-scope pages. Two
+independent parallel code-review passes on the first version of this
+diff both caught exactly this gap (the first cut ignored
+`active_pages` entirely) - fixed by threading the same
+`_page_in_scope` check `_strip_signature_widgets` uses through this
+new function too, called with `self._original_active_pages`.
+
+**ComparisonWindow state**: `self._current_strip_signatures` (live,
+user-toggleable, starts equal to the existing frozen
+`self._original_strip_signatures`) and `self._document_has_signature_widget`
+(computed once at window-open, after `self.locked` so an approved/
+read-only window skips the scan entirely). The toggle plugs into the
+existing pending-change machinery: `_has_pending_changes()` and a new
+`_pending_change_count()` helper (rects plus one unit if the toggle
+changed, via a small `_signature_choice_changed()` predicate used
+everywhere the comparison used to be inlined) treat a toggle-only
+change as real - the "Zaakceptuj edycję" button activates even with
+zero manual rect edits, and `format_pending_edit_summary_lines`
+(`gui_helpers.py`) gained two optional kwargs to describe the toggle
+in the save-confirmation dialog instead of showing an empty summary.
+
+**Undo/redo**: the toggle is now part of the same undo/redo snapshot
+tuple `_push_undo_snapshot`/`_undo_last_edit`/`_redo_last_edit` already
+use for pending rects (widened from `(rects, keys)` to `(rects, keys,
+strip_signatures)`) - code review caught that cancelling a toggle
+change used to push a snapshot that didn't cover it, so Ctrl+Z after
+"Anuluj" silently left the toggle reverted while rects (if any) came
+back correctly.
+
+**Sidecar staleness fix**: `_save_pending_changes` already passed
+`strip_signatures=self._original_strip_signatures` (frozen, never the
+live value) into `regenerate_pdf_with_manual_overrides` - now uses
+`self._current_strip_signatures`. Confirmed via grep that nothing in
+`gui_comparison_window.py` ever called `save_category_selection`, so
+even with the regenerate itself fixed, a *second* later regenerate (or
+a fresh magic-pen reopen) would have silently reverted to the stale
+sidecar value. Fixed with a new, narrower
+`anonymizer.update_signature_stripping_selection(path, *,
+active_labels, active_pages, strip_signatures)` that patches just the
+sidecar's `strip_signatures` field from the already-resolved
+frozensets `ComparisonWindow` already has (never re-resolving from raw
+category names/page-range text, which it doesn't retain - avoiding the
+exact CATEGORY_GROUPS-mapping staleness problem
+`load_category_selection`'s own docstring describes). Both this and
+`save_category_selection` now share one private
+`_write_category_selection_sidecar` writer (code review flagged the
+first cut as a verbatim-duplicated payload/write body).
+
+`code-review` (medium effort, two parallel background passes -
+correctness and reuse/conventions) on the first cut found: the
+`active_pages` gating gap above (both passes, independently); the
+undo/redo gap above; the sidecar-writer duplication above; the
+`_current_strip_signatures != self._original_strip_signatures`
+comparison repeated four times (collapsed into
+`_signature_choice_changed()`); and `CTkCheckBox` has no `wraplength`
+support, so the sidebar's fixed 200px width would have clipped the
+original single-line checkbox label - fixed by splitting it into a
+short bold label plus a separate wrapped `CTkLabel` underneath,
+mirroring `gui_app.py`'s own pre-anonymization checkbox card. All
+fixed and re-reviewed by re-running the full suite.
+
+717 tests passing (20 new: `pdf_has_signature_widget` unit tests
+including the `active_pages` regression case, two
+`update_signature_stripping_selection` sidecar round-trip tests,
+`format_pending_edit_summary_lines`'s two new kwargs, and a dedicated
+`test_comparison_window_signature_toggle.py` covering
+`_has_pending_changes`/`_pending_change_count`/cancel/undo-redo against
+a bare `ComparisonWindow.__new__` instance, the same pattern
+`test_comparison_window_detection_cache.py` already established), lint
+at 75 (unchanged baseline).
+
 ## Warning
 
 This repository is still an early-stage portfolio MVP. Do not use it to
