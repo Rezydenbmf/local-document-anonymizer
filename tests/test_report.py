@@ -232,7 +232,7 @@ class ReportTests(unittest.TestCase):
             output_path, counters = anonymize_txt_file(source_path)
             report_path = Path(temp_dir) / "_wewnetrzne" / "document_RAPORT.txt"
 
-            self.assertEqual(output_path, Path(temp_dir) / "document_ANON.txt")
+            self.assertEqual(output_path, Path(temp_dir) / "txt" / "document_ANON.txt")
             self.assertTrue(output_path.exists())
             self.assertTrue(report_path.exists())
             self.assertEqual(
@@ -248,7 +248,7 @@ class ReportTests(unittest.TestCase):
             output_path, counters = anonymize_docx_file(source_path)
             report_path = Path(temp_dir) / "_wewnetrzne" / "document_RAPORT.txt"
 
-            self.assertEqual(output_path, Path(temp_dir) / "document_ANON.docx")
+            self.assertEqual(output_path, Path(temp_dir) / "txt" / "document_ANON.docx")
             self.assertEqual(read_docx_file(output_path), "Contact [EMAIL] on [DATA].")
             self.assertTrue(report_path.exists())
             self.assertEqual(counters, {"EMAIL": 1, "DATA": 1})
@@ -265,7 +265,7 @@ class ReportTests(unittest.TestCase):
             review_pdf_path = Path(temp_dir) / "document_ANON_REVIEW.pdf"
             checklist_path = Path(temp_dir) / "_wewnetrzne" / "document_REVIEW_CHECKLIST.txt"
 
-            self.assertEqual(output_path, Path(temp_dir) / "document_ANON.txt")
+            self.assertEqual(output_path, Path(temp_dir) / "txt" / "document_ANON.txt")
             self.assertEqual(
                 output_path.read_text(encoding="utf-8").strip(),
                 "Contact [EMAIL] on [DATA].",
@@ -674,7 +674,7 @@ class ReportTests(unittest.TestCase):
             report_path = Path(temp_dir) / "_wewnetrzne" / "document_RAPORT.txt"
             report_text = report_path.read_text(encoding="utf-8")
 
-            self.assertEqual(output_path, Path(temp_dir) / "document_ANON.txt")
+            self.assertEqual(output_path, Path(temp_dir) / "txt" / "document_ANON.txt")
             self.assertEqual(counters, {"EMAIL": 1, "DATA": 1})
             self.assertNotIn("safe@example.test", report_text)
             self.assertNotIn("2026-06-01", report_text)

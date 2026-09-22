@@ -143,8 +143,9 @@ class Stage18EndToEndWorkflowTests(unittest.TestCase):
             self.assertEqual(workspace.items[0].risk_level, "ok")
             self.assertEqual(export_result.exported_output_count, 1)
             self.assertEqual(export_result.copied_report_count, 1)
-            self.assertTrue((output_dir / "approved" / "simple_ANON.txt").exists())
-            self.assertTrue((output_dir / "approved" / "simple_RAPORT.txt").exists())
+            approved_txt_dir = export_result.approved_dir / "txt"
+            self.assertTrue((approved_txt_dir / "simple_ANON.txt").exists())
+            self.assertTrue((approved_txt_dir / "simple_RAPORT.txt").exists())
             assert_safe_metadata(self, report_text)
             assert_safe_metadata(self, summary_text)
             self.assertNotIn("safe@example.test", index_text)
@@ -206,9 +207,10 @@ class Stage18EndToEndWorkflowTests(unittest.TestCase):
             self.assertIn("* CASE_REFERENCE: 1", summary_text)
             self.assertIn("* LONG_NUMBER_SEQUENCE: 1", summary_text)
             self.assertEqual(export_result.copied_output_names, ["low_ANON.txt"])
-            self.assertTrue((output_dir / "approved" / "low_ANON.txt").exists())
-            self.assertFalse((output_dir / "approved" / "warning_ANON.txt").exists())
-            self.assertFalse((output_dir / "approved" / "high_ANON.txt").exists())
+            approved_txt_dir = export_result.approved_dir / "txt"
+            self.assertTrue((approved_txt_dir / "low_ANON.txt").exists())
+            self.assertFalse((approved_txt_dir / "warning_ANON.txt").exists())
+            self.assertFalse((approved_txt_dir / "high_ANON.txt").exists())
             self.assertIn("Needs review files copied: no", index_text)
             self.assertIn("Rejected files copied: no", index_text)
 
@@ -253,7 +255,7 @@ class Stage18EndToEndWorkflowTests(unittest.TestCase):
                 exported_at="2026-06-19T08:25:00Z",
             )
 
-            output_text = (output_dir / "dictionary_ANON.txt").read_text(
+            output_text = (output_dir / "txt" / "dictionary_ANON.txt").read_text(
                 encoding="utf-8"
             )
             report_text = (output_dir / "_wewnetrzne" / "dictionary_RAPORT.txt").read_text(
@@ -309,14 +311,15 @@ class Stage18EndToEndWorkflowTests(unittest.TestCase):
             summary_text = batch_result.summary_path.read_text(encoding="utf-8")
 
             self.assertEqual(batch_result.success_count, 2)
-            self.assertTrue((output_dir / "document_ANON.docx").exists())
+            self.assertTrue((output_dir / "txt" / "document_ANON.docx").exists())
             self.assertTrue((output_dir / "_wewnetrzne" / "document_RAPORT.txt").exists())
-            self.assertTrue((output_dir / "notice_ANON.txt").exists())
+            self.assertTrue((output_dir / "txt" / "notice_ANON.txt").exists())
             self.assertTrue((output_dir / "_wewnetrzne" / "notice_RAPORT.txt").exists())
             self.assertEqual(export_result.exported_output_count, 2)
             self.assertEqual(export_result.copied_report_count, 2)
-            self.assertTrue((output_dir / "approved" / "document_ANON.docx").exists())
-            self.assertTrue((output_dir / "approved" / "notice_ANON.txt").exists())
+            approved_txt_dir = export_result.approved_dir / "txt"
+            self.assertTrue((approved_txt_dir / "document_ANON.docx").exists())
+            self.assertTrue((approved_txt_dir / "notice_ANON.txt").exists())
             assert_safe_metadata(self, summary_text)
 
     def test_generated_outputs_and_local_workspaces_remain_gitignored(self) -> None:

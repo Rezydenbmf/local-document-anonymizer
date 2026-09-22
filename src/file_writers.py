@@ -1,9 +1,9 @@
 """File writers for TXT, DOCX, PDF-to-TXT, image-to-TXT, and reports."""
 
-from collections.abc import Callable, Sequence
 import os
+from collections.abc import Callable, Sequence
+from datetime import date, datetime
 from pathlib import Path
-
 
 TXT_EXTENSION = ".txt"
 DOCX_EXTENSION = ".docx"
@@ -18,6 +18,8 @@ REVIEW_CHECKLIST_SUFFIX = "_REVIEW_CHECKLIST"
 BATCH_SUMMARY_FILENAME = "_BATCH_SUMMARY.txt"
 BATCH_REVIEW_CHECKLIST_FILENAME = "_BATCH_REVIEW_CHECKLIST.txt"
 INTERNAL_ARTIFACTS_DIRNAME = "_wewnetrzne"
+TXT_SUBFOLDER_DIRNAME = "txt"
+DATED_SUBFOLDER_FORMAT = "%d.%m.%Y"
 AnonymizeFunction = Callable[[str], tuple[str, dict[str, int]]]
 
 
@@ -46,6 +48,47 @@ def internal_artifacts_dir(output_dir: str | Path) -> Path:
     path.mkdir(parents=True, exist_ok=True)
     _mark_hidden(path)
     return path
+
+
+def dated_output_subdir(output_dir: str | Path, *, today: date | None = None) -> Path:
+    """Return (creating if needed) today's dated subfolder of an output
+    workspace, e.g. ``output_dir / "22.09.2026"``.
+
+    Every anonymization run from the same calendar day lands in the same
+    folder (the existing collision-suffix mechanism -
+    build_collision_safe_path/build_shared_collision_suffix - already
+    handles two same-named outputs landing in one folder, so nothing new
+    is needed there). ``today`` is injectable for tests; defaults to the
+    real current date.
+    """
+    # Deliberately the user's local wall-clock date, not UTC (unlike the
+    # timezone-aware timestamps this app records in JSON elsewhere) - a
+    # folder named after "today" should match what the user themselves
+    # would call today on their own desktop.
+    resolved_today = today if today is not None else date.today()  # noqa: DTZ011
+    path = Path(output_dir) / resolved_today.strftime(DATED_SUBFOLDER_FORMAT)
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def dated_output_dirname_to_date(name: str) -> date | None:
+    """Parse a "DD.MM.RRRR" folder name (see dated_output_subdir) back
+    into a real ``date``, or ``None`` if ``name`` does not match that
+    exact format or names an impossible calendar date (e.g. "31.02.2026").
+
+    The single source of truth for what counts as a dated output
+    subfolder - output_cleanup.py's "Wyczyść historię" scanner and
+    review.py's history-reopening resolver both need this same check,
+    and previously each maintained its own separate regex, which a
+    future change to DATED_SUBFOLDER_FORMAT could silently desync from
+    this function's own actual naming."""
+    try:
+        # Naive by design, like dated_output_subdir's own date.today() -
+        # this parses the same local wall-clock folder name that
+        # function produces, not a timestamp that needs a timezone.
+        return datetime.strptime(name, DATED_SUBFOLDER_FORMAT).date()  # noqa: DTZ007
+    except ValueError:
+        return None
 
 
 def _unsupported_extension_error(file_path: str | Path) -> ValueError:
@@ -166,12 +209,41 @@ def _output_directory(source_path: str | Path, output_dir: str | Path | None) ->
     return Path(output_dir)
 
 
+def txt_output_dir(output_dir: str | Path) -> Path:
+    """Return (creating if needed) the "txt" subfolder of an output
+    workspace - sibling of internal_artifacts_dir for the "_wewnetrzne"
+    subfolder, same self-creating shape. Every visible TXT/DOCX output
+    lands here (see _txt_output_directory below, and
+    review.export_approved_workspace, which applies this same
+    convention to whatever folder the user picks as an export
+    destination, not only to a fresh anonymization run's own output
+    folder)."""
+    path = Path(output_dir) / TXT_SUBFOLDER_DIRNAME
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _txt_output_directory(source_path: str | Path, output_dir: str | Path | None) -> Path:
+    """Sibling of _output_directory for the four builders that produce a
+    visible-to-the-user TXT/DOCX file (as opposed to a PDF, or a hidden
+    internal-artifacts file under internal_artifacts_dir): those always
+    land in a "txt" subfolder of the same directory _output_directory
+    would have used, so a PDF's own folder holds only PDFs directly.
+
+    Every caller of these four builders that actually writes a file
+    reaches them from anonymizer.py, whether directly or through this
+    module's own save_anonymized_*_copy wrappers, so this redirect is
+    safe to make unconditional here rather than threading a new
+    parameter through anonymizer.py's own per-file-type functions."""
+    return txt_output_dir(_output_directory(source_path, output_dir))
+
+
 def build_anonymized_txt_path(
     source_path: str | Path, output_dir: str | Path | None = None
 ) -> Path:
     """Return the anonymized output path for a TXT source file."""
     path = _ensure_txt_path(source_path)
-    return _output_directory(path, output_dir) / f"{path.stem}{ANON_SUFFIX}{TXT_EXTENSION}"
+    return _txt_output_directory(path, output_dir) / f"{path.stem}{ANON_SUFFIX}{TXT_EXTENSION}"
 
 
 def build_anonymized_docx_path(
@@ -179,7 +251,7 @@ def build_anonymized_docx_path(
 ) -> Path:
     """Return the anonymized output path for a DOCX source file."""
     path = _ensure_docx_path(source_path)
-    return _output_directory(path, output_dir) / f"{path.stem}{ANON_SUFFIX}{DOCX_EXTENSION}"
+    return _txt_output_directory(path, output_dir) / f"{path.stem}{ANON_SUFFIX}{DOCX_EXTENSION}"
 
 
 def build_anonymized_pdf_txt_path(
@@ -187,7 +259,7 @@ def build_anonymized_pdf_txt_path(
 ) -> Path:
     """Return the anonymized TXT output path for a PDF source file."""
     path = _ensure_pdf_path(source_path)
-    return _output_directory(path, output_dir) / f"{path.stem}{ANON_SUFFIX}{TXT_EXTENSION}"
+    return _txt_output_directory(path, output_dir) / f"{path.stem}{ANON_SUFFIX}{TXT_EXTENSION}"
 
 
 def build_anonymized_pdf_path(
@@ -236,7 +308,7 @@ def build_anonymized_image_txt_path(
 ) -> Path:
     """Return the anonymized TXT output path for an OCR image source file."""
     path = _ensure_image_path(source_path)
-    return _output_directory(path, output_dir) / f"{path.stem}{ANON_SUFFIX}{TXT_EXTENSION}"
+    return _txt_output_directory(path, output_dir) / f"{path.stem}{ANON_SUFFIX}{TXT_EXTENSION}"
 
 
 def build_image_visual_pdf_path(

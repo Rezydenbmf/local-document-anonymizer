@@ -36,7 +36,7 @@ try:
         install_ner_model,
         install_tesseract_language,
     )
-    from .file_writers import internal_artifacts_dir
+    from .file_writers import dated_output_subdir, internal_artifacts_dir
     from .gui_comparison_window import ComparisonWindow
     from .gui_dialogs import (
         AboutDialog,
@@ -152,6 +152,8 @@ try:
         export_approved_workspace,
         load_review_workspace,
         preferred_review_output_path,
+        resolve_named_output_path,
+        resolve_review_entry_point,
         save_review_files,
     )
 except ImportError:
@@ -176,7 +178,7 @@ except ImportError:
         install_ner_model,
         install_tesseract_language,
     )
-    from file_writers import internal_artifacts_dir
+    from file_writers import dated_output_subdir, internal_artifacts_dir
     from gui_comparison_window import ComparisonWindow
     from gui_dialogs import (
         AboutDialog,
@@ -292,6 +294,8 @@ except ImportError:
         export_approved_workspace,
         load_review_workspace,
         preferred_review_output_path,
+        resolve_named_output_path,
+        resolve_review_entry_point,
         save_review_files,
     )
 
@@ -2508,13 +2512,31 @@ class AnonymizerApp:
                 return
             page_ranges[resolved_path_key(path)] = text
 
+        # Every anonymization run lands in a dated subfolder of the
+        # chosen output folder (e.g. "22.09.2026") - same day, same
+        # folder, so nothing further downstream (anonymize_batch, the
+        # review screen, the four TXT/DOCX builders redirecting into
+        # their own "txt" subfolder of *this* folder) needs to know
+        # about dates at all. Computed and created before
+        # show_processing_screen(), matching the "fail loudly before
+        # doing any work" pattern the page-range validation above uses.
+        try:
+            dated_output_dir = dated_output_subdir(self.output_dir)
+        except OSError as error:
+            messagebox.showerror(
+                "Folder wyjściowy",
+                f"Nie udało się utworzyć folderu na dzisiejsze wyniki:\n{error}",
+                parent=self.root,
+            )
+            return
+
         self.show_processing_screen()
         self.root.update_idletasks()
 
         try:
             batch_result = anonymize_batch(
                 self.selected_paths,
-                self.output_dir,
+                dated_output_dir,
                 sensitive_terms_path=self.sensitive_terms_path,
                 use_ner=self.use_ner,
                 use_llm_review=self.use_llm_review,
@@ -2542,7 +2564,7 @@ class AnonymizerApp:
         self.original_path_by_output_name = self._build_original_path_map(
             batch_result
         )
-        self.review_dir = self.output_dir
+        self.review_dir = dated_output_dir
         self._load_review_folder()
         self.review_items = restrict_review_items_to_batch(
             self.review_items, batch_result.results
@@ -3010,17 +3032,26 @@ class AnonymizerApp:
         folder_path = filedialog.askdirectory(title="Wybierz folder do przeglądu")
         if not folder_path:
             return
-        self.review_dir = Path(folder_path)
+        folder = Path(folder_path)
+        # A folder picked/clicked here is normally the root the user
+        # originally chose for a batch (e.g. "DocShield - wyniki"), not
+        # the dated subfolder a run actually wrote into (see
+        # start_anonymize) - resolve_review_entry_point redirects to
+        # that subfolder (the newest one, if there's more than one) so
+        # reopening the root doesn't show an empty "Brak plików" screen.
+        # History still remembers the *picked* folder, unchanged from
+        # before - matching what "Wyczyść historię" already expects.
+        self.review_dir = resolve_review_entry_point(folder)
         self.last_batch_result = None
         self._load_review_folder()
-        self._remember_recent_folder(self.review_dir)
+        self._remember_recent_folder(folder)
         self.show_review_screen()
 
     def open_history_folder(self, folder_path: str) -> None:
         folder = Path(folder_path)
         if not folder.is_dir():
             return
-        self.review_dir = folder
+        self.review_dir = resolve_review_entry_point(folder)
         self.last_batch_result = None
         self._load_review_folder()
         self._remember_recent_folder(folder)
@@ -3275,8 +3306,18 @@ class AnonymizerApp:
     def open_review_output(self, item: ReviewItem) -> None:
         if self.review_dir is None:
             return
+        # preferred_review_output_path already resolves the exact file
+        # to open (a companion PDF's own full path, or the TXT/DOCX
+        # output's own - already correctly found in either the "txt"
+        # subfolder or a flat layout) - opened directly, rather than
+        # reducing it to a bare name and re-resolving it through
+        # resolve_named_output_path a second time on a path that was
+        # never actually ambiguous.
         preferred_path = preferred_review_output_path(self.review_dir, item.output_name)
-        self._open_review_file(preferred_path.name)
+        try:
+            open_path_with_default_app(preferred_path)
+        except OSError:
+            pass
 
     def open_review_report(self, item: ReviewItem) -> None:
         if item.report_name is None:
@@ -3287,15 +3328,6 @@ class AnonymizerApp:
         if item.checklist_name is None:
             return
         self._open_internal_review_file(item.checklist_name)
-
-    def _open_review_file(self, file_name: str) -> None:
-        if self.review_dir is None:
-            return
-        file_path = self.review_dir / Path(file_name).name
-        try:
-            open_path_with_default_app(file_path)
-        except OSError:
-            pass
 
     def _open_internal_review_file(self, file_name: str) -> None:
         """Open a report/checklist/other internal-artifact file, which
@@ -3362,9 +3394,18 @@ class AnonymizerApp:
         # many PDF viewer windows.
         try:
             if len(export_result.preferred_output_names) == 1:
+                # A preferred name is a PDF (lives directly in
+                # approved_dir) for a PDF-source document, or a bare
+                # TXT/DOCX name (lives in approved_dir's own "txt"
+                # subfolder - see export_approved_workspace) for a
+                # TXT/DOCX-source one - resolve_named_output_path knows
+                # to check both, same as it does for the main review
+                # screen's own output folder.
                 open_path_with_default_app(
-                    export_result.approved_dir
-                    / export_result.preferred_output_names[0]
+                    resolve_named_output_path(
+                        export_result.approved_dir,
+                        export_result.preferred_output_names[0],
+                    )
                 )
             else:
                 open_path_with_default_app(export_result.approved_dir)

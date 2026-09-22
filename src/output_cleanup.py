@@ -27,9 +27,17 @@ from dataclasses import dataclass
 from pathlib import Path
 
 try:
-    from .file_writers import INTERNAL_ARTIFACTS_DIRNAME
+    from .file_writers import (
+        INTERNAL_ARTIFACTS_DIRNAME,
+        TXT_SUBFOLDER_DIRNAME,
+        dated_output_dirname_to_date,
+    )
 except ImportError:
-    from file_writers import INTERNAL_ARTIFACTS_DIRNAME
+    from file_writers import (
+        INTERNAL_ARTIFACTS_DIRNAME,
+        TXT_SUBFOLDER_DIRNAME,
+        dated_output_dirname_to_date,
+    )
 
 
 # Batch-level artifacts first: one per run, with no document stem of
@@ -138,15 +146,43 @@ class OutputCleanupPlan:
         return not self.removable_paths
 
 
-def _iter_output_files(output_dir: Path):
-    for path in sorted(output_dir.iterdir()):
+def _iter_files_in(folder: Path):
+    for path in sorted(folder.iterdir()):
         if path.is_file():
             yield path
-    internal_dir = output_dir / INTERNAL_ARTIFACTS_DIRNAME
-    if internal_dir.is_dir():
-        for path in sorted(internal_dir.iterdir()):
-            if path.is_file():
-                yield path
+
+
+def _iter_one_output_folder(folder: Path):
+    """Every tracked-output-candidate file directly in ``folder``, plus
+    its own "_wewnetrzne" and "txt" children (see internal_artifacts_dir/
+    file_writers.TXT_SUBFOLDER_DIRNAME) - the same three-location shape
+    whether ``folder`` is an output workspace's root or one of its own
+    "DD.MM.RRRR" dated subfolders (see _iter_output_files), so a folder
+    handed to cleanup that already *is* a dated folder (e.g. the user
+    picked it directly via "Wybierz inny folder") is scanned exactly as
+    completely as one found by recursing into a root's dated child."""
+    yield from _iter_files_in(folder)
+    for subfolder_name in (INTERNAL_ARTIFACTS_DIRNAME, TXT_SUBFOLDER_DIRNAME):
+        subfolder = folder / subfolder_name
+        if subfolder.is_dir():
+            yield from _iter_files_in(subfolder)
+
+
+def _iter_output_files(output_dir: Path):
+    yield from _iter_one_output_folder(output_dir)
+
+    # A pre-dated-output-folder run left everything flat right here, no
+    # dated subfolders at all - the loop below then simply finds none
+    # and this function behaves exactly as it always has. A run made
+    # after the redesign put everything one level down instead, in its
+    # own "DD.MM.RRRR" folder - walked the same way as the root itself,
+    # deliberately one explicit, bounded level, never a general
+    # recursive walk, so this can never wander into a source document's
+    # own unrelated subfolder.
+    for entry in sorted(output_dir.iterdir()):
+        if not entry.is_dir() or dated_output_dirname_to_date(entry.name) is None:
+            continue
+        yield from _iter_one_output_folder(entry)
 
 
 def folder_has_any_tracked_output(output_dir: str | Path) -> bool:
@@ -171,6 +207,18 @@ def build_output_cleanup_plan(output_dir: str | Path) -> OutputCleanupPlan:
     artifacts) and lists the rest. Never touches anything outside this
     app's own naming scheme, so source documents sitting in the same
     folder are not even candidates.
+
+    Not wired to any button today (see BuildHistoryCleanupPlanTests'
+    own docstring) - kept for its tests/possible reuse. Since
+    _iter_output_files started recursing into "DD.MM.RRRR" dated
+    subfolders, calling this on a root that has more than one such
+    subfolder would compare generation numbers *across different days*
+    (e.g. day 1's only run and day 2's only run both look like
+    "generation 1" of the same document name) - if this is ever wired
+    up again, it needs to group per dated folder, not just per document
+    name, or it can delete a still-current file from an earlier day
+    while keeping a same-numbered but actually older one from a later
+    day.
     """
     folder = Path(output_dir)
     if not folder.is_dir():
@@ -245,14 +293,30 @@ def build_history_cleanup_plan(
     deletion. One walk, two buckets, each plan's own total summed
     directly from its own paths, makes that class of bug structurally
     impossible rather than merely unlikely.
+
+    Deduplicates by resolved path across every folder in ``output_dirs``
+    - the user's history can legitimately contain both an output root
+    and one of its own "DD.MM.RRRR" dated subfolders at once (picking a
+    dated folder directly via "Wybierz inny folder" adds it to history
+    too, alongside the root a batch run itself already added), and
+    ``_iter_output_files`` recurses into dated children - so without
+    this, a file under the overlap would be listed and summed twice,
+    and the second of its two deletions would fail with "file not
+    found" right after the first one already succeeded, misreporting a
+    real success as a failure.
     """
     working_paths: list[Path] = []
     final_paths: list[Path] = []
+    seen_paths: set[Path] = set()
     for output_dir in output_dirs:
         folder = Path(output_dir)
         if not folder.is_dir():
             continue
         for path in _iter_output_files(folder):
+            resolved_path = path.resolve()
+            if resolved_path in seen_paths:
+                continue
+            seen_paths.add(resolved_path)
             classified = classify_output_file(path.name)
             if classified is None:
                 continue

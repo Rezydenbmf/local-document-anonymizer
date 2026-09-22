@@ -60,7 +60,7 @@ class DocxIoTests(unittest.TestCase):
                 source_path, anonymize_text
             )
 
-            self.assertEqual(output_path, Path(temp_dir) / "document_ANON.docx")
+            self.assertEqual(output_path, Path(temp_dir) / "txt" / "document_ANON.docx")
             self.assertEqual(
                 read_docx_file(output_path),
                 "Contact [EMAIL] on [DATA].",
@@ -90,7 +90,7 @@ class DocxIoTests(unittest.TestCase):
 
             output_path, counters = anonymize_docx_file(source_path)
 
-            self.assertEqual(output_path, Path(temp_dir) / "document_ANON.docx")
+            self.assertEqual(output_path, Path(temp_dir) / "txt" / "document_ANON.docx")
             self.assertEqual(
                 read_docx_file(output_path),
                 "Contact [EMAIL] on [DATA].\n"
@@ -260,7 +260,7 @@ class DocxIoTests(unittest.TestCase):
                 Path(temp_dir) / "_wewnetrzne" / "document_RAPORT.txt"
             ).read_text(encoding="utf-8")
 
-            self.assertEqual(output_path, Path(temp_dir) / "document_ANON.docx")
+            self.assertEqual(output_path, Path(temp_dir) / "txt" / "document_ANON.docx")
             self.assertEqual(
                 read_docx_file(output_path),
                 "[IMIE NAZWISKO] contacted [EMAIL].",

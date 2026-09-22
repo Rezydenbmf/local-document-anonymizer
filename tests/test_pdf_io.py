@@ -238,11 +238,11 @@ class PdfIoTests(unittest.TestCase):
 
             self.assertEqual(
                 build_anonymized_pdf_txt_path(source_path),
-                Path(temp_dir) / "document_ANON.txt",
+                Path(temp_dir) / "txt" / "document_ANON.txt",
             )
             self.assertEqual(
                 save_anonymized_copy(source_path, "Anonymized PDF text."),
-                str(Path(temp_dir) / "document_ANON.txt"),
+                str(Path(temp_dir) / "txt" / "document_ANON.txt"),
             )
             self.assertEqual(
                 build_anonymized_pdf_path(source_path),
@@ -274,7 +274,7 @@ class PdfIoTests(unittest.TestCase):
                 source_path, "Contact [EMAIL]."
             )
 
-            self.assertEqual(output_path, Path(temp_dir) / "document_ANON.txt")
+            self.assertEqual(output_path, Path(temp_dir) / "txt" / "document_ANON.txt")
             self.assertEqual(
                 output_path.read_text(encoding="utf-8"),
                 "Contact [EMAIL].",
@@ -304,7 +304,7 @@ class PdfIoTests(unittest.TestCase):
             review_pdf_path = Path(temp_dir) / "document_ANON_REVIEW.pdf"
             checklist_path = Path(temp_dir) / "_wewnetrzne" / "document_REVIEW_CHECKLIST.txt"
 
-            self.assertEqual(output_path, Path(temp_dir) / "document_ANON.txt")
+            self.assertEqual(output_path, Path(temp_dir) / "txt" / "document_ANON.txt")
             self.assertEqual(
                 output_path.read_text(encoding="utf-8").strip(),
                 "[EMAIL] [PESEL] [TELEFON] [DATA]",
@@ -377,7 +377,7 @@ class PdfIoTests(unittest.TestCase):
                 encoding="utf-8"
             )
 
-            self.assertEqual(output_path, Path(temp_dir) / "document_ANON.txt")
+            self.assertEqual(output_path, Path(temp_dir) / "txt" / "document_ANON.txt")
             self.assertEqual(
                 output_path.read_text(encoding="utf-8").strip(),
                 "[IMIE NAZWISKO] contacted [EMAIL].",
@@ -1261,7 +1261,7 @@ class PdfIoTests(unittest.TestCase):
                 encoding="utf-8"
             )
 
-            self.assertEqual(output_path, Path(temp_dir) / "review_ANON.txt")
+            self.assertEqual(output_path, Path(temp_dir) / "txt" / "review_ANON.txt")
             self.assertEqual(counters, {"EMAIL": 1, "DATA": 1})
             self.assertTrue(visual_pdf_path.exists())
             self.assertTrue(review_pdf_path.exists())

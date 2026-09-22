@@ -417,7 +417,7 @@ class EndToEndTxtCategorySelectionTests(unittest.TestCase):
                 active_categories=[CATEGORY_PESEL],
             )
 
-            anonymized_text = (output_dir / "document_ANON.txt").read_text(
+            anonymized_text = (output_dir / "txt" / "document_ANON.txt").read_text(
                 encoding="utf-8"
             )
         self.assertIn("[PESEL]", anonymized_text)
@@ -438,7 +438,7 @@ class EndToEndTxtCategorySelectionTests(unittest.TestCase):
 
             anonymize_batch([source_path], output_dir)
 
-            anonymized_text = (output_dir / "document_ANON.txt").read_text(
+            anonymized_text = (output_dir / "txt" / "document_ANON.txt").read_text(
                 encoding="utf-8"
             )
         self.assertIn("[PESEL]", anonymized_text)
@@ -461,7 +461,7 @@ class EndToEndTxtCategorySelectionTests(unittest.TestCase):
                 active_categories=[CATEGORY_EMAIL],  # nothing related selected
             )
 
-            anonymized_text = (output_dir / "document_ANON.txt").read_text(
+            anonymized_text = (output_dir / "txt" / "document_ANON.txt").read_text(
                 encoding="utf-8"
             )
         self.assertIn("[DOWOD_OSOBISTY]", anonymized_text)
@@ -1475,7 +1475,7 @@ class PageRangeDoesNotApplyToImagesTests(unittest.TestCase):
                 # suppress redaction on the image's own single "page".
                 anonymize_batch([source_path], output_dir, page_range="99")
 
-            output_text = (output_dir / "scan_ANON.txt").read_text(encoding="utf-8")
+            output_text = (output_dir / "txt" / "scan_ANON.txt").read_text(encoding="utf-8")
         self.assertIn("[PESEL]", output_text)
 
 

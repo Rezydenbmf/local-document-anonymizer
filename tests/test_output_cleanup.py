@@ -318,6 +318,124 @@ class BuildHistoryCleanupPlanTests(unittest.TestCase):
             self.assertTrue(final_plan.is_empty)
             self.assertTrue(original.exists())
 
+    def test_recurses_into_dated_output_subfolders(self) -> None:
+        """A run made after the dated-output-folder redesign (2026-09-22)
+        writes everything one level down, in its own "DD.MM.RRRR" folder
+        - PDFs directly in it, TXT/DOCX in its own "txt" child, reports/
+        checklists in its own "_wewnetrzne" child (see
+        file_writers.dated_output_subdir). "Wyczyść historię" must still
+        find and offer to remove all of it, not just whatever happens to
+        sit in the flat root."""
+        with workspace_temp_dir() as temp_dir:
+            folder = Path(temp_dir)
+            dated = folder / "22.09.2026"
+            self._write(dated, "umowa_ANON_VISUAL.pdf")
+            self._write(dated / "txt", "umowa_ANON.txt")
+            self._write(dated / "_wewnetrzne", "umowa_RAPORT.txt")
+
+            working_plan, final_plan = build_history_cleanup_plan([folder])
+
+            self.assertEqual(
+                {path.name for path in working_plan.removable_paths},
+                {"umowa_RAPORT.txt"},
+            )
+            self.assertEqual(
+                {path.name for path in final_plan.removable_paths},
+                {"umowa_ANON_VISUAL.pdf", "umowa_ANON.txt"},
+            )
+
+    def test_old_flat_folder_without_any_dated_subfolder_is_unaffected(self) -> None:
+        """Regression guard: a folder from before the redesign, with no
+        "DD.MM.RRRR" subfolder at all, must behave exactly as it always
+        has - the new recursion finds nothing extra to add."""
+        with workspace_temp_dir() as temp_dir:
+            folder = Path(temp_dir)
+            self._write(folder, "umowa_ANON.txt")
+            self._write(folder, "umowa_ANON_VISUAL.pdf")
+            self._write(folder / "_wewnetrzne", "umowa_RAPORT.txt")
+
+            working_plan, final_plan = build_history_cleanup_plan([folder])
+
+            self.assertEqual(
+                {path.name for path in working_plan.removable_paths},
+                {"umowa_RAPORT.txt"},
+            )
+            self.assertEqual(
+                {path.name for path in final_plan.removable_paths},
+                {"umowa_ANON.txt", "umowa_ANON_VISUAL.pdf"},
+            )
+
+    def test_a_folder_that_merely_looks_dated_but_is_not_named_that_way_is_ignored(
+        self,
+    ) -> None:
+        """Only an exact "DD.MM.RRRR" folder name is recursed into -
+        anything else (a source document's own subfolder, a folder named
+        "2026-09-22" in a different format, ...) is left alone, matching
+        the deliberately narrow, non-general-recursive design."""
+        with workspace_temp_dir() as temp_dir:
+            folder = Path(temp_dir)
+            self._write(folder / "2026-09-22", "umowa_ANON.txt")
+            self._write(folder / "podfolder_klienta", "notatki_RAPORT.txt")
+
+            working_plan, final_plan = build_history_cleanup_plan([folder])
+
+            self.assertTrue(working_plan.is_empty)
+            self.assertTrue(final_plan.is_empty)
+
+    def test_a_dated_folder_handed_directly_still_finds_its_own_txt_child(
+        self,
+    ) -> None:
+        """Regression guard for a real bug code review caught: the root-
+        level scan checked "_wewnetrzne" but not "txt", while only the
+        recurse-into-a-child branch checked both - so a dated folder
+        handed to cleanup *directly* (reachable via "Wybierz inny
+        folder" picking it, or a history entry pointing straight at it)
+        had its own TXT/DOCX outputs silently invisible to both the
+        removable-file count and the deletion itself."""
+        with workspace_temp_dir() as temp_dir:
+            dated = Path(temp_dir) / "22.09.2026"
+            self._write(dated, "umowa_ANON_VISUAL.pdf")
+            self._write(dated / "txt", "umowa_ANON.txt")
+            self._write(dated / "_wewnetrzne", "umowa_RAPORT.txt")
+
+            working_plan, final_plan = build_history_cleanup_plan([dated])
+
+            self.assertEqual(
+                {path.name for path in working_plan.removable_paths},
+                {"umowa_RAPORT.txt"},
+            )
+            self.assertEqual(
+                {path.name for path in final_plan.removable_paths},
+                {"umowa_ANON_VISUAL.pdf", "umowa_ANON.txt"},
+            )
+
+    def test_overlapping_root_and_dated_child_history_entries_do_not_double_count(
+        self,
+    ) -> None:
+        """Regression guard for a real bug code review caught: the
+        user's history can legitimately contain both an output root and
+        one of its own dated subfolders at once (picking the dated
+        folder directly via "Wybierz inny folder" adds it to history
+        too, alongside the root a batch run itself already added).
+        _iter_output_files already recurses into dated children, so
+        without dedup, every file under the overlap was listed (and its
+        bytes summed) twice, and the plan's own removal step would then
+        try to delete the same file twice - the second unlink failing
+        with "file not found" right after the first one had already
+        succeeded, misreporting a real success as a failure."""
+        with workspace_temp_dir() as temp_dir:
+            root = Path(temp_dir)
+            dated = root / "22.09.2026"
+            self._write(dated / "_wewnetrzne", "umowa_RAPORT.txt", content="12345")
+
+            working_plan, _final_plan = build_history_cleanup_plan([root, dated])
+
+            self.assertEqual(
+                [path.name for path in working_plan.removable_paths],
+                ["umowa_RAPORT.txt"],
+            )
+            self.assertEqual(working_plan.total_bytes, 5)
+
 
 class FormatHistoryCleanupSummaryTests(unittest.TestCase):
     def test_empty_plan(self) -> None:
