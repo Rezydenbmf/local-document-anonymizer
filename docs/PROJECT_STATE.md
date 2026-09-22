@@ -4730,6 +4730,95 @@ no-op on other platforms, and that it preserves a caller's own
 for the companion-PDF export fix (with vs. without a companion PDF
 present), lint at 75 (still below the established 77-error baseline).
 
+## Per-file page-range redesign, replacing Etap 5's shared "Strony"
+field (2026-09-22)
+
+The user's real-world use of Etap 5's page-range restriction (one
+"Strony" field for the whole batch) hit its limit: a batch commonly
+holds several PDFs with different lengths and different needs. Decided
+(2026-09-22, "róbmy 1 i 2 a potem zaczynamy z llm-em"): replace the
+single field with a per-file control on each file's own card in the
+selected-files list, validated live against that specific document's
+real page count, read the moment the file is added rather than
+discovered only after a batch already ran.
+
+Planned with `EnterPlanMode`/`ExitPlanMode` first (the plan file
+documents the researched architecture in full) - the key finding was
+that everything **below** `anonymize_batch` (the per-output-file
+category-selection sidecar, `_anonymize_pdf_file_result`, the magic-pen
+regenerate flow in `manual_redaction.py`) was already scoped per output
+file, one JSON per PDF. The only place a page range was ever "shared
+across a whole batch" was `anonymize_batch`'s own signature and the
+GUI's single `self.active_page_range` field - so the redesign turned
+out narrower than it first looked.
+
+**Backend** (`src/anonymizer.py`, `src/pdf_redaction.py`), both changes
+backward compatible:
+- New `pdf_redaction.pdf_page_count(source_path) -> int | None` - opens
+  a PDF and reads only `.page_count` (no word/text extraction, unlike
+  `extract_pdf_word_pages`), catching every failure (missing PyMuPDF, a
+  corrupt file) and returning `None` rather than raising, since this
+  runs synchronously on the GUI thread for every PDF the moment it's
+  dropped/picked.
+- `resolve_active_pages` gained an optional `page_count: int | None =
+  None` kwarg - when given, additionally rejects any requested page
+  beyond that specific count, with a Polish error message using a new
+  `_pl_pages_word` helper for correct plural grammar ("1 stronę", "3
+  strony", "5 stron"). `None` (the default) is exactly today's
+  behavior, unchanged for every existing caller.
+- `anonymize_batch` gained `page_ranges: dict[str, str] | None = None`
+  (keyed by each file's resolved absolute path, via a new small shared
+  `resolved_path_key` helper) alongside the older, still-supported
+  single `page_range`. Per file in the batch loop, the effective range
+  is `page_ranges.get(resolved_path_key(path), page_range)` - a file
+  missing from the mapping falls back to the shared value, so the
+  older single-`page_range` call shape keeps working unchanged for
+  every existing test/caller.
+
+**GUI** (`src/gui_app.py`): the old `self.active_page_range: str`
+field is gone, replaced by three dicts keyed by the exact `Path`
+objects in `self.selected_paths` (safe - `remove_paths_by_indexes`
+never rebuilds those objects): `page_counts`, `page_ranges`,
+`_page_range_vars`. `_add_paths` calls `pdf_page_count` for every new
+`.pdf`; `remove_file_at` cleans up all three dicts. A new
+`_build_page_range_entry` method adds a small `CTkEntry` to each PDF's
+own file-list card (nothing on TXT/DOCX/image cards, matching the
+existing PDF-only restriction), wired to a `tk.StringVar` whose write
+trace live-validates via the same `resolve_active_pages(...,
+page_count=...)` and toggles the entry's border color red/normal - no
+per-keystroke blocking, just immediate visual feedback before the user
+ever clicks Anonimizuj. `start_anonymize` now validates every file's
+own range (naming the specific file in the error dialog on failure)
+and builds the `page_ranges` mapping to pass through.
+
+`code-review` (medium effort - a contained extension of an
+already-tested mechanism) found no correctness bugs in the redesign
+itself, but caught and fixed four real issues: a 0-page PDF's known
+page count was being treated as "unknown" due to a plain-truthiness
+check instead of `is not None`; the `try/except OSError` path-resolve
+fallback was duplicated verbatim across `anonymizer.py` and
+`gui_app.py` with correctness depending on both copies staying
+identical (collapsed into the new shared `resolved_path_key`); a
+comment overclaimed that dropping dict references alone releases old
+`StringVar` write traces immediately (it doesn't - corrected to
+describe the real, GC-dependent behavior); and an unnecessary
+default-arg closure capture that risked misleading a future maintainer
+into thinking it was required (it wasn't, unlike the genuinely
+loop-variable-capturing lambda one screen away).
+
+Verified with a live smoke test (a real `AnonymizerApp` against a
+hidden Tk root: add a multi-page PDF plus a TXT, confirm only the PDF
+gets an entry, type an out-of-range value and confirm the border turns
+red then back to normal on a valid value, remove the file and confirm
+all three dicts are cleaned up) in addition to the automated suite.
+
+697 tests passing (9 new: `resolve_active_pages(page_count=...)`
+cases including the Polish-plural error message, `pdf_page_count`
+unit tests, and two `anonymize_batch(page_ranges=...)` end-to-end
+tests - different ranges per file in one batch, and a file missing
+from the mapping falling back to the shared `page_range`), lint at 75
+(still below the established 77-error baseline).
+
 ## Warning
 
 This repository is still an early-stage portfolio MVP. Do not use it to

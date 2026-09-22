@@ -45,7 +45,7 @@ from anonymizer import (
 )
 from audit import audit_text
 from ner import NerContext, NerEntity, anonymize_text_with_ner
-from pdf_redaction import PdfWordPage, save_redacted_pdf_copy
+from pdf_redaction import PdfWordPage, pdf_page_count, save_redacted_pdf_copy
 
 
 def workspace_temp_dir():
@@ -202,10 +202,67 @@ class ResolveActivePagesTests(unittest.TestCase):
             resolve_active_pages("1-999999999")
 
     def test_page_number_exceeding_actual_page_count_is_harmless(self) -> None:
-        """No page_count-based validation is built deliberately - a range
-        naming a page beyond the real document (e.g. "1-99" on a 2-page
-        PDF) is not itself an error, it just never matches anything."""
+        """Without an explicit page_count, a range naming a page beyond
+        the real document (e.g. "1-99" on a 2-page PDF) is not itself an
+        error, it just never matches anything - most callers have no way
+        to know a document's real page count at all."""
         self.assertEqual(resolve_active_pages("1-99"), frozenset(range(1, 100)))
+
+    def test_page_count_none_skips_the_bounds_check(self) -> None:
+        self.assertEqual(
+            resolve_active_pages("1-99", page_count=None), frozenset(range(1, 100))
+        )
+
+    def test_page_count_accepts_a_range_within_bounds(self) -> None:
+        self.assertEqual(
+            resolve_active_pages("1-3", page_count=5), frozenset({1, 2, 3})
+        )
+
+    def test_page_count_rejects_a_page_beyond_the_real_document(self) -> None:
+        """Per-file page-range redesign: once a document's real page
+        count is known (see pdf_redaction.pdf_page_count), a range
+        naming a page it doesn't have becomes a real error, unlike the
+        no-page_count case above."""
+        with self.assertRaises(ValueError) as ctx:
+            resolve_active_pages("1-5", page_count=3)
+        self.assertIn("5", str(ctx.exception))
+        self.assertIn("3", str(ctx.exception))
+
+    def test_page_count_error_uses_correct_polish_plural(self) -> None:
+        with self.assertRaises(ValueError) as ctx:
+            resolve_active_pages("2", page_count=1)
+        self.assertIn("stronę", str(ctx.exception))
+        with self.assertRaises(ValueError) as ctx:
+            resolve_active_pages("5", page_count=3)
+        self.assertIn("strony", str(ctx.exception))
+        with self.assertRaises(ValueError) as ctx:
+            resolve_active_pages("10", page_count=5)
+        self.assertIn("stron", str(ctx.exception))
+        self.assertNotIn("strony", str(ctx.exception))
+
+
+class PdfPageCountTests(unittest.TestCase):
+    """Per-file page-range redesign: pdf_page_count is the cheap,
+    synchronous-safe lookup the GUI calls the moment a PDF is added to
+    the file list, so a page range can be validated against a specific
+    document's real page count before the user ever runs anything."""
+
+    def test_returns_the_real_page_count_of_a_multi_page_pdf(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            source_path = Path(temp_dir) / "document.pdf"
+            write_fitz_multi_page_pdf(source_path, [["a"], ["b"], ["c"]])
+
+            self.assertEqual(pdf_page_count(source_path), 3)
+
+    def test_returns_none_for_a_missing_file(self) -> None:
+        self.assertIsNone(pdf_page_count("does_not_exist.pdf"))
+
+    def test_returns_none_for_a_non_pdf_file_instead_of_raising(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            junk_path = Path(temp_dir) / "not_really_a.pdf"
+            junk_path.write_bytes(b"this is not a pdf file at all")
+
+            self.assertIsNone(pdf_page_count(junk_path))
 
 
 class ApplyDictionaryAndRegexFilteringTests(unittest.TestCase):
@@ -555,6 +612,89 @@ class EndToEndPdfCategorySelectionTests(unittest.TestCase):
             visual_pdf = output_dir / "document_ANON_VISUAL.pdf"
             self.assertTrue(visual_pdf.exists())
             with fitz.open(visual_pdf) as document:
+                page_one_text = document[0].get_text("text")
+                page_two_text = document[1].get_text("text")
+        self.assertNotIn("00000000000", page_one_text)
+        self.assertIn("11111111111", page_two_text)
+
+    def test_page_ranges_gives_each_file_in_a_batch_its_own_range(self) -> None:
+        """Per-file page-range redesign: two PDFs in one batch, each
+        with its own entry in page_ranges (keyed by resolved path) -
+        each output must only respect its own file's range, never the
+        other file's."""
+        with workspace_temp_dir() as temp_dir:
+            source_dir = Path(temp_dir) / "source"
+            output_dir = Path(temp_dir) / "output"
+            source_dir.mkdir()
+            output_dir.mkdir()
+            first_path = source_dir / "first.pdf"
+            second_path = source_dir / "second.pdf"
+            write_fitz_multi_page_pdf(
+                first_path,
+                [
+                    ["PESEL 00000000000 on page one of first."],
+                    ["PESEL 11111111111 on page two of first."],
+                ],
+            )
+            write_fitz_multi_page_pdf(
+                second_path,
+                [
+                    ["PESEL 22222222222 on page one of second."],
+                    ["PESEL 33333333333 on page two of second."],
+                ],
+            )
+
+            anonymize_batch(
+                [first_path, second_path],
+                output_dir,
+                page_ranges={
+                    str(first_path.resolve()): "1",
+                    str(second_path.resolve()): "2",
+                },
+            )
+
+            import pymupdf as fitz
+
+            with fitz.open(output_dir / "first_ANON_VISUAL.pdf") as document:
+                first_page_one = document[0].get_text("text")
+                first_page_two = document[1].get_text("text")
+            with fitz.open(output_dir / "second_ANON_VISUAL.pdf") as document:
+                second_page_one = document[0].get_text("text")
+                second_page_two = document[1].get_text("text")
+        # first.pdf: only page 1 in scope
+        self.assertNotIn("00000000000", first_page_one)
+        self.assertIn("11111111111", first_page_two)
+        # second.pdf: only page 2 in scope - the opposite of first.pdf
+        self.assertIn("22222222222", second_page_one)
+        self.assertNotIn("33333333333", second_page_two)
+
+    def test_page_ranges_missing_entry_falls_back_to_the_shared_page_range(self) -> None:
+        """A file with no entry in page_ranges keeps using the older,
+        whole-batch page_range value - full backward compatibility."""
+        with workspace_temp_dir() as temp_dir:
+            source_dir = Path(temp_dir) / "source"
+            output_dir = Path(temp_dir) / "output"
+            source_dir.mkdir()
+            output_dir.mkdir()
+            source_path = source_dir / "document.pdf"
+            write_fitz_multi_page_pdf(
+                source_path,
+                [
+                    ["PESEL 00000000000 on page one."],
+                    ["PESEL 11111111111 on page two."],
+                ],
+            )
+
+            anonymize_batch(
+                [source_path],
+                output_dir,
+                page_range="1",
+                page_ranges={},
+            )
+
+            import pymupdf as fitz
+
+            with fitz.open(output_dir / "document_ANON_VISUAL.pdf") as document:
                 page_one_text = document[0].get_text("text")
                 page_two_text = document[1].get_text("text")
         self.assertNotIn("00000000000", page_one_text)
