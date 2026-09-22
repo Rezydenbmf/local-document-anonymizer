@@ -12,84 +12,48 @@ przenoszę ją do „Potwierdzone" albo usuwam. Jeśli lista urośnie powyżej
 
 ## Do sprawdzenia
 
-- [ ] **Miganie 2-3 okien terminala kilka sekund po starcie apki
-      (zgłoszone 2026-09-20, przyczyna znaleziona i naprawiona)** —
-      Twój feedback: „po 2-3 sek migaja jakies 2-3 okna terminala...
-      juz chce cos kliknac a tu nagle mryga okno terminala". Przyczyna:
-      apka zaraz po starcie w tle sprawdza dostępność Tesseracta,
-      aktualizacji bibliotek i modelu AI — każde z tych sprawdzeń
-      uruchamia osobny, krótki proces w tle, a żaden z nich (łącznie z
-      wbudowaną biblioteką do obsługi OCR, której kodu nie edytujemy)
-      nie mówił Windowsowi „nie pokazuj dla mnie okna" — stąd te
-      błyski. Naprawione dla wszystkich takich procesów naraz, w jednym
-      miejscu (nie osobno dla każdego sprawdzenia). Sprawdź na żywo:
-      uruchom apkę na czysto i obserwuj pierwsze kilka sekund — okna
-      terminala nie powinny się już pojawiać wcale. Pasek postępu/
-      informacja „apka się jeszcze ładuje” to osobny, dodatkowy pomysł
-      z Twojej wiadomości — nie zrobiłem go w tej turze (naprawa okien
-      terminala powinna już wystarczyć, ale daj znać, jeśli nadal wolisz
-      jawny wskaźnik ładowania).
+- [ ] **Okno samej aplikacji miga raz przy starcie (zgłoszone
+      2026-09-22, niski priorytet — Twoja własna ocena)** — Twój
+      feedback: „nie migaja terminale okno samej aplikacji raz miga -
+      ale na tym etapie chyba nie jest to jakis wielki problem".
+      Terminale (przyczyna naprawiona poprzednio) już nie migają —
+      potwierdzone. To nowe, osobne zjawisko (samo okno GUI, nie
+      terminal) zostaje odnotowane, ale świadomie odłożone na Twoją
+      prośbę — nie coś, czym zajmuję się teraz.
 
-- [ ] **„Eksportuj zatwierdzone” — głębszy problem niż wybór folderu:
-      wizualny PDF w ogóle nie był kopiowany (zgłoszone 2026-09-20,
-      poprzednia poprawka niewystarczająca, prawdziwa przyczyna
-      znaleziona i naprawiona)** — pierwsza poprawka (otwieranie pliku
-      z nowego folderu) naprawiła *który folder*, ale Twój kolejny test
-      pokazał, że otwiera się TXT zamiast PDF-a. Kopanie głębiej
-      pokazało prawdziwy problem: eksport **nigdy w ogóle nie kopiował**
-      kolorowego, zamazanego PDF-a do wybranego folderu — kopiował
-      tylko sam plik tekstowy (`_ANON.txt`) i raport, nawet gdy
-      oryginałem był PDF. To działało tak od zawsze, nie coś, co
-      zepsuła poprzednia poprawka. Naprawione: eksport teraz kopiuje
-      też towarzyszący plik `_ANON_VISUAL.pdf`, jeśli istnieje, i to
-      właśnie jego otwiera po zakończeniu. Sprawdź na żywo: zatwierdź
-      jeden plik pochodzący z PDF-a, kliknij „Eksportuj zatwierdzone”,
-      wybierz folder — w tym folderze powinien wylądować zarówno plik
-      `_ANON.txt`, jak i `_ANON_VISUAL.pdf`, a po eksporcie powinien się
-      otworzyć ten drugi (kolorowy PDF), nie plik tekstowy.
+## W trakcie (zaczynamy, 2026-09-22 — Twoja decyzja: „to robimy 1 i 2 a
+potem na ten tydzien zaczynamy z llm-em")
 
-- [ ] **Ograniczenie anonimizacji do wybranych stron — NOWA strategia
-      UX zamiast obecnego pola „Strony” (zgłoszone 2026-09-20, jeszcze
-      NIE zaplanowane ani rozpoczęte)** — obecne ostrzeżenie o zakresie
-      spoza dokumentu już działa (potwierdziłeś to zrzutem ekranu —
-      przenoszę do „Potwierdzone”), ale zgłosiłeś, że chcesz zmienić
-      całe podejście: zamiast jednego wspólnego pola „Strony” dla
-      całego wsadu, chcesz kontrolkę **przy każdym pliku z osobna** (na
-      liście wybranych plików, obok nazwy), z domyślnym „wszystkie
-      strony”, i z **walidacją opartą o rzeczywistą liczbę stron danego
-      pliku** wczytaną zaraz po przeciągnięciu go do apki (żeby nie dało
-      się wpisać strony, której dokument w ogóle nie ma). To osobny,
-      spory kawałek pracy architektonicznej — opisany dokładniej niżej w
-      „Do zaplanowania”, nie coś, co już zrobiłem.
+1. **Nowa strategia zakresu stron, per plik.** Kontrolka przy nazwie
+   każdego pliku zamiast jednego wspólnego pola „Strony”; domyślnie
+   cały dokument; ta sama składnia co dziś (np. „1-2, 4-7” albo
+   „3,6,9,11”); apka po wczytaniu pliku (drag&drop) ma znać jego
+   rzeczywistą liczbę stron i nie pozwalać wpisać nic spoza niej. Realna
+   zmiana architektury (dziś jeden zakres dotyczy całego wsadu) —
+   zaplanuję to porządnie (tak jak przy Etapie 5) i pokażę plan do
+   akceptacji, zanim zacznę kodować.
+2. **Usuwanie podpisu elektronicznego z poziomu okna podglądu (magic
+   pen).** Mechanizm „zamrożonego wyboru” już działa dla zakresu stron
+   i kategorii — podpis dołączy do tego samego wzorca.
 
-## Do zaplanowania (dwie prośby, jeszcze nierozpoczęte — czekają na Twoje
-„tak, zaczynamy”)
-
-- **Nowa strategia zakresu stron, per plik.** Twój opis (2026-09-20):
-  kontrolka przy nazwie każdego pliku zamiast jednego wspólnego pola
-  „Strony”; domyślnie cały dokument; zakres wpisywany jako numer-myślnik-
-  numer, kilka zakresów/stron oddzielonych przecinkami (np. „1-2, 4-7”
-  albo „3,6,9,11” — dokładnie ta sama składnia co dziś, więc to się nie
-  zmienia); apka po wczytaniu pliku (drag&drop) ma znać jego rzeczywistą
-  liczbę stron i nie pozwalać wpisać nic spoza niej. To realna zmiana
-  architektury — dziś jeden zakres stron dotyczy całego wsadu naraz, a
-  to by znaczyło osobny zakres na plik, plus odczyt liczby stron w
-  momencie wczytania (nie dopiero przy anonimizacji). Zanim zacznę
-  kodować, wolę to porządnie zaplanować (tak jak przy Etapie 5) —
-  napiszę osobny plan i pokażę Ci go do akceptacji, zamiast zgadywać
-  szczegóły UI.
-
-- **Usuwanie podpisu elektronicznego z poziomu okna podglądu (magic
-  pen).** Twój feedback (2026-09-18): „czy nie mozemy dac opcji usun
-  podpis na oknie podgladu? bo tak troche na okolo". Technicznie
-  wykonalne — mechanizm „zamrożonego wyboru” już działa dla zakresu
-  stron i kategorii, podpis mógłby działać tak samo — ale to osobny
-  kawałek pracy, nie zacząłem bez Twojego potwierdzenia.
-
-Powiedz, od którego (jeśli w ogóle, i w jakiej kolejności) mam zacząć —
-albo czy wolisz najpierw dokończyć testowanie tego, co już jest gotowe.
+Po tych dwóch: początek prac nad wykorzystaniem lokalnego LLM (Ollama) —
+osobny, większy temat, wymaga wcześniej ustalenia dokładnego zakresu
+(patrz nasza wcześniejsza rozmowa o różnicy między dzisiejszą warstwą
+przeglądu a kontekstowym wykrywaniem, o którym mówiłeś) i zaprojektowania
+zabezpieczenia przed prompt injection, zanim treść dokumentu zacznie
+trafiać do promptu.
 
 ## Potwierdzone
+
+- [x] **Miganie okien terminala przy starcie — naprawione** (potwierdzone
+      2026-09-22) — Twój feedback: „nie migaja terminale".
+- [x] **„Eksportuj zatwierdzone” kopiuje i otwiera właściwy PDF**
+      (potwierdzone 2026-09-22) — Twój feedback: „dziala - zatwierdzam".
+- [x] **Ostrzeżenie o zakresie stron spoza dokumentu — widoczne na
+      ekranie wyników** (potwierdzone 2026-09-22, zrzutem ekranu) —
+      Twój feedback: „traci na znaczeniu ze wzgledu na nowe podejscie,
+      ale jest komunikat". Sam mechanizm ostrzegania działa; zostanie
+      zastąpiony nowym podejściem per-plik opisanym wyżej w „W trakcie”.
 
 - [x] **Ustawienia — wolne ładowanie naprawione** (potwierdzone
       2026-09-20) — Twój feedback: „ustawienie dzialaja juz dobrze".
@@ -99,14 +63,7 @@ albo czy wolisz najpierw dokończyć testowanie tego, co już jest gotowe.
       pole sign", potwierdzone przeze mnie bezpośrednio w przesłanym
       pliku (0 pól podpisu, plik przestał być formularzem PDF).
       **Wciąż otwarte**: prośba o wygodę (usuwanie z poziomu okna
-      podglądu) — patrz „Do zaplanowania” wyżej.
-- [x] **Ostrzeżenie o zakresie stron spoza dokumentu — teraz widoczne
-      na ekranie wyników** (potwierdzone 2026-09-20) — Twój feedback:
-      „wychwytywanie zakresu z poza stron dokumentu niby dziala"
-      (potwierdzone zrzutem ekranu z żółtą kartą ostrzeżenia). Sama
-      **strategia** pola „Strony” się zmienia — patrz „Do zaplanowania”
-      wyżej — ale to jest osobna sprawa od tego, czy ostrzeżenie się w
-      ogóle pokazuje, co teraz działa.
+      podglądu) — patrz „W trakcie” wyżej.
 - [x] **Wersjonowanie wyboru kategorii w pliku JSON — nie wymaga
       osobnego testu z Twojej strony** (2026-09-20) — Twój feedback:
       „z jsopne to nie czaje w ogóle co mam sprawdzić". Masz rację, że
