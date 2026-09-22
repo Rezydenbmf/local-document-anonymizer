@@ -1922,17 +1922,28 @@ class AnonymizerApp:
         the border red immediately, before the user ever clicks
         Anonimizuj.
 
-        Off (unchecked "R\u0119cznie") by default: the field is disabled and
-        shows the *actual* effective range as a grayed hint - "3 z 3
-        stron" for a 3-page document - rather than a generic example,
-        so it doubles as a live answer to "what will happen to this
-        file" without the user needing to open a tooltip. Checking
-        "R\u0119cznie" enables the field for typing a real range, still
-        starting from that same grayed hint (an ordinary placeholder -
-        it disappears the moment there is real text); unchecking it
-        again clears back to the whole document, so the checkbox state
-        and the field's own content/enabled-ness never silently
-        disagree with what self.page_ranges actually holds.
+        Off (unchecked, icon-only checkbox - see its own tooltip for the
+        label) by default: the field is disabled and shows the *actual*
+        effective range as a grayed hint - "3 z 3 stron" for a 3-page
+        document - rather than a generic example, so it doubles as a
+        live answer to "what will happen to this file" without opening
+        a tooltip. Checking it enables the field for typing a real
+        range, still starting from that same grayed hint (a manual
+        placeholder - see below for why); unchecking it again clears
+        back to the whole document, so the checkbox state and the
+        field's own content/enabled-ness never silently disagree with
+        what self.page_ranges actually holds.
+
+        CTkEntry's own built-in placeholder_text never actually
+        activates when a textvariable is also given - real bug found
+        live (a placeholder that silently never rendered): its
+        internal guard compares the textvariable object to "" with
+        plain ``==``, which tkinter.Variable never overrides, so that
+        comparison is always False and the placeholder branch never
+        runs. Implemented manually here instead: a bare "hint active"
+        flag plus FocusIn/FocusOut bindings play the same role
+        (show/hide, muted vs normal text color), driven independently
+        of CTkEntry's own broken mechanism.
         """
         # `is not None` throughout (not plain truthiness) - a malformed
         # 0-page PDF that PyMuPDF still opens without raising is a
@@ -1949,13 +1960,13 @@ class AnonymizerApp:
         var = tk.StringVar(value=self.page_ranges.get(path, ""))
         self._page_range_vars[path] = var
         manual_var = tk.BooleanVar(value=bool(var.get().strip()))
+        hint_active = False
 
         entry = ctk.CTkEntry(
             card,
             textvariable=var,
-            width=90,
+            width=64,
             height=26,
-            placeholder_text=whole_document_hint,
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
             border_color=COLOR_BORDER,
             state="normal" if manual_var.get() else "disabled",
@@ -1973,6 +1984,39 @@ class AnonymizerApp:
             ),
         )
 
+        def _show_hint() -> None:
+            nonlocal hint_active
+            if var.get() != "":
+                return
+            hint_active = True
+            var.set(whole_document_hint)
+            entry.configure(text_color=COLOR_TEXT_MUTED)
+
+        def _clear_hint() -> None:
+            nonlocal hint_active
+            if not hint_active:
+                return
+            hint_active = False
+            var.set("")
+            entry.configure(text_color=COLOR_TEXT)
+
+        def _on_focus_in(_event: object = None) -> None:
+            _clear_hint()
+
+        def _on_focus_out(_event: object = None) -> None:
+            if var.get().strip() == "":
+                _show_hint()
+
+        # Bound to the CTkEntry's own internal raw tkinter.Entry
+        # (entry._entry), not the CTkEntry wrapper frame - that inner
+        # widget is what actually receives keyboard focus, and is
+        # exactly where CTkEntry's own (for our purposes here, harmless
+        # no-op - see this method's docstring) FocusIn/FocusOut handlers
+        # are themselves bound. add="+" appends alongside those instead
+        # of replacing them.
+        entry._entry.bind("<FocusIn>", _on_focus_in, add="+")
+        entry._entry.bind("<FocusOut>", _on_focus_out, add="+")
+
         def _on_manual_toggle() -> None:
             if manual_var.get():
                 entry.configure(state="normal")
@@ -1981,25 +2025,25 @@ class AnonymizerApp:
                 # (checkbox unchecked, field disabled and empty) should
                 # silently disagree with what start_anonymize will
                 # actually use for this file.
+                _clear_hint()
                 var.set("")
                 entry.configure(state="disabled")
+                _show_hint()
 
         checkbox = ctk.CTkCheckBox(
             card,
-            text="R\u0119cznie",
+            text="",
             variable=manual_var,
             command=_on_manual_toggle,
+            width=20,
             checkbox_width=16,
             checkbox_height=16,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
-            text_color=COLOR_TEXT_MUTED,
         )
-        checkbox.pack(side="right", padx=(0, 6), pady=9)
+        checkbox.pack(side="right", padx=(0, 4), pady=9)
         IconTooltip(
             checkbox,
-            "Zaznacz, aby r\u0119cznie wpisa\u0107, kt\u00f3re strony tego pliku PDF\n"
-            "maj\u0105 zosta\u0107 zredagowane. Domy\u015blnie (odznaczone) zamazywany\n"
-            "jest ca\u0142y dokument.",
+            "R\u0119czne oznaczenie stron do anonimizacji.\n"
+            "Domy\u015blnie (odznaczone) zamazywany jest ca\u0142y dokument.",
         )
 
         # No default-arg capture needed here (unlike the lambdas bound
@@ -2008,6 +2052,8 @@ class AnonymizerApp:
         # fixed for the lifetime of this one call, not a shared loop
         # variable that changes out from under a later callback.
         def _on_change(*_args: object) -> None:
+            if hint_active:
+                return
             text = var.get()
             self.page_ranges[path] = text
             try:
@@ -2019,6 +2065,7 @@ class AnonymizerApp:
 
         var.trace_add("write", _on_change)
         _on_change()
+        _show_hint()
 
     def pick_files(self) -> None:
         # A drop on the same zone ends with a mouse-up that Tk also reports
