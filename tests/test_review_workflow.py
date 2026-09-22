@@ -20,6 +20,7 @@ from review import (
     export_approved_workspace,
     preferred_review_output_path,
     resolve_named_output_path,
+    resolve_review_entry_point,
     save_review_files,
 )
 
@@ -132,6 +133,39 @@ class ReviewWorkflowTests(unittest.TestCase):
 
             self.assertEqual(
                 [item.output_name for item in workspace.items], ["document_ANON.txt"]
+            )
+
+    def test_a_name_present_in_both_txt_and_flat_produces_one_item_not_two(
+        self,
+    ) -> None:
+        """Regression guard for a real bug code review caught: nothing
+        this app itself writes puts the same output_name in both
+        places, but a user could plausibly copy (not move) a TXT output
+        into a hand-made "txt" folder as their own pre-redesign
+        workaround for the same clutter this feature fixes. Without
+        dedup, that produced two ReviewItems sharing one output_name -
+        apply_review_statuses (keyed by name) and export_approved_workspace
+        were never designed to expect that. The "txt" copy wins (it is
+        the current-layout location), matching resolve_named_output_path's
+        own priority."""
+        with workspace_temp_dir() as temp_dir:
+            output_dir = Path(temp_dir)
+            (output_dir / "txt").mkdir()
+            (output_dir / "txt" / "document_ANON.txt").write_text(
+                "Copy in the new location.", encoding="utf-8"
+            )
+            (output_dir / "document_ANON.txt").write_text(
+                "Copy left behind in the old, flat location.", encoding="utf-8"
+            )
+
+            workspace = detect_review_workspace(output_dir)
+
+            self.assertEqual(
+                [item.output_name for item in workspace.items], ["document_ANON.txt"]
+            )
+            self.assertEqual(
+                preferred_review_output_path(output_dir, "document_ANON.txt"),
+                output_dir / "txt" / "document_ANON.txt",
             )
 
     def test_supports_manual_review_statuses_and_saves_status_json(self) -> None:
@@ -654,6 +688,93 @@ class ReviewWorkflowTests(unittest.TestCase):
             self.assertTrue((approved_txt_dir / "document_ANON.txt").exists())
             self.assertTrue((approved_txt_dir / "document_ANON_2.txt").exists())
             self.assertTrue((approved_txt_dir / "document_RAPORT_2.txt").exists())
+
+
+class ResolveReviewEntryPointTests(unittest.TestCase):
+    """Regression guard for a real bug code review caught: reopening a
+    folder from history ("Historia" / "Wybierz inny folder") always
+    hands back the *root* the user originally chose (e.g. "DocShield -
+    wyniki"), but every run since the dated-output-folder redesign
+    (2026-09-22) writes into a "DD.MM.RRRR" subfolder of that root -
+    detect_review_workspace(root) alone finds nothing there, showing an
+    empty "Brak plików" screen for a folder that demonstrably has
+    results. resolve_review_entry_point is what gui_app.py's
+    pick_review_folder/open_history_folder now run the picked/clicked
+    folder through before assigning self.review_dir."""
+
+    def test_a_folder_with_its_own_items_is_returned_unchanged(self) -> None:
+        """Covers both an old, pre-redesign flat folder, and a dated
+        folder the user navigated into directly - detect_review_workspace
+        already finds items in either case, so no redirect is needed."""
+        with workspace_temp_dir() as temp_dir:
+            output_dir = Path(temp_dir)
+            (output_dir / "document_ANON.txt").write_text("x", encoding="utf-8")
+
+            self.assertEqual(resolve_review_entry_point(output_dir), output_dir)
+
+    def test_a_root_with_no_items_redirects_to_its_dated_subfolder(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            output_dir = Path(temp_dir)
+            dated = output_dir / "22.09.2026"
+            (dated / "txt").mkdir(parents=True)
+            (dated / "txt" / "document_ANON.txt").write_text("x", encoding="utf-8")
+
+            self.assertEqual(resolve_review_entry_point(output_dir), dated)
+
+    def test_multiple_dated_subfolders_picks_the_newest_by_real_date(self) -> None:
+        """A plain string sort of the folder names would get this wrong
+        - "22.09.2026" sorts after "05.10.2026" as a string, even though
+        5 October is the later calendar date."""
+        with workspace_temp_dir() as temp_dir:
+            output_dir = Path(temp_dir)
+            older = output_dir / "22.09.2026"
+            newer = output_dir / "05.10.2026"
+            (older / "txt").mkdir(parents=True)
+            (older / "txt" / "old_ANON.txt").write_text("x", encoding="utf-8")
+            (newer / "txt").mkdir(parents=True)
+            (newer / "txt" / "new_ANON.txt").write_text("x", encoding="utf-8")
+
+            self.assertEqual(resolve_review_entry_point(output_dir), newer)
+
+    def test_a_root_with_neither_items_nor_dated_subfolders_is_returned_unchanged(
+        self,
+    ) -> None:
+        with workspace_temp_dir() as temp_dir:
+            output_dir = Path(temp_dir)
+
+            self.assertEqual(resolve_review_entry_point(output_dir), output_dir)
+
+    def test_a_missing_folder_is_returned_unchanged_not_raised(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            missing = Path(temp_dir) / "does_not_exist"
+
+            self.assertEqual(resolve_review_entry_point(missing), missing)
+
+
+class ExportApprovedWorkspaceRefusesSelfCollisionTests(unittest.TestCase):
+    """Regression guard for a real bug code review caught: gui_app.py's
+    own "destination can't be the source folder" guard compares the raw
+    picked folder against self.review_dir - but export_approved_workspace
+    applies dated_output_subdir to whatever destination it's given, so
+    picking review_dir's *parent* on a day review_dir already has a
+    dated subfolder passes that raw check yet still resolves to the
+    exact same folder here. This second check is the one that actually
+    stops the resulting copy-onto-itself corruption, regardless of what
+    a caller's own pre-check did or didn't catch."""
+
+    def test_raises_when_the_computed_destination_equals_the_source(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            root = Path(temp_dir)
+            review_dir = dated_output_subdir(root)
+            (review_dir / "document_ANON.txt").write_text("x", encoding="utf-8")
+            workspace = detect_review_workspace(review_dir)
+            items = apply_review_statuses(
+                workspace.items, {"document_ANON.txt": REVIEW_STATUS_APPROVED}
+            )
+            save_review_files(review_dir, items=items, saved_at="2026-06-18T10:00:00Z")
+
+            with self.assertRaises(ValueError):
+                export_approved_workspace(review_dir, destination_dir=root)
 
 
 class ResolveNamedOutputPathTests(unittest.TestCase):

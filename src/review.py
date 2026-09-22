@@ -7,7 +7,7 @@ import re
 import shutil
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
 try:
@@ -15,16 +15,20 @@ try:
     from .file_writers import (
         TXT_SUBFOLDER_DIRNAME,
         build_collision_safe_path,
+        dated_output_dirname_to_date,
         dated_output_subdir,
         internal_artifacts_dir,
+        txt_output_dir,
     )
 except ImportError:
     from audit import RISK_LEVEL_HIGH, RISK_LEVEL_OK, RISK_LEVEL_WARNING, RISK_LEVELS
     from file_writers import (
         TXT_SUBFOLDER_DIRNAME,
         build_collision_safe_path,
+        dated_output_dirname_to_date,
         dated_output_subdir,
         internal_artifacts_dir,
+        txt_output_dir,
     )
 
 
@@ -386,20 +390,34 @@ def build_approved_index_path(approved_dir: str | Path) -> Path:
 def detect_review_workspace(output_dir: str | Path) -> ReviewWorkspace:
     """Detect generated anonymized outputs and safe companion files.
 
-    Scans both ``output_dir`` itself (an older, pre-dated-output-folder
-    layout - see resolve_named_output_path) and its ``txt`` subfolder
-    (the current layout, where every TXT/DOCX output lives) - a document
-    scanned here always ends up with a bare ``output_name`` either way,
-    since resolve_named_output_path/preferred_review_output_path are what
+    Scans both ``output_dir``'s ``txt`` subfolder (the current layout,
+    where every TXT/DOCX output lives) and ``output_dir`` itself (an
+    older, pre-dated-output-folder layout - see
+    resolve_named_output_path) - a document scanned here always ends up
+    with a bare ``output_name`` either way, since
+    resolve_named_output_path/preferred_review_output_path are what
     later turn that name back into an actual path.
+
+    ``txt`` is scanned first and a name already seen there is skipped
+    when it turns up again directly in ``output_dir`` - normally these
+    never overlap (nothing this app writes puts the same name in both
+    places), but a user could plausibly *copy* (not move) a TXT output
+    into a hand-made "txt" folder as their own workaround for the exact
+    clutter this redesign fixes, and without this dedup that would
+    silently produce two ReviewItems sharing one output_name - one
+    approval/export acting on "both" in ways apply_review_statuses
+    (keyed by name) and export_approved_workspace were never designed
+    to expect.
     """
     folder = Path(output_dir)
     report_names = _report_names_by_stem(folder)
     checklist_names = _checklist_names_by_stem(folder)
     txt_subfolder = folder / TXT_SUBFOLDER_DIRNAME
-    candidate_paths = list(folder.iterdir())
-    if txt_subfolder.is_dir():
-        candidate_paths.extend(txt_subfolder.iterdir())
+    candidate_paths = list(txt_subfolder.iterdir()) if txt_subfolder.is_dir() else []
+    seen_names = {path.name for path in candidate_paths}
+    candidate_paths.extend(
+        path for path in folder.iterdir() if path.name not in seen_names
+    )
     items: list[ReviewItem] = []
     for path in candidate_paths:
         if not _is_anonymized_output(path):
@@ -428,6 +446,54 @@ def detect_review_workspace(output_dir: str | Path) -> ReviewWorkspace:
             + _detect_batch_review_checklist_names(folder)
         ),
     )
+
+
+def _dated_subfolders_newest_first(output_dir: Path) -> list[Path]:
+    """Every direct "DD.MM.RRRR" child of output_dir (see
+    file_writers.dated_output_subdir/dated_output_dirname_to_date),
+    newest calendar date first - a plain string sort of the folder names
+    would NOT do this correctly (e.g. "22.09.2026" > "05.10.2026" as a
+    string, even though 5 October is the later date), so each name is
+    parsed into a real date first."""
+    dated: list[tuple[date, Path]] = []
+    for entry in sorted(output_dir.iterdir()):
+        if not entry.is_dir():
+            continue
+        parsed = dated_output_dirname_to_date(entry.name)
+        if parsed is not None:
+            dated.append((parsed, entry))
+    dated.sort(key=lambda pair: pair[0], reverse=True)
+    return [entry for _parsed, entry in dated]
+
+
+def resolve_review_entry_point(output_dir: str | Path) -> Path:
+    """Return the folder the review screen should actually scan for
+    ``output_dir``, the folder the user picked or clicked from history.
+
+    History entries and a user's own folder picker always point at the
+    *root* the user chose (e.g. "DocShield - wyniki"), matching how
+    ``dated_output_subdir`` and ``output_cleanup``'s "Wyczyść historię"
+    both already treat that root as the stable, rememberable thing - but
+    every actual anonymization output since the dated-output-folder
+    redesign (2026-09-22) lives one level deeper, in that root's own
+    "DD.MM.RRRR" subfolder. Reopening the bare root directly would find
+    nothing (a real gap code review caught: detect_review_workspace only
+    ever looks at ``output_dir`` itself and its own "txt" child, never a
+    dated grandchild).
+
+    If ``output_dir`` itself already has anything to review - an older,
+    pre-redesign flat folder, or a dated folder the user navigated into
+    directly - it is returned unchanged, exactly as before. Only when it
+    has nothing of its own AND has at least one dated subfolder does this
+    redirect to the newest one (the run the user almost always means to
+    come back to)."""
+    folder = Path(output_dir)
+    if not folder.is_dir():
+        return folder
+    if detect_review_workspace(folder).items:
+        return folder
+    dated = _dated_subfolders_newest_first(folder)
+    return dated[0] if dated else folder
 
 
 def apply_review_statuses(
@@ -646,8 +712,19 @@ def export_approved_workspace(
         else build_approved_workspace_path(folder)
     )
     approved_dir = dated_output_subdir(approved_root)
-    approved_txt_dir = approved_dir / TXT_SUBFOLDER_DIRNAME
-    approved_txt_dir.mkdir(parents=True, exist_ok=True)
+    # gui_app.py's own picker already refuses a destination equal to the
+    # source folder - but that check compares against the raw picked
+    # folder, before dated_output_subdir adds "today"'s subfolder to it.
+    # Picking the source folder's *parent* on a day it already has a
+    # dated subfolder passes that check yet still resolves to the exact
+    # same folder here - this second check is what actually stops that
+    # copy-onto-itself case, regardless of what a caller's own pre-check
+    # did or didn't catch.
+    if approved_dir.resolve() == folder.resolve():
+        raise ValueError(
+            "destination folder resolves to the same folder being exported from"
+        )
+    approved_txt_dir = txt_output_dir(approved_dir)
 
     copied_output_names: list[str] = []
     copied_report_names: list[str] = []

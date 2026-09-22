@@ -20,7 +20,9 @@ from file_writers import (
     build_anonymized_pdf_txt_path,
     build_anonymized_txt_path,
     build_pdf_visual_path,
+    dated_output_dirname_to_date,
     dated_output_subdir,
+    txt_output_dir,
 )
 
 
@@ -65,6 +67,40 @@ class DatedOutputSubdirTests(unittest.TestCase):
             dated = dated_output_subdir(Path(temp_dir))
 
             self.assertEqual(dated.name, date.today().strftime("%d.%m.%Y"))  # noqa: DTZ011
+
+
+class DatedOutputDirnameToDateTests(unittest.TestCase):
+    """The single shared parser output_cleanup.py's "Wyczyść historię"
+    scanner and review.py's history-reopening resolver both rely on -
+    previously each maintained its own separate regex for "does this
+    folder name look like a dated output subfolder"."""
+
+    def test_parses_a_real_dated_folder_name(self) -> None:
+        self.assertEqual(
+            dated_output_dirname_to_date("22.09.2026"), date(2026, 9, 22)
+        )
+
+    def test_rejects_a_name_in_a_different_format(self) -> None:
+        self.assertIsNone(dated_output_dirname_to_date("2026-09-22"))
+
+    def test_rejects_an_impossible_calendar_date(self) -> None:
+        self.assertIsNone(dated_output_dirname_to_date("31.02.2026"))
+
+    def test_rejects_an_unrelated_folder_name(self) -> None:
+        self.assertIsNone(dated_output_dirname_to_date("txt"))
+        self.assertIsNone(dated_output_dirname_to_date("_wewnetrzne"))
+        self.assertIsNone(dated_output_dirname_to_date("podfolder_klienta"))
+
+
+class TxtOutputDirTests(unittest.TestCase):
+    def test_creates_and_returns_the_txt_subfolder(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            output_dir = Path(temp_dir)
+
+            result = txt_output_dir(output_dir)
+
+            self.assertEqual(result, output_dir / "txt")
+            self.assertTrue(result.is_dir())
 
 
 class TxtSubfolderRedirectTests(unittest.TestCase):

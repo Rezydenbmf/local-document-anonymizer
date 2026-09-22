@@ -153,6 +153,7 @@ try:
         load_review_workspace,
         preferred_review_output_path,
         resolve_named_output_path,
+        resolve_review_entry_point,
         save_review_files,
     )
 except ImportError:
@@ -294,6 +295,7 @@ except ImportError:
         load_review_workspace,
         preferred_review_output_path,
         resolve_named_output_path,
+        resolve_review_entry_point,
         save_review_files,
     )
 
@@ -3030,17 +3032,26 @@ class AnonymizerApp:
         folder_path = filedialog.askdirectory(title="Wybierz folder do przeglądu")
         if not folder_path:
             return
-        self.review_dir = Path(folder_path)
+        folder = Path(folder_path)
+        # A folder picked/clicked here is normally the root the user
+        # originally chose for a batch (e.g. "DocShield - wyniki"), not
+        # the dated subfolder a run actually wrote into (see
+        # start_anonymize) - resolve_review_entry_point redirects to
+        # that subfolder (the newest one, if there's more than one) so
+        # reopening the root doesn't show an empty "Brak plików" screen.
+        # History still remembers the *picked* folder, unchanged from
+        # before - matching what "Wyczyść historię" already expects.
+        self.review_dir = resolve_review_entry_point(folder)
         self.last_batch_result = None
         self._load_review_folder()
-        self._remember_recent_folder(self.review_dir)
+        self._remember_recent_folder(folder)
         self.show_review_screen()
 
     def open_history_folder(self, folder_path: str) -> None:
         folder = Path(folder_path)
         if not folder.is_dir():
             return
-        self.review_dir = folder
+        self.review_dir = resolve_review_entry_point(folder)
         self.last_batch_result = None
         self._load_review_folder()
         self._remember_recent_folder(folder)
@@ -3295,8 +3306,18 @@ class AnonymizerApp:
     def open_review_output(self, item: ReviewItem) -> None:
         if self.review_dir is None:
             return
+        # preferred_review_output_path already resolves the exact file
+        # to open (a companion PDF's own full path, or the TXT/DOCX
+        # output's own - already correctly found in either the "txt"
+        # subfolder or a flat layout) - opened directly, rather than
+        # reducing it to a bare name and re-resolving it through
+        # resolve_named_output_path a second time on a path that was
+        # never actually ambiguous.
         preferred_path = preferred_review_output_path(self.review_dir, item.output_name)
-        self._open_review_file(preferred_path.name)
+        try:
+            open_path_with_default_app(preferred_path)
+        except OSError:
+            pass
 
     def open_review_report(self, item: ReviewItem) -> None:
         if item.report_name is None:
@@ -3307,15 +3328,6 @@ class AnonymizerApp:
         if item.checklist_name is None:
             return
         self._open_internal_review_file(item.checklist_name)
-
-    def _open_review_file(self, file_name: str) -> None:
-        if self.review_dir is None:
-            return
-        file_path = resolve_named_output_path(self.review_dir, Path(file_name).name)
-        try:
-            open_path_with_default_app(file_path)
-        except OSError:
-            pass
 
     def _open_internal_review_file(self, file_name: str) -> None:
         """Open a report/checklist/other internal-artifact file, which

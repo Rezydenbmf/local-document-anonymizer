@@ -2,7 +2,7 @@
 
 import os
 from collections.abc import Callable, Sequence
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 TXT_EXTENSION = ".txt"
@@ -69,6 +69,26 @@ def dated_output_subdir(output_dir: str | Path, *, today: date | None = None) ->
     path = Path(output_dir) / resolved_today.strftime(DATED_SUBFOLDER_FORMAT)
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def dated_output_dirname_to_date(name: str) -> date | None:
+    """Parse a "DD.MM.RRRR" folder name (see dated_output_subdir) back
+    into a real ``date``, or ``None`` if ``name`` does not match that
+    exact format or names an impossible calendar date (e.g. "31.02.2026").
+
+    The single source of truth for what counts as a dated output
+    subfolder - output_cleanup.py's "Wyczyść historię" scanner and
+    review.py's history-reopening resolver both need this same check,
+    and previously each maintained its own separate regex, which a
+    future change to DATED_SUBFOLDER_FORMAT could silently desync from
+    this function's own actual naming."""
+    try:
+        # Naive by design, like dated_output_subdir's own date.today() -
+        # this parses the same local wall-clock folder name that
+        # function produces, not a timestamp that needs a timezone.
+        return datetime.strptime(name, DATED_SUBFOLDER_FORMAT).date()  # noqa: DTZ007
+    except ValueError:
+        return None
 
 
 def _unsupported_extension_error(file_path: str | Path) -> ValueError:
@@ -189,6 +209,20 @@ def _output_directory(source_path: str | Path, output_dir: str | Path | None) ->
     return Path(output_dir)
 
 
+def txt_output_dir(output_dir: str | Path) -> Path:
+    """Return (creating if needed) the "txt" subfolder of an output
+    workspace - sibling of internal_artifacts_dir for the "_wewnetrzne"
+    subfolder, same self-creating shape. Every visible TXT/DOCX output
+    lands here (see _txt_output_directory below, and
+    review.export_approved_workspace, which applies this same
+    convention to whatever folder the user picks as an export
+    destination, not only to a fresh anonymization run's own output
+    folder)."""
+    path = Path(output_dir) / TXT_SUBFOLDER_DIRNAME
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def _txt_output_directory(source_path: str | Path, output_dir: str | Path | None) -> Path:
     """Sibling of _output_directory for the four builders that produce a
     visible-to-the-user TXT/DOCX file (as opposed to a PDF, or a hidden
@@ -196,16 +230,12 @@ def _txt_output_directory(source_path: str | Path, output_dir: str | Path | None
     land in a "txt" subfolder of the same directory _output_directory
     would have used, so a PDF's own folder holds only PDFs directly.
 
-    Every caller of these four builders lives in anonymizer.py (verified
-    - no other module calls them), so this redirect is safe to make
-    unconditional here rather than threading a new parameter through
-    anonymizer.py's own per-file-type functions. Creates the subfolder
-    (like internal_artifacts_dir already does for its own hidden
-    subfolder) - nothing else is guaranteed to have created it before
-    the caller writes into the path this returns."""
-    path = _output_directory(source_path, output_dir) / TXT_SUBFOLDER_DIRNAME
-    path.mkdir(parents=True, exist_ok=True)
-    return path
+    Every caller of these four builders that actually writes a file
+    reaches them from anonymizer.py, whether directly or through this
+    module's own save_anonymized_*_copy wrappers, so this redirect is
+    safe to make unconditional here rather than threading a new
+    parameter through anonymizer.py's own per-file-type functions."""
+    return txt_output_dir(_output_directory(source_path, output_dir))
 
 
 def build_anonymized_txt_path(
