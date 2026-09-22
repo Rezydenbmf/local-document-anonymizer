@@ -318,6 +318,70 @@ class BuildHistoryCleanupPlanTests(unittest.TestCase):
             self.assertTrue(final_plan.is_empty)
             self.assertTrue(original.exists())
 
+    def test_recurses_into_dated_output_subfolders(self) -> None:
+        """A run made after the dated-output-folder redesign (2026-09-22)
+        writes everything one level down, in its own "DD.MM.RRRR" folder
+        - PDFs directly in it, TXT/DOCX in its own "txt" child, reports/
+        checklists in its own "_wewnetrzne" child (see
+        file_writers.dated_output_subdir). "Wyczyść historię" must still
+        find and offer to remove all of it, not just whatever happens to
+        sit in the flat root."""
+        with workspace_temp_dir() as temp_dir:
+            folder = Path(temp_dir)
+            dated = folder / "22.09.2026"
+            self._write(dated, "umowa_ANON_VISUAL.pdf")
+            self._write(dated / "txt", "umowa_ANON.txt")
+            self._write(dated / "_wewnetrzne", "umowa_RAPORT.txt")
+
+            working_plan, final_plan = build_history_cleanup_plan([folder])
+
+            self.assertEqual(
+                {path.name for path in working_plan.removable_paths},
+                {"umowa_RAPORT.txt"},
+            )
+            self.assertEqual(
+                {path.name for path in final_plan.removable_paths},
+                {"umowa_ANON_VISUAL.pdf", "umowa_ANON.txt"},
+            )
+
+    def test_old_flat_folder_without_any_dated_subfolder_is_unaffected(self) -> None:
+        """Regression guard: a folder from before the redesign, with no
+        "DD.MM.RRRR" subfolder at all, must behave exactly as it always
+        has - the new recursion finds nothing extra to add."""
+        with workspace_temp_dir() as temp_dir:
+            folder = Path(temp_dir)
+            self._write(folder, "umowa_ANON.txt")
+            self._write(folder, "umowa_ANON_VISUAL.pdf")
+            self._write(folder / "_wewnetrzne", "umowa_RAPORT.txt")
+
+            working_plan, final_plan = build_history_cleanup_plan([folder])
+
+            self.assertEqual(
+                {path.name for path in working_plan.removable_paths},
+                {"umowa_RAPORT.txt"},
+            )
+            self.assertEqual(
+                {path.name for path in final_plan.removable_paths},
+                {"umowa_ANON.txt", "umowa_ANON_VISUAL.pdf"},
+            )
+
+    def test_a_folder_that_merely_looks_dated_but_is_not_named_that_way_is_ignored(
+        self,
+    ) -> None:
+        """Only an exact "DD.MM.RRRR" folder name is recursed into -
+        anything else (a source document's own subfolder, a folder named
+        "2026-09-22" in a different format, ...) is left alone, matching
+        the deliberately narrow, non-general-recursive design."""
+        with workspace_temp_dir() as temp_dir:
+            folder = Path(temp_dir)
+            self._write(folder / "2026-09-22", "umowa_ANON.txt")
+            self._write(folder / "podfolder_klienta", "notatki_RAPORT.txt")
+
+            working_plan, final_plan = build_history_cleanup_plan([folder])
+
+            self.assertTrue(working_plan.is_empty)
+            self.assertTrue(final_plan.is_empty)
+
 
 class FormatHistoryCleanupSummaryTests(unittest.TestCase):
     def test_empty_plan(self) -> None:

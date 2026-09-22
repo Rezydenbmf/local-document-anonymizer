@@ -27,9 +27,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 try:
-    from .file_writers import INTERNAL_ARTIFACTS_DIRNAME
+    from .file_writers import INTERNAL_ARTIFACTS_DIRNAME, TXT_SUBFOLDER_DIRNAME
 except ImportError:
-    from file_writers import INTERNAL_ARTIFACTS_DIRNAME
+    from file_writers import INTERNAL_ARTIFACTS_DIRNAME, TXT_SUBFOLDER_DIRNAME
 
 
 # Batch-level artifacts first: one per run, with no document stem of
@@ -138,15 +138,47 @@ class OutputCleanupPlan:
         return not self.removable_paths
 
 
-def _iter_output_files(output_dir: Path):
-    for path in sorted(output_dir.iterdir()):
+_DATED_SUBFOLDER_PATTERN = re.compile(r"^\d{2}\.\d{2}\.\d{4}$")
+
+
+def _looks_like_dated_subfolder(name: str) -> bool:
+    """Whether ``name`` is a "DD.MM.RRRR" dated output subfolder (see
+    file_writers.dated_output_subdir) - the one directory name pattern
+    _iter_output_files recurses one level into, deliberately not a
+    general recursive walk, so this can never wander into a source
+    document's own unrelated subfolder."""
+    return _DATED_SUBFOLDER_PATTERN.match(name) is not None
+
+
+def _iter_files_in(folder: Path):
+    for path in sorted(folder.iterdir()):
         if path.is_file():
             yield path
+
+
+def _iter_output_files(output_dir: Path):
+    yield from _iter_files_in(output_dir)
     internal_dir = output_dir / INTERNAL_ARTIFACTS_DIRNAME
     if internal_dir.is_dir():
-        for path in sorted(internal_dir.iterdir()):
-            if path.is_file():
-                yield path
+        yield from _iter_files_in(internal_dir)
+
+    # A pre-dated-output-folder run left everything flat right here, no
+    # dated subfolders at all - the loop below then simply finds none
+    # and this function behaves exactly as it always has. A run made
+    # after the redesign put everything one level down instead, in its
+    # own "DD.MM.RRRR" folder (PDFs directly in it, TXT/DOCX in its own
+    # "txt" child, reports/checklists in its own "_wewnetrzne" child) -
+    # each is walked the same explicit, bounded way as the root.
+    for entry in sorted(output_dir.iterdir()):
+        if not entry.is_dir() or not _looks_like_dated_subfolder(entry.name):
+            continue
+        yield from _iter_files_in(entry)
+        dated_internal_dir = entry / INTERNAL_ARTIFACTS_DIRNAME
+        if dated_internal_dir.is_dir():
+            yield from _iter_files_in(dated_internal_dir)
+        dated_txt_dir = entry / TXT_SUBFOLDER_DIRNAME
+        if dated_txt_dir.is_dir():
+            yield from _iter_files_in(dated_txt_dir)
 
 
 def folder_has_any_tracked_output(output_dir: str | Path) -> bool:

@@ -1,9 +1,9 @@
 """File writers for TXT, DOCX, PDF-to-TXT, image-to-TXT, and reports."""
 
-from collections.abc import Callable, Sequence
 import os
+from collections.abc import Callable, Sequence
+from datetime import date
 from pathlib import Path
-
 
 TXT_EXTENSION = ".txt"
 DOCX_EXTENSION = ".docx"
@@ -18,6 +18,8 @@ REVIEW_CHECKLIST_SUFFIX = "_REVIEW_CHECKLIST"
 BATCH_SUMMARY_FILENAME = "_BATCH_SUMMARY.txt"
 BATCH_REVIEW_CHECKLIST_FILENAME = "_BATCH_REVIEW_CHECKLIST.txt"
 INTERNAL_ARTIFACTS_DIRNAME = "_wewnetrzne"
+TXT_SUBFOLDER_DIRNAME = "txt"
+DATED_SUBFOLDER_FORMAT = "%d.%m.%Y"
 AnonymizeFunction = Callable[[str], tuple[str, dict[str, int]]]
 
 
@@ -45,6 +47,27 @@ def internal_artifacts_dir(output_dir: str | Path) -> Path:
     path = Path(output_dir) / INTERNAL_ARTIFACTS_DIRNAME
     path.mkdir(parents=True, exist_ok=True)
     _mark_hidden(path)
+    return path
+
+
+def dated_output_subdir(output_dir: str | Path, *, today: date | None = None) -> Path:
+    """Return (creating if needed) today's dated subfolder of an output
+    workspace, e.g. ``output_dir / "22.09.2026"``.
+
+    Every anonymization run from the same calendar day lands in the same
+    folder (the existing collision-suffix mechanism -
+    build_collision_safe_path/build_shared_collision_suffix - already
+    handles two same-named outputs landing in one folder, so nothing new
+    is needed there). ``today`` is injectable for tests; defaults to the
+    real current date.
+    """
+    # Deliberately the user's local wall-clock date, not UTC (unlike the
+    # timezone-aware timestamps this app records in JSON elsewhere) - a
+    # folder named after "today" should match what the user themselves
+    # would call today on their own desktop.
+    resolved_today = today if today is not None else date.today()  # noqa: DTZ011
+    path = Path(output_dir) / resolved_today.strftime(DATED_SUBFOLDER_FORMAT)
+    path.mkdir(parents=True, exist_ok=True)
     return path
 
 
@@ -166,12 +189,31 @@ def _output_directory(source_path: str | Path, output_dir: str | Path | None) ->
     return Path(output_dir)
 
 
+def _txt_output_directory(source_path: str | Path, output_dir: str | Path | None) -> Path:
+    """Sibling of _output_directory for the four builders that produce a
+    visible-to-the-user TXT/DOCX file (as opposed to a PDF, or a hidden
+    internal-artifacts file under internal_artifacts_dir): those always
+    land in a "txt" subfolder of the same directory _output_directory
+    would have used, so a PDF's own folder holds only PDFs directly.
+
+    Every caller of these four builders lives in anonymizer.py (verified
+    - no other module calls them), so this redirect is safe to make
+    unconditional here rather than threading a new parameter through
+    anonymizer.py's own per-file-type functions. Creates the subfolder
+    (like internal_artifacts_dir already does for its own hidden
+    subfolder) - nothing else is guaranteed to have created it before
+    the caller writes into the path this returns."""
+    path = _output_directory(source_path, output_dir) / TXT_SUBFOLDER_DIRNAME
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def build_anonymized_txt_path(
     source_path: str | Path, output_dir: str | Path | None = None
 ) -> Path:
     """Return the anonymized output path for a TXT source file."""
     path = _ensure_txt_path(source_path)
-    return _output_directory(path, output_dir) / f"{path.stem}{ANON_SUFFIX}{TXT_EXTENSION}"
+    return _txt_output_directory(path, output_dir) / f"{path.stem}{ANON_SUFFIX}{TXT_EXTENSION}"
 
 
 def build_anonymized_docx_path(
@@ -179,7 +221,7 @@ def build_anonymized_docx_path(
 ) -> Path:
     """Return the anonymized output path for a DOCX source file."""
     path = _ensure_docx_path(source_path)
-    return _output_directory(path, output_dir) / f"{path.stem}{ANON_SUFFIX}{DOCX_EXTENSION}"
+    return _txt_output_directory(path, output_dir) / f"{path.stem}{ANON_SUFFIX}{DOCX_EXTENSION}"
 
 
 def build_anonymized_pdf_txt_path(
@@ -187,7 +229,7 @@ def build_anonymized_pdf_txt_path(
 ) -> Path:
     """Return the anonymized TXT output path for a PDF source file."""
     path = _ensure_pdf_path(source_path)
-    return _output_directory(path, output_dir) / f"{path.stem}{ANON_SUFFIX}{TXT_EXTENSION}"
+    return _txt_output_directory(path, output_dir) / f"{path.stem}{ANON_SUFFIX}{TXT_EXTENSION}"
 
 
 def build_anonymized_pdf_path(
@@ -236,7 +278,7 @@ def build_anonymized_image_txt_path(
 ) -> Path:
     """Return the anonymized TXT output path for an OCR image source file."""
     path = _ensure_image_path(source_path)
-    return _output_directory(path, output_dir) / f"{path.stem}{ANON_SUFFIX}{TXT_EXTENSION}"
+    return _txt_output_directory(path, output_dir) / f"{path.stem}{ANON_SUFFIX}{TXT_EXTENSION}"
 
 
 def build_image_visual_pdf_path(

@@ -36,7 +36,7 @@ try:
         install_ner_model,
         install_tesseract_language,
     )
-    from .file_writers import internal_artifacts_dir
+    from .file_writers import dated_output_subdir, internal_artifacts_dir
     from .gui_comparison_window import ComparisonWindow
     from .gui_dialogs import (
         AboutDialog,
@@ -152,6 +152,7 @@ try:
         export_approved_workspace,
         load_review_workspace,
         preferred_review_output_path,
+        resolve_named_output_path,
         save_review_files,
     )
 except ImportError:
@@ -176,7 +177,7 @@ except ImportError:
         install_ner_model,
         install_tesseract_language,
     )
-    from file_writers import internal_artifacts_dir
+    from file_writers import dated_output_subdir, internal_artifacts_dir
     from gui_comparison_window import ComparisonWindow
     from gui_dialogs import (
         AboutDialog,
@@ -292,6 +293,7 @@ except ImportError:
         export_approved_workspace,
         load_review_workspace,
         preferred_review_output_path,
+        resolve_named_output_path,
         save_review_files,
     )
 
@@ -2508,13 +2510,31 @@ class AnonymizerApp:
                 return
             page_ranges[resolved_path_key(path)] = text
 
+        # Every anonymization run lands in a dated subfolder of the
+        # chosen output folder (e.g. "22.09.2026") - same day, same
+        # folder, so nothing further downstream (anonymize_batch, the
+        # review screen, the four TXT/DOCX builders redirecting into
+        # their own "txt" subfolder of *this* folder) needs to know
+        # about dates at all. Computed and created before
+        # show_processing_screen(), matching the "fail loudly before
+        # doing any work" pattern the page-range validation above uses.
+        try:
+            dated_output_dir = dated_output_subdir(self.output_dir)
+        except OSError as error:
+            messagebox.showerror(
+                "Folder wyjściowy",
+                f"Nie udało się utworzyć folderu na dzisiejsze wyniki:\n{error}",
+                parent=self.root,
+            )
+            return
+
         self.show_processing_screen()
         self.root.update_idletasks()
 
         try:
             batch_result = anonymize_batch(
                 self.selected_paths,
-                self.output_dir,
+                dated_output_dir,
                 sensitive_terms_path=self.sensitive_terms_path,
                 use_ner=self.use_ner,
                 use_llm_review=self.use_llm_review,
@@ -2542,7 +2562,7 @@ class AnonymizerApp:
         self.original_path_by_output_name = self._build_original_path_map(
             batch_result
         )
-        self.review_dir = self.output_dir
+        self.review_dir = dated_output_dir
         self._load_review_folder()
         self.review_items = restrict_review_items_to_batch(
             self.review_items, batch_result.results
@@ -3291,7 +3311,7 @@ class AnonymizerApp:
     def _open_review_file(self, file_name: str) -> None:
         if self.review_dir is None:
             return
-        file_path = self.review_dir / Path(file_name).name
+        file_path = resolve_named_output_path(self.review_dir, Path(file_name).name)
         try:
             open_path_with_default_app(file_path)
         except OSError:
@@ -3362,9 +3382,18 @@ class AnonymizerApp:
         # many PDF viewer windows.
         try:
             if len(export_result.preferred_output_names) == 1:
+                # A preferred name is a PDF (lives directly in
+                # approved_dir) for a PDF-source document, or a bare
+                # TXT/DOCX name (lives in approved_dir's own "txt"
+                # subfolder - see export_approved_workspace) for a
+                # TXT/DOCX-source one - resolve_named_output_path knows
+                # to check both, same as it does for the main review
+                # screen's own output folder.
                 open_path_with_default_app(
-                    export_result.approved_dir
-                    / export_result.preferred_output_names[0]
+                    resolve_named_output_path(
+                        export_result.approved_dir,
+                        export_result.preferred_output_names[0],
+                    )
                 )
             else:
                 open_path_with_default_app(export_result.approved_dir)

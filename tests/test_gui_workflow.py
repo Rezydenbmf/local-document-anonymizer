@@ -197,7 +197,7 @@ class GuiWorkflowTests(unittest.TestCase):
 
             output_path, counters = anonymize_file(source_path)
 
-            self.assertEqual(output_path, Path(temp_dir) / "document_ANON.txt")
+            self.assertEqual(output_path, Path(temp_dir) / "txt" / "document_ANON.txt")
             self.assertEqual(
                 output_path.read_text(encoding="utf-8"),
                 "Contact [EMAIL] on [DATA].",
@@ -228,7 +228,7 @@ class GuiWorkflowTests(unittest.TestCase):
             output_path, counters, audit_result = anonymize_file_with_audit(source_path)
             formatted_audit = format_audit_result(audit_result)
 
-            self.assertEqual(output_path, Path(temp_dir) / "document_ANON.txt")
+            self.assertEqual(output_path, Path(temp_dir) / "txt" / "document_ANON.txt")
             self.assertEqual(counters, {})
             self.assertEqual(audit_result["status"], "warning")
             self.assertEqual(audit_result["risk_level"], "warning")
@@ -257,7 +257,7 @@ class GuiWorkflowTests(unittest.TestCase):
                 audit_result["dictionary"]
             )
 
-            self.assertEqual(output_path, Path(temp_dir) / "document_ANON.txt")
+            self.assertEqual(output_path, Path(temp_dir) / "txt" / "document_ANON.txt")
             self.assertEqual(output_path.read_text(encoding="utf-8"), "[IMIE NAZWISKO]")
             self.assertEqual(counters, {"IMIE NAZWISKO": 1})
             self.assertEqual(

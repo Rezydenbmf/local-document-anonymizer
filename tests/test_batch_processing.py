@@ -114,7 +114,7 @@ class BatchProcessingTests(unittest.TestCase):
 
             output_path, counters = anonymize_file(source_path, output_dir=output_dir)
 
-            self.assertEqual(output_path, output_dir / "document_ANON.txt")
+            self.assertEqual(output_path, output_dir / "txt" / "document_ANON.txt")
             self.assertEqual(counters, {"EMAIL": 1})
             self.assertTrue((output_dir / "_wewnetrzne" / "document_RAPORT.txt").exists())
             self.assertTrue(
@@ -151,9 +151,9 @@ class BatchProcessingTests(unittest.TestCase):
             self.assertEqual(result.counters["EMAIL"], 1)
             self.assertEqual(result.counters["DATA"], 1)
             self.assertEqual(result.counters["TELEFON"], 1)
-            self.assertTrue((output_dir / "document_ANON.txt").exists())
-            self.assertTrue((output_dir / "letter_ANON.docx").exists())
-            self.assertTrue((output_dir / "scan_ANON.txt").exists())
+            self.assertTrue((output_dir / "txt" / "document_ANON.txt").exists())
+            self.assertTrue((output_dir / "txt" / "letter_ANON.docx").exists())
+            self.assertTrue((output_dir / "txt" / "scan_ANON.txt").exists())
             self.assertTrue((output_dir / "scan_ANON_REVIEW.pdf").exists())
             internal_dir = output_dir / "_wewnetrzne"
             self.assertTrue((internal_dir / "document_REVIEW_CHECKLIST.txt").exists())

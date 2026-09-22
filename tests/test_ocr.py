@@ -174,7 +174,7 @@ class OcrFoundationTests(unittest.TestCase):
                 encoding="utf-8"
             )
 
-            self.assertEqual(output_path, Path(temp_dir) / "scan_ANON.txt")
+            self.assertEqual(output_path, Path(temp_dir) / "txt" / "scan_ANON.txt")
             self.assertEqual(
                 output_path.read_text(encoding="utf-8").strip(),
                 "Contact [EMAIL] on [DATA].",
@@ -229,7 +229,7 @@ class OcrFoundationTests(unittest.TestCase):
             )
 
             mocked_ocr.assert_not_called()
-            self.assertEqual(output_path, Path(temp_dir) / "document_ANON.txt")
+            self.assertEqual(output_path, Path(temp_dir) / "txt" / "document_ANON.txt")
             self.assertEqual(counters, {"EMAIL": 1})
             self.assertIn("OCR used: no", report_text)
             self.assertIn("OCR status: not_used", report_text)
@@ -257,7 +257,7 @@ class OcrFoundationTests(unittest.TestCase):
                 encoding="utf-8"
             )
 
-            self.assertEqual(output_path, Path(temp_dir) / "scan_ANON.txt")
+            self.assertEqual(output_path, Path(temp_dir) / "txt" / "scan_ANON.txt")
             self.assertEqual(
                 output_path.read_text(encoding="utf-8").strip(),
                 "Scanned contact [EMAIL].",

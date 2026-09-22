@@ -1,16 +1,16 @@
 """Tests for Stage 13 manual review workflow metadata."""
 
-from pathlib import Path
 import json
 import sys
 import tempfile
 import unittest
-
+from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from anonymizer import anonymize_batch
+from file_writers import dated_output_subdir
 from review import (
     REVIEW_STATUS_APPROVED,
     REVIEW_STATUS_NEEDS_REVIEW,
@@ -19,6 +19,7 @@ from review import (
     detect_review_workspace,
     export_approved_workspace,
     preferred_review_output_path,
+    resolve_named_output_path,
     save_review_files,
 )
 
@@ -87,6 +88,50 @@ class ReviewWorkflowTests(unittest.TestCase):
             self.assertEqual(
                 workspace.batch_summary_names,
                 ["_BATCH_SUMMARY.txt", "_BATCH_REVIEW_CHECKLIST.txt"],
+            )
+
+    def test_detects_txt_outputs_in_the_new_txt_subfolder_layout(self) -> None:
+        """A run made after the dated-output-folder redesign (2026-09-22)
+        puts every TXT/DOCX output in output_dir's own "txt" subfolder -
+        detect_review_workspace must find them there, not only directly
+        in output_dir (the pre-redesign, flat layout - see the sibling
+        old-layout regression test below)."""
+        with workspace_temp_dir() as temp_dir:
+            output_dir = Path(temp_dir)
+            internal_dir = output_dir / "_wewnetrzne"
+            internal_dir.mkdir(exist_ok=True)
+            txt_dir = output_dir / "txt"
+            txt_dir.mkdir()
+            (txt_dir / "document_ANON.txt").write_text(
+                "Synthetic anonymized output.", encoding="utf-8"
+            )
+            (output_dir / "document_ANON_VISUAL.pdf").write_bytes(b"%PDF-1.4 fake")
+            (internal_dir / "document_RAPORT.txt").write_text(
+                "Synthetic report.", encoding="utf-8"
+            )
+
+            workspace = detect_review_workspace(output_dir)
+
+            items = {item.output_name: item for item in workspace.items}
+            self.assertEqual(sorted(items), ["document_ANON.txt"])
+            self.assertEqual(
+                items["document_ANON.txt"].report_name, "document_RAPORT.txt"
+            )
+
+    def test_old_flat_layout_without_a_txt_subfolder_still_works(self) -> None:
+        """Regression guard: a folder from before the redesign, with no
+        "txt" subfolder at all, must keep working exactly as it always
+        has."""
+        with workspace_temp_dir() as temp_dir:
+            output_dir = Path(temp_dir)
+            (output_dir / "document_ANON.txt").write_text(
+                "Synthetic anonymized output.", encoding="utf-8"
+            )
+
+            workspace = detect_review_workspace(output_dir)
+
+            self.assertEqual(
+                [item.output_name for item in workspace.items], ["document_ANON.txt"]
             )
 
     def test_supports_manual_review_statuses_and_saves_status_json(self) -> None:
@@ -295,6 +340,29 @@ class ReviewWorkflowTests(unittest.TestCase):
                 visual_pdf_path,
             )
 
+    def test_prefers_companion_pdf_when_txt_lives_in_the_new_txt_subfolder(
+        self,
+    ) -> None:
+        """Sibling of test_prefers_companion_pdf_when_opening_pdf_derived_txt_output
+        for the new layout - the TXT itself lives in "txt", but its
+        companion PDF still lives directly in output_dir, exactly where
+        _strip_signature_widgets and every PDF-producing builder leaves
+        it."""
+        with workspace_temp_dir() as temp_dir:
+            output_dir = Path(temp_dir)
+            txt_dir = output_dir / "txt"
+            txt_dir.mkdir()
+            (txt_dir / "scan_ANON.txt").write_text(
+                "Synthetic anonymized text.", encoding="utf-8"
+            )
+            visual_pdf_path = output_dir / "scan_ANON_VISUAL.pdf"
+            visual_pdf_path.write_bytes(b"%PDF-1.4\n% synthetic visual\n")
+
+            self.assertEqual(
+                preferred_review_output_path(output_dir, "scan_ANON.txt"),
+                visual_pdf_path,
+            )
+
     def test_exports_only_approved_anonymized_outputs_and_matching_reports(self) -> None:
         with workspace_temp_dir() as temp_dir:
             output_dir = Path(temp_dir)
@@ -338,15 +406,19 @@ class ReviewWorkflowTests(unittest.TestCase):
                 exported_at="2026-06-18T11:00:00Z",
             )
 
-            approved_dir = output_dir / "approved"
+            # Exported files land in a dated subfolder of "approved", with
+            # every TXT (the plain output and its report alike) inside
+            # that subfolder's own "txt" child - see
+            # export_approved_workspace's own docstring.
+            approved_txt_dir = export_result.approved_dir / "txt"
             self.assertEqual(export_result.exported_output_count, 1)
             self.assertEqual(export_result.copied_report_count, 1)
-            self.assertTrue((approved_dir / "approved_ANON.txt").exists())
-            self.assertTrue((approved_dir / "approved_RAPORT.txt").exists())
-            self.assertFalse((approved_dir / "needs_ANON.txt").exists())
-            self.assertFalse((approved_dir / "needs_RAPORT.txt").exists())
-            self.assertFalse((approved_dir / "rejected_ANON.txt").exists())
-            self.assertFalse((approved_dir / "original.txt").exists())
+            self.assertTrue((approved_txt_dir / "approved_ANON.txt").exists())
+            self.assertTrue((approved_txt_dir / "approved_RAPORT.txt").exists())
+            self.assertFalse((approved_txt_dir / "needs_ANON.txt").exists())
+            self.assertFalse((approved_txt_dir / "needs_RAPORT.txt").exists())
+            self.assertFalse((approved_txt_dir / "rejected_ANON.txt").exists())
+            self.assertFalse((approved_txt_dir / "original.txt").exists())
 
     def test_export_also_copies_the_companion_visual_pdf_for_pdf_sources(
         self,
@@ -379,8 +451,8 @@ class ReviewWorkflowTests(unittest.TestCase):
                 output_dir, exported_at="2026-06-18T11:00:00Z"
             )
 
-            approved_dir = output_dir / "approved"
-            self.assertTrue((approved_dir / "umowa_ANON.txt").exists())
+            approved_dir = export_result.approved_dir
+            self.assertTrue((approved_dir / "txt" / "umowa_ANON.txt").exists())
             self.assertTrue((approved_dir / "umowa_ANON_VISUAL.pdf").exists())
             self.assertEqual(
                 export_result.preferred_output_names, ["umowa_ANON_VISUAL.pdf"]
@@ -437,8 +509,17 @@ class ReviewWorkflowTests(unittest.TestCase):
                 destination_dir=destination,
             )
 
-            self.assertEqual(export_result.approved_dir, destination)
-            self.assertTrue((destination / "umowa_ANON.txt").exists())
+            # The chosen destination gets the same dated-subfolder
+            # structure a fresh anonymization run's own output folder
+            # gets - dated_output_subdir(destination) here computes the
+            # same "today" folder export_approved_workspace itself just
+            # created, safe to call again (mkdir is idempotent).
+            self.assertEqual(
+                export_result.approved_dir, dated_output_subdir(destination)
+            )
+            self.assertTrue(
+                (export_result.approved_dir / "txt" / "umowa_ANON.txt").exists()
+            )
             # Never lands in the old fixed spot when a destination was given.
             self.assertFalse((output_dir / "approved").exists())
 
@@ -524,15 +605,19 @@ class ReviewWorkflowTests(unittest.TestCase):
     def test_approved_export_uses_collision_safe_names(self) -> None:
         with workspace_temp_dir() as temp_dir:
             output_dir = Path(temp_dir)
-            approved_dir = output_dir / "approved"
-            approved_dir.mkdir()
-            (approved_dir / "document_ANON.txt").write_text(
+            # Pre-seed a collision at the exact spot export_approved_workspace
+            # itself would write to today - approved/DD.MM.RRRR/txt, not the
+            # flat approved/ root a pre-redesign export would have used.
+            approved_dir = dated_output_subdir(output_dir / "approved")
+            approved_txt_dir = approved_dir / "txt"
+            approved_txt_dir.mkdir(parents=True, exist_ok=True)
+            (approved_txt_dir / "document_ANON.txt").write_text(
                 "Existing anonymized content.", encoding="utf-8"
             )
-            (approved_dir / "document_RAPORT.txt").write_text(
+            (approved_txt_dir / "document_RAPORT.txt").write_text(
                 "Existing report.", encoding="utf-8"
             )
-            (approved_dir / "_APPROVED_INDEX.txt").write_text(
+            (approved_txt_dir / "_APPROVED_INDEX.txt").write_text(
                 "Existing index.", encoding="utf-8"
             )
             (output_dir / "document_ANON.txt").write_text(
@@ -566,9 +651,56 @@ class ReviewWorkflowTests(unittest.TestCase):
                 ["document_RAPORT_2.txt"],
             )
             self.assertEqual(export_result.index_path.name, "_APPROVED_INDEX_2.txt")
-            self.assertTrue((approved_dir / "document_ANON.txt").exists())
-            self.assertTrue((approved_dir / "document_ANON_2.txt").exists())
-            self.assertTrue((approved_dir / "document_RAPORT_2.txt").exists())
+            self.assertTrue((approved_txt_dir / "document_ANON.txt").exists())
+            self.assertTrue((approved_txt_dir / "document_ANON_2.txt").exists())
+            self.assertTrue((approved_txt_dir / "document_RAPORT_2.txt").exists())
+
+
+class ResolveNamedOutputPathTests(unittest.TestCase):
+    """A ReviewItem.output_name is always a bare filename (see
+    detect_review_workspace) - resolve_named_output_path is what turns
+    that name back into wherever the file actually is, checking the
+    "txt" subfolder (the new, post-redesign layout) before falling back
+    to output_dir itself (an older, flat one) - the file's own presence
+    on disk is the only signal, no version/flag needed."""
+
+    def test_prefers_the_txt_subfolder_when_the_file_is_there(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            output_dir = Path(temp_dir)
+            (output_dir / "txt").mkdir()
+            (output_dir / "txt" / "document_ANON.txt").write_text(
+                "x", encoding="utf-8"
+            )
+
+            self.assertEqual(
+                resolve_named_output_path(output_dir, "document_ANON.txt"),
+                output_dir / "txt" / "document_ANON.txt",
+            )
+
+    def test_falls_back_to_the_flat_layout_when_txt_does_not_have_it(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            output_dir = Path(temp_dir)
+            (output_dir / "document_ANON.txt").write_text("x", encoding="utf-8")
+
+            self.assertEqual(
+                resolve_named_output_path(output_dir, "document_ANON.txt"),
+                output_dir / "document_ANON.txt",
+            )
+
+    def test_falls_back_to_the_flat_layout_when_neither_location_has_the_file(
+        self,
+    ) -> None:
+        """Neither location existing is itself meaningful (e.g. a
+        just-picked name that hasn't been written yet) - falls back to
+        the flat path rather than raising, matching every other lookup
+        in this module that never assumes a file it names must exist."""
+        with workspace_temp_dir() as temp_dir:
+            output_dir = Path(temp_dir)
+
+            self.assertEqual(
+                resolve_named_output_path(output_dir, "document_ANON.txt"),
+                output_dir / "document_ANON.txt",
+            )
 
 
 if __name__ == "__main__":

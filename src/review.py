@@ -12,10 +12,20 @@ from pathlib import Path, PurePosixPath, PureWindowsPath
 
 try:
     from .audit import RISK_LEVEL_HIGH, RISK_LEVEL_OK, RISK_LEVEL_WARNING, RISK_LEVELS
-    from .file_writers import build_collision_safe_path, internal_artifacts_dir
+    from .file_writers import (
+        TXT_SUBFOLDER_DIRNAME,
+        build_collision_safe_path,
+        dated_output_subdir,
+        internal_artifacts_dir,
+    )
 except ImportError:
     from audit import RISK_LEVEL_HIGH, RISK_LEVEL_OK, RISK_LEVEL_WARNING, RISK_LEVELS
-    from file_writers import build_collision_safe_path, internal_artifacts_dir
+    from file_writers import (
+        TXT_SUBFOLDER_DIRNAME,
+        build_collision_safe_path,
+        dated_output_subdir,
+        internal_artifacts_dir,
+    )
 
 
 REVIEW_STATUS_APPROVED = "approved"
@@ -267,11 +277,32 @@ def _matching_checklist_name(
     return None
 
 
+def resolve_named_output_path(output_dir: str | Path, name: str) -> Path:
+    """Return the actual on-disk path of a review item's output file,
+    whose bare name (e.g. an ``item.output_name``) never carries a
+    directory component of its own.
+
+    A TXT/DOCX output (the only kind ``ReviewItem.output_name`` is ever
+    set to - see ``_is_anonymized_output``) lives in a ``txt`` subfolder
+    of ``output_dir`` for anything anonymized after the dated-output-
+    folder redesign (2026-09-22, see ``file_writers.dated_output_subdir``/
+    ``_txt_output_directory``); an older, pre-redesign folder still has
+    it directly in ``output_dir``. Checking ``txt/`` first and falling
+    back to the flat location keeps both layouts working with no
+    versioning/flag needed - the file's own presence on disk is the only
+    signal."""
+    folder = Path(output_dir)
+    safe_name = _safe_filename(name)
+    txt_candidate = folder / TXT_SUBFOLDER_DIRNAME / safe_name
+    if txt_candidate.is_file():
+        return txt_candidate
+    return folder / safe_name
+
+
 def preferred_review_output_path(output_dir: str | Path, output_name: str) -> Path:
     """Return companion visual PDF output for PDF-derived TXT review items."""
     folder = Path(output_dir)
-    safe_output_name = _safe_filename(output_name)
-    output_path = folder / safe_output_name
+    output_path = resolve_named_output_path(folder, output_name)
     if output_path.suffix.lower() != ".txt":
         return output_path
 
@@ -353,12 +384,24 @@ def build_approved_index_path(approved_dir: str | Path) -> Path:
 
 
 def detect_review_workspace(output_dir: str | Path) -> ReviewWorkspace:
-    """Detect generated anonymized outputs and safe companion files."""
+    """Detect generated anonymized outputs and safe companion files.
+
+    Scans both ``output_dir`` itself (an older, pre-dated-output-folder
+    layout - see resolve_named_output_path) and its ``txt`` subfolder
+    (the current layout, where every TXT/DOCX output lives) - a document
+    scanned here always ends up with a bare ``output_name`` either way,
+    since resolve_named_output_path/preferred_review_output_path are what
+    later turn that name back into an actual path.
+    """
     folder = Path(output_dir)
     report_names = _report_names_by_stem(folder)
     checklist_names = _checklist_names_by_stem(folder)
+    txt_subfolder = folder / TXT_SUBFOLDER_DIRNAME
+    candidate_paths = list(folder.iterdir())
+    if txt_subfolder.is_dir():
+        candidate_paths.extend(txt_subfolder.iterdir())
     items: list[ReviewItem] = []
-    for path in folder.iterdir():
+    for path in candidate_paths:
         if not _is_anonymized_output(path):
             continue
 
@@ -582,6 +625,14 @@ def export_approved_workspace(
     user actually picked instead - direct feedback was that always
     landing back inside the same already-cluttered output folder, with
     no way to choose where, defeated the point of "exporting" anywhere.
+
+    Whatever folder it lands in gets the same dated-subfolder-plus-"txt"
+    structure a fresh anonymization run itself uses (see
+    file_writers.dated_output_subdir/_txt_output_directory) - direct
+    feedback was that "approved" (a personal archive the user never
+    lets the cleanup feature touch, unlike the main output folder)
+    accumulates a PDF plus two TXT files (the plain output and its
+    report) per document forever, with nothing to group them by day.
     """
     folder = Path(output_dir)
     payload = _load_review_status_payload(folder)
@@ -589,12 +640,14 @@ def export_approved_workspace(
     if not approved_items:
         raise ValueError("no approved files found")
 
-    approved_dir = (
+    approved_root = (
         Path(destination_dir)
         if destination_dir is not None
         else build_approved_workspace_path(folder)
     )
-    approved_dir.mkdir(parents=True, exist_ok=True)
+    approved_dir = dated_output_subdir(approved_root)
+    approved_txt_dir = approved_dir / TXT_SUBFOLDER_DIRNAME
+    approved_txt_dir.mkdir(parents=True, exist_ok=True)
 
     copied_output_names: list[str] = []
     copied_report_names: list[str] = []
@@ -603,11 +656,13 @@ def export_approved_workspace(
     preferred_output_names: list[str] = []
 
     for item in approved_items:
-        source_output_path = folder / item.output_name
+        source_output_path = resolve_named_output_path(folder, item.output_name)
         if not _is_anonymized_output(source_output_path):
             continue
 
-        output_destination = build_collision_safe_path(approved_dir / item.output_name)
+        output_destination = build_collision_safe_path(
+            approved_txt_dir / item.output_name
+        )
         shutil.copy2(source_output_path, output_destination)
         copied_output_names.append(output_destination.name)
         preferred_output_names.append(output_destination.name)
@@ -622,6 +677,8 @@ def export_approved_workspace(
         # from copied_output_names/exported_output_count, which stay
         # "one entry per approved item" (the TXT), not "one per file
         # written to disk", so existing counts/tests keep their meaning.
+        # It is a PDF, so it lands directly in approved_dir, next to
+        # every other PDF - never approved_txt_dir.
         preferred_source_path = preferred_review_output_path(folder, item.output_name)
         if preferred_source_path != source_output_path and preferred_source_path.is_file():
             preferred_destination = build_collision_safe_path(
@@ -649,14 +706,18 @@ def export_approved_workspace(
             missing_report_names.append(output_destination.name)
             continue
 
-        report_destination = build_collision_safe_path(approved_dir / item.report_name)
+        report_destination = build_collision_safe_path(
+            approved_txt_dir / item.report_name
+        )
         shutil.copy2(source_report_path, report_destination)
         copied_report_names.append(report_destination.name)
 
     if not copied_output_names:
         raise ValueError("no approved anonymized files available to export")
 
-    index_path = build_collision_safe_path(build_approved_index_path(approved_dir))
+    index_path = build_collision_safe_path(
+        build_approved_index_path(approved_txt_dir)
+    )
     index_path.write_text(
         build_approved_index_text(
             exported_output_names=copied_output_names,

@@ -41,7 +41,7 @@ class TxtIoTests(unittest.TestCase):
                 source_path, "Anonymized [EMAIL] text."
             )
 
-            self.assertEqual(output_path, Path(temp_dir) / "document_ANON.txt")
+            self.assertEqual(output_path, Path(temp_dir) / "txt" / "document_ANON.txt")
             self.assertEqual(
                 output_path.read_text(encoding="utf-8"),
                 "Anonymized [EMAIL] text.",
@@ -81,7 +81,7 @@ class TxtIoTests(unittest.TestCase):
 
             output_path, counters = anonymize_txt_file(source_path)
 
-            self.assertEqual(output_path, Path(temp_dir) / "document_ANON.txt")
+            self.assertEqual(output_path, Path(temp_dir) / "txt" / "document_ANON.txt")
             self.assertEqual(
                 output_path.read_text(encoding="utf-8"),
                 "Contact [EMAIL] on [DATA]. PESEL [PESEL].",
