@@ -4908,6 +4908,86 @@ a bare `ComparisonWindow.__new__` instance, the same pattern
 `test_comparison_window_detection_cache.py` already established), lint
 at 75 (unchanged baseline).
 
+## Dated output folders + PDF/TXT split (2026-09-22)
+
+Live feedback: the "approved" export destination - never auto-cleaned
+by "Wyczyść historię", deliberately treated as the user's own archive -
+accumulated a PDF plus two TXT files (the plain output and its report)
+per document, forever, with no way to group them. Redesign: every
+anonymization run now lands in a dated subfolder of the chosen output
+folder (`DD.MM.RRRR`, e.g. `22.09.2026` - all runs from the same
+calendar day share it), and the four builders that produce a visible
+TXT/DOCX file (`build_anonymized_txt_path`, `build_anonymized_docx_path`,
+`build_anonymized_pdf_txt_path`, `build_anonymized_image_txt_path`)
+redirect into a `txt` subfolder of that same folder
+(`file_writers.dated_output_subdir`/`txt_output_dir`), so a document's
+own folder holds only PDFs directly. `export_approved_workspace`
+applies the identical structure to whatever destination the user picks.
+
+Investigation before implementing (this touched literally every
+output-path builder, `review.py`'s file discovery, and "Wyczyść
+historię"'s scanner at once) found the actual visible clutter was
+narrower than it first looked: report/checklist/batch-summary files
+already live in the hidden `_wewnetrzne` subfolder, invisible in the
+main output folder - the only TXT type visible there is each
+document's own `_ANON.txt`/`_ANON.docx`. `export_approved_workspace`
+was the one place that *does* copy the report out of hiding into a
+visible spot, which is why "approved" specifically showed 2 TXT files
+per document while the main output folder only ever showed 1.
+
+**Backward compatibility, no migration**: a folder from before this
+redesign (flat layout, no dated subfolder, no `txt` subfolder) keeps
+working unchanged - `review.resolve_named_output_path(output_dir,
+name)` checks the `txt` subfolder first, falls back to the flat
+location, purely by what's actually present on disk (no version flag).
+`detect_review_workspace` scans both locations (deduplicating a name
+that somehow exists in both, `txt` taking priority).
+`output_cleanup._iter_output_files` recurses one explicit level into
+any child folder whose name matches `DD.MM.RRRR`
+(`file_writers.dated_output_dirname_to_date`, parsing into a real
+`date` rather than string-matching, since e.g. `"22.09.2026" >
+"05.10.2026"` as a string even though 5 October is the later date) -
+never a general recursive walk, so cleanup can never wander into a
+source document's own unrelated subfolder.
+
+Two parallel `code-review` passes (medium-high effort, given the real
+behavioral risk in file-discovery logic even though the four
+anonymization-core files were untouched) on the first cut both
+independently caught the same severe gap: reopening a folder from
+"Historia" or the folder picker always hands back the *root* the user
+originally chose, but every output now lives one level deeper -
+`detect_review_workspace(root)` found nothing there, showing an empty
+"Brak plików" screen for a folder that demonstrably has results. Fixed
+with a new `review.resolve_review_entry_point()`, wired into
+`pick_review_folder`/`open_history_folder`, redirecting to the newest
+dated subfolder (by real date) only when the root itself has nothing
+of its own. Also fixed: `export_approved_workspace`'s "destination
+can't be the source folder" guard was bypassable (picking the source's
+*parent* on a day it already has a dated subfolder passed the raw
+pre-check yet still resolved to the exact same folder, which would
+have copied the live output folder onto itself) - a second check now
+compares the actual computed destination, not the raw picked path;
+`output_cleanup.py`'s scanner was asymmetric (missing the `txt` child
+when handed a dated folder directly, only checking it when recursing
+into a *child* dated folder); "Wyczyść historię" could double-count/
+double-delete files when history held both a root and one of its own
+dated children at once (now deduplicated by resolved path). Consolidated
+three separately-maintained "is this a dated folder name" checks into
+one shared `dated_output_dirname_to_date`, and extracted a shared
+`txt_output_dir` used by both the four builders and
+`export_approved_workspace`.
+
+750 tests passing (33 new: `dated_output_subdir`/
+`dated_output_dirname_to_date`/`txt_output_dir` unit tests, the four
+builders' redirect with and without an explicit `output_dir`,
+`detect_review_workspace`/`preferred_review_output_path` in both the
+old flat and new `txt`-subfolder layouts including the name-in-both-
+places dedup case, `resolve_review_entry_point` including the
+wrong-string-sort regression case, `export_approved_workspace`'s
+self-collision guard, and `output_cleanup`'s dated-subfolder recursion
+including the direct-dated-folder and overlapping-history-entries
+regression cases), lint at 73 (below the established baseline).
+
 ## Warning
 
 This repository is still an early-stage portfolio MVP. Do not use it to

@@ -64,22 +64,36 @@ przenoszę ją do „Potwierdzone" albo usuwam. Jeśli lista urośnie powyżej
       zaznacz checkbox i kliknij „Anuluj" zamiast zapisywać — wybór ma
       wrócić do poprzedniego stanu.
 
-## W trakcie (2026-09-22 — nowe zgłoszenie, jeszcze nie zaimplementowane)
-
-**Reorganizacja folderów wynikowych i „approved" wg daty.** Twój
-feedback: czyszczenie działa poprawnie w głównym folderze wyników, ale
-folder „approved" nie jest czyszczony (świadomie, jako Twoja „baza
-danych") i **zbiera się tam bałagan** plików PDF + kilka TXT na jeden
-dokument. Chcesz: w obu miejscach (wyniki i approved) osobny podfolder
-na każdy dzień w formacie `DD.MM.RRRR`, a wewnątrz niego podfolder
-`txt` — PDF-y zostają bezpośrednio w folderze daty, wszystkie pliki TXT
-trafiają do `txt`. Czyszczenie w „wynikach" ma nadal kasować wszystko
-(w tym te podfoldery dat), „approved" zostaje nietykalne jak dziś. To
-dotyka literalnie każdej funkcji budującej ścieżkę wyjściową w apce oraz
-tego, jak ekran recenzji odnajduje pliki do wyświetlenia — w trakcie
-sprawdzania architektury (file_writers.py, review.py, mechanizmu
-czyszczenia w gui_app.py), zanim zacznę cokolwiek zmieniać, żeby nie
-zepsuć odnajdywania plików w recenzji ani mechanizmu „Wyczyść historię".
+- [ ] **Foldery wynikowe wg daty + rozdzielenie PDF/TXT — zbudowane
+      2026-09-22, gotowe do sprawdzenia** — Twoje zgłoszenie: folder
+      „approved" (nigdy nie czyszczony, bo traktujesz go jak własną bazę)
+      zbierał bałagan — PDF plus dwa pliki TXT (wynik i raport) na
+      dokument, bez porządku. Teraz: **w obu miejscach** (folder wyników
+      i „approved") każdy dzień anonimizacji dostaje własny podfolder w
+      formacie `DD.MM.RRRR`, a wewnątrz niego podfolder `txt` — PDF-y
+      zostają bezpośrednio w folderze daty, wszystkie pliki TXT
+      (wynikowe i raporty) trafiają do `txt`. Kilka osobnych anonimizacji
+      tego samego dnia trafia do jednego folderu daty. „Wyczyść
+      historię" w folderze wyników nadal kasuje wszystko, łącznie z tymi
+      podfolderami; „approved" zostaje nietykalny jak dziś. Stare,
+      istniejące już wyniki w płaskiej strukturze **zostają nietknięte**
+      — apka rozpoznaje oba układy naraz, bez żadnej migracji. Przy
+      okazji poprawiony też prawdziwy błąd, który złapałaby dopiero Twoja
+      własna próba: otwarcie starszego folderu z historii pokazywało
+      pusty ekran „Brak plików", mimo że wyniki tam realnie są — teraz
+      apka sama trafia do najnowszego podfolderu daty. Sprawdź na żywo:
+      (1) uruchom dwie osobne anonimizacje tego samego dnia — oba
+      trafiają do jednego `DD.MM.RRRR`, PDF-y bezpośrednio w nim, pliki
+      TXT w `txt/`; (2) ekran recenzji po anonimizacji pokazuje wszystkie
+      pliki normalnie (i PDF-owe, i czysto tekstowe źródła); (3) zamknij
+      apkę i otwórz ją ponownie, potem w Historii kliknij folder, w
+      którym coś anonimizowałeś wcześniej — ekran recenzji ma pokazać
+      wyniki, nie „Brak plików"; (4) zatwierdź plik i wyeksportuj do
+      folderu „approved" (nowego albo tego, którego już używasz) —
+      sprawdź, że tam też powstaje podfolder `DD.MM.RRRR` z PDF-em w
+      środku i `txt/` z plikiem wynikowym i raportem; (5) „Wyczyść
+      historię" na folderze wyników z nowymi podfolderami dat — ma
+      usunąć wszystko tak jak dotychczas na starym, płaskim folderze.
 
 Po tym: początek prac nad wykorzystaniem lokalnego LLM (Ollama) —
 osobny, większy temat, wymaga wcześniej ustalenia dokładnego zakresu
