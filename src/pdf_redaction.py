@@ -585,6 +585,33 @@ def pdf_page_count(source_path: str | Path) -> int | None:
         return None
 
 
+def pdf_has_signature_widget(source_path: str | Path) -> bool:
+    """Return whether a PDF has at least one AcroForm signature field
+    (the same ``PDF_WIDGET_TYPE_SIGNATURE`` scope ``_strip_signature_widgets``
+    removes) - never raises, ``False`` on any failure (missing PyMuPDF, a
+    corrupt/non-PDF file, ...).
+
+    Used to only show the magic-pen signature-removal toggle for
+    documents that actually have a signature field to remove, instead
+    of cluttering the sidebar with a checkbox that would be a no-op for
+    the vast majority of documents that have none."""
+    try:
+        fitz = _load_fitz_module()
+    except RuntimeError:
+        return False
+    try:
+        with fitz.open(source_path) as document:
+            if not document.is_form_pdf:
+                return False
+            for page in document:
+                for widget in page.widgets() or []:
+                    if widget.field_type == fitz.PDF_WIDGET_TYPE_SIGNATURE:
+                        return True
+            return False
+    except Exception:  # noqa: BLE001 - a bad/corrupt file must never crash the GUI
+        return False
+
+
 def _build_word_page(
     fitz,
     page_number: int,

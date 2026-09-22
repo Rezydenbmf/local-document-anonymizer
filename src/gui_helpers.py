@@ -1369,6 +1369,9 @@ def format_pending_edit_summary_lines(
     added_pages: Sequence[int],
     removed_count: int,
     removed_pages: Sequence[int],
+    *,
+    signature_removal_changed: bool = False,
+    strip_signatures: bool = False,
 ) -> list[str]:
     """Plain-language, content-free summary of an editable PDF's pending
     manual edits - counts and page numbers only, deliberately never the
@@ -1376,7 +1379,11 @@ def format_pending_edit_summary_lines(
     "are you sure you want to apply this?" confirmation would defeat the
     entire point of anonymizing it in the first place. Used by
     ComparisonWindow's save confirmation (see also format_save_button_text
-    for the button's own label)."""
+    for the button's own label).
+
+    ``signature_removal_changed``/``strip_signatures`` cover the Etap 7
+    magic-pen toggle: a rect-free pending change (no added/removed
+    zaznaczenia) that would otherwise produce an empty summary list."""
     lines: list[str] = []
     if added_count:
         lines.append(
@@ -1387,6 +1394,11 @@ def format_pending_edit_summary_lines(
         lines.append(
             f"Cofnięte automatyczne zaznaczenia: {removed_count} "
             f"({_pl_page_word(removed_pages)} {format_page_list(removed_pages)})"
+        )
+    if signature_removal_changed:
+        lines.append(
+            "Usuwanie podpisów elektronicznych: "
+            + ("włączone" if strip_signatures else "wyłączone")
         )
     return lines
 

@@ -563,6 +563,47 @@ def save_category_selection(
     return destination
 
 
+def update_signature_stripping_selection(
+    path: str | Path,
+    *,
+    active_labels: frozenset[str] | None,
+    active_pages: frozenset[int] | None,
+    strip_signatures: bool,
+) -> Path:
+    """Rewrite the category-selection sidecar after a magic-pen "regenerate"
+    changes only the Etap 7 signature-stripping choice from inside
+    ComparisonWindow, without re-resolving ``active_labels``/``active_pages``
+    from raw category names/page-range text - ComparisonWindow never
+    retains those, only the already-resolved frozensets this same sidecar
+    handed it at window-open time (see ``load_category_selection``).
+    Re-resolving from raw names here would reopen the exact
+    CATEGORY_GROUPS-mapping staleness problem ``load_category_selection``'s
+    docstring describes; writing the already-resolved values straight
+    through avoids it entirely.
+
+    Sibling of ``save_category_selection``, writing the same sidecar
+    shape with ``active_categories``/``page_range`` left ``null`` (raw
+    names/text this call site never has) - safe, since neither field is
+    read back by this app today (see ``save_category_selection``)."""
+    destination = Path(path)
+    payload = {
+        "active_categories": None,
+        "active_labels": (
+            sorted(active_labels) if active_labels is not None else None
+        ),
+        "page_range": None,
+        "active_pages": (
+            sorted(active_pages) if active_pages is not None else None
+        ),
+        "strip_signatures": bool(strip_signatures),
+    }
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    return destination
+
+
 # audit.py's own leftover-risk scanner has a handful of broader,
 # audit-only pattern labels with no exact counterpart in
 # SUPPORTED_LABELS/NER_LABELS (see its _AUDIT_PATTERNS) - deliberately
