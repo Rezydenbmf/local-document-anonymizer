@@ -12,25 +12,35 @@ przenoszę ją do „Potwierdzone" albo usuwam. Jeśli lista urośnie powyżej
 
 ## Do sprawdzenia
 
-- [ ] **Nowa strategia zakresu stron — kontrolka przy każdym pliku
-      (zbudowane 2026-09-22, gotowe do sprawdzenia)** — zamiast jednego
-      wspólnego pola „Strony" dla całego wsadu, każdy plik PDF na
-      liście wybranych plików ma teraz **własne, małe pole obok nazwy**.
-      Apka od razu po wczytaniu pliku wie, ile ma on stron, i pokazuje
-      to w podpowiedzi pola (np. „np. 1-3 (z 5 str.)"). Jeśli wpiszesz
-      numer strony, której dokument nie ma, obramowanie pola **od razu
-      robi się czerwone** — nie trzeba czekać na uruchomienie
-      anonimizacji, żeby się o tym dowiedzieć. Pliki TXT/DOCX/obraz nie
-      mają tego pola w ogóle (jak dotychczas — dotyczy tylko PDF-a).
-      Sprawdź na żywo: (1) wrzuć kilka PDF-ów o różnej liczbie stron
-      (plus jeden TXT/DOCX) — każdy PDF ma własne pole z poprawną
-      podpowiedzią liczby stron, plik TXT/DOCX nie ma żadnego pola;
-      (2) wpisz w jednym polu zakres spoza dokumentu (np. „99" na
-      3-stronicowym pliku) — tylko ta jedna kontrolka ma zrobić się
-      czerwona, reszta bez zmian; (3) usuń plik z listy i dodaj go
-      ponownie — pole ma wrócić puste; (4) uruchom anonimizację z
-      różnymi zakresami na różnych plikach naraz — każdy wynik powinien
-      mieć zamazane tylko swoje, wybrane strony.
+- [ ] **Zakres stron per plik — przebudowane po Twoim live feedbacku
+      (2026-09-22, gotowe do ponownego sprawdzenia)** — zgłosiłeś, że
+      dymek podpowiedzi się ucinał (nieczytelny) i że pole w ogóle nie
+      pokazywało żadnej podpowiedzi liczby stron. Drugie okazało się
+      prawdziwym błędem, nie tylko brakiem: biblioteka GUI (customtkinter)
+      ma błąd, przez który wbudowana „szara podpowiedź" pola tekstowego
+      nigdy się nie aktywuje, gdy pole jest jednocześnie powiązane
+      z żywą walidacją (a takie jest to pole od początku) — więc ta
+      podpowiedź nigdy realnie nie działała, nawet zanim to przebudowałem.
+      Naprawione własną, ręczną implementacją tego mechanizmu. Przy okazji,
+      zgodnie z Twoimi uwagami: (a) dymek podpowiedzi łamie się teraz na
+      kilka linii zamiast urywać; (b) pole samo w sobie od razu pokazuje
+      szarym tekstem efektywny zakres, np. „3 z 3 stron” albo „1 z 1
+      strony” (nie przykład, tylko prawdziwą wartość dla tego pliku);
+      (c) pole jest domyślnie zablokowane (szare), aktywuje się dopiero
+      po zaznaczeniu małego checkboxa obok (bez podpisu przy nim — najedź
+      myszką, żeby zobaczyć „Ręczne oznaczenie stron do anonimizacji”);
+      (d) pole zwężone, a cały układ przesunięty bliżej prawej krawędzi,
+      żeby było więcej miejsca na nazwę pliku. Sprawdź na żywo: (1)
+      wrzuć kilka PDF-ów o różnej liczbie stron — każdy pokazuje od razu
+      poprawną szarą podpowiedź „X z X stron”, pole jest zablokowane;
+      (2) zaznacz checkbox przy jednym pliku — pole się odblokowuje,
+      podpowiedź nadal widoczna, aż zaczniesz pisać; (3) wpisz zakres
+      spoza dokumentu (np. „99” na 3-stronicowym pliku) — obramowanie
+      od razu robi się czerwone; (4) odznacz checkbox — pole wraca
+      zablokowane z podpowiedzią „cały dokument”, żaden wpisany wcześniej
+      zakres nie zostaje; (5) uruchom anonimizację z ręcznym zakresem na
+      jednym pliku, a drugi zostaw bez zaznaczenia — pierwszy ma zamazane
+      tylko wybrane strony, drugi cały dokument.
 
 - [ ] **Okno samej aplikacji miga raz przy starcie (zgłoszone
       2026-09-22, niski priorytet — Twoja własna ocena)** — Twój
