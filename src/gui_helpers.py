@@ -1906,6 +1906,16 @@ class IconTooltip:
             padx=8,
             pady=3,
             borderwidth=0,
+            # Long tooltip text used to render as one unbroken line that
+            # could run off the edge of the screen and get clipped,
+            # unreadable - real feedback, a tooltip explaining the
+            # per-file page-range field. wraplength wraps any line that
+            # is still too long on its own; callers with a naturally
+            # multi-sentence explanation should still break it into
+            # explicit "\n"-separated lines themselves for the most
+            # readable result, this is a backstop, not a replacement.
+            wraplength=280,
+            justify="left",
         )
         label.pack()
         self._tip_window = window

@@ -299,6 +299,17 @@ except ImportError:
         save_review_files,
     )
 
+
+def _pl_pages_genitive_word(count: int) -> str:
+    """Polish genitive of "strona" (page) after "z" (out of), e.g.
+    "z 1 strony", "z 3 stron" - unlike the counting-noun agreement
+    _pl_pages_word (anonymizer.py) uses elsewhere in this app, "z"
+    always takes the genitive case regardless of count, so there is no
+    separate 2-4 form here: singular genitive ("strony") for exactly 1,
+    plural genitive ("stron") for everything else."""
+    return "strony" if count == 1 else "stron"
+
+
 class AnonymizerApp:
     """CustomTkinter application: drop files -> anonymize -> review."""
 
@@ -1904,42 +1915,91 @@ class AnonymizerApp:
         IconTooltip(remove_button, "Usu\u0144 z listy")
 
     def _build_page_range_entry(self, card: ctk.CTkFrame, path: Path) -> None:
-        """Per-file "Strony" control (replaces the old single, whole-batch
-        field) - live-validated against this specific file's own real
-        page count (see pdf_page_count in _add_paths), so a page number
-        the document doesn't have turns the border red immediately,
-        before the user ever clicks Anonimizuj."""
+        """Per-file page-range control (replaces the old single,
+        whole-batch "Strony" field) - live-validated against this
+        specific file's own real page count (see pdf_page_count in
+        _add_paths), so a page number the document doesn't have turns
+        the border red immediately, before the user ever clicks
+        Anonimizuj.
+
+        Off (unchecked "R\u0119cznie") by default: the field is disabled and
+        shows the *actual* effective range as a grayed hint - "3 z 3
+        stron" for a 3-page document - rather than a generic example,
+        so it doubles as a live answer to "what will happen to this
+        file" without the user needing to open a tooltip. Checking
+        "R\u0119cznie" enables the field for typing a real range, still
+        starting from that same grayed hint (an ordinary placeholder -
+        it disappears the moment there is real text); unchecking it
+        again clears back to the whole document, so the checkbox state
+        and the field's own content/enabled-ness never silently
+        disagree with what self.page_ranges actually holds.
+        """
         # `is not None` throughout (not plain truthiness) - a malformed
         # 0-page PDF that PyMuPDF still opens without raising is a
         # genuinely *known* count, not an unknown one; treating it as
         # falsy would drop the count hint even though the bounds check
         # below still correctly rejects every page number for it.
         page_count = self.page_counts.get(path)
-        placeholder = (
-            f"np. 1-3 (z {page_count} str.)"
+        whole_document_hint = (
+            f"{page_count} z {page_count} {_pl_pages_genitive_word(page_count)}"
             if page_count is not None
-            else "np. 1-3,5"
+            else "ca\u0142y dokument"
         )
+
         var = tk.StringVar(value=self.page_ranges.get(path, ""))
         self._page_range_vars[path] = var
+        manual_var = tk.BooleanVar(value=bool(var.get().strip()))
+
         entry = ctk.CTkEntry(
             card,
             textvariable=var,
-            width=118,
-            height=28,
-            placeholder_text=placeholder,
+            width=90,
+            height=26,
+            placeholder_text=whole_document_hint,
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
             border_color=COLOR_BORDER,
+            state="normal" if manual_var.get() else "disabled",
         )
-        entry.pack(side="right", padx=(0, 8), pady=8)
-        count_hint = (
-            f" Dokument ma {page_count} str." if page_count is not None else ""
-        )
+        entry.pack(side="right", padx=(0, 8), pady=9)
         IconTooltip(
             entry,
-            "Zakres stron do automatycznej redakcji tego PDF-a (puste = ca\u0142y "
-            "dokument). Pojedyncze numery po przecinku (1,3,5), zakresy z "
-            "my\u015blnikiem (1-3), mo\u017cna \u0142\u0105czy\u0107 oba naraz (1-3,5)." + count_hint,
+            "Pojedyncze numery po przecinku (1,3,5) lub zakresy z\n"
+            "my\u015blnikiem (1-3) - mo\u017cna \u0142\u0105czy\u0107 oba naraz (1-3,5).\n"
+            + (
+                f"Ten dokument ma {page_count} "
+                f"{_pl_pages_genitive_word(page_count)}."
+                if page_count is not None
+                else "Liczba stron tego dokumentu jest nieznana."
+            ),
+        )
+
+        def _on_manual_toggle() -> None:
+            if manual_var.get():
+                entry.configure(state="normal")
+            else:
+                # Back to "whole document" - nothing about what's shown
+                # (checkbox unchecked, field disabled and empty) should
+                # silently disagree with what start_anonymize will
+                # actually use for this file.
+                var.set("")
+                entry.configure(state="disabled")
+
+        checkbox = ctk.CTkCheckBox(
+            card,
+            text="R\u0119cznie",
+            variable=manual_var,
+            command=_on_manual_toggle,
+            checkbox_width=16,
+            checkbox_height=16,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+            text_color=COLOR_TEXT_MUTED,
+        )
+        checkbox.pack(side="right", padx=(0, 6), pady=9)
+        IconTooltip(
+            checkbox,
+            "Zaznacz, aby r\u0119cznie wpisa\u0107, kt\u00f3re strony tego pliku PDF\n"
+            "maj\u0105 zosta\u0107 zredagowane. Domy\u015blnie (odznaczone) zamazywany\n"
+            "jest ca\u0142y dokument.",
         )
 
         # No default-arg capture needed here (unlike the lambdas bound
