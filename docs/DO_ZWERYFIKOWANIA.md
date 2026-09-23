@@ -105,27 +105,43 @@ przenoszę ją do „Potwierdzone" albo usuwam. Jeśli lista urośnie powyżej
       historię" na folderze wyników z nowymi podfolderami dat — ma
       usunąć wszystko tak jak dotychczas na starym, płaskim folderze.
 
-- [ ] **LLM — warstwa sugestii (porównanie + czytanie narracyjne) —
-      backend gotowy i zmergowany, checkboxy widoczne w apce, ale
-      jeszcze NIC nie da się sensownie przetestować (2026-09-23).**
-      Zaplanowaliśmy architekturę razem (w tym zabezpieczenie przed
-      prompt injection) i zbudowałem obie funkcje w `llm_review.py`,
-      pełne spięcie przez `anonymizer.py`, oraz dwa nowe, odblokowane
-      od razu checkboxy w Ustawieniach i w panelu szybkich ustawień:
-      „AI: porównanie oryginał/wynik” i „AI: czytanie kontekstowe
-      całości”. **Uwaga, żeby nie zmarnować czasu na test**: jeśli
-      teraz zaznaczysz któryś z nich i uruchomisz anonimizację, model
-      lokalny (Ollama) faktycznie dostanie prawdziwy tekst dokumentu i
-      coś policzy — ale wynik **nigdzie się jeszcze nie wyświetla**
-      (ani w raporcie, ani w oknie porównania). Zobaczysz tylko trochę
-      wolniejsze przetwarzanie, nic więcej. Nie testuj jeszcze tego na
-      żywo — czekaj na kolejny krok. 781 testów automatycznych (29
-      nowych) pilnuje poprawności na tym etapie.
-      Następny krok (większy, osobny kawałek pracy): tryb recenzji
-      sugestii w oknie porównania (przerywana obwódka, nawigacja
-      „Sprawdź sugestię AI”, panel akceptuj/odrzuć/zmień ręcznie, nowy
-      kolor w legendzie) — dopiero to będzie miało coś realnego do
-      przeklikania.
+- [ ] **Sugestie AI — tryb recenzji w oknie porównania (tylko PDF) —
+      zbudowane 2026-09-23, gotowe do sprawdzenia NA ŻYWO** — to jest ten
+      krok, na który czekały oba checkboxy „AI: …". Ekran w moim
+      środowisku jest zablokowany, więc wyglądu nie widziałem: logikę
+      sprawdziłem testami (44 nowe) i skryptem uruchamiającym prawdziwe
+      okno w tle, ale układ, kolory i czytelność panelu musisz ocenić Ty.
+      Potrzebujesz: działającej Ollamy z modelem, zaznaczonego
+      przynajmniej jednego „AI: …" i syntetycznego/testowego PDF-a z
+      czymś, co automat przepuszcza (np. imię i nazwisko w zdaniu,
+      zawód + miejsce pracy). Sprawdź: (1) po anonimizacji otwórz
+      porównanie — w pasku tytułu jest przycisk „✨ Sprawdź sugestię AI
+      (N)", a u góry panelu bocznego sekcja „Sugestie AI"; (2) kliknij
+      przycisk — oba panele przewijają się do właściwego zdania, wokół
+      propozycji jest turkusowa przerywana ramka, w panelu: typ
+      sugestii, „AI: uzasadnienie", cytat zdania, numer strony, ◀ 1/N ▶;
+      (3) „Zatwierdź" na pominiętej danej — pojawia się czarny prostokąt
+      z turkusową obwódką, okno samo przechodzi do następnej sugestii;
+      (4) „Zmień ręcznie" — narysuj mniejszy prostokąt (np. samo
+      nazwisko), sugestia liczy się jako zaakceptowana; (5) sugestia
+      „kombinacja danych" — „Zatwierdź" prosi o ręczne zaznaczenie;
+      (6) „zbędna redakcja" (jeśli się trafi) — „Zatwierdź" oznacza
+      zielonymi ramkami redakcje w tym zdaniu do odznaczenia — sprawdź,
+      czy nie łapie redakcji z sąsiedniej linii; (7) „Odrzuć" — ramka
+      znika; Ctrl+Z przywraca; „Cofnij decyzję" cofa tylko tę jedną;
+      (8) „Zastosuj wszystkie" — najpierw ostrzeżenie „AI może się
+      mylić", potem zatwierdza tylko te z gotową ramką; (9) „Zaakceptuj
+      edycję" — w podsumowaniu linia „Sugestie AI: zaakceptowane X,
+      odrzucone Y"; po zapisie zaakceptowane są turkusowe, zgodnie z
+      legendą „sugestia AI zaakceptowana"; zamknij i otwórz okno —
+      sugestii już nie ma; (10) **bramka**: przy nierozstrzygniętych
+      sugestiach „✓ Zatwierdź" na karcie pliku nie zatwierdza, tylko
+      pyta, czy otworzyć porównanie; (11) folder otwarty z Historii
+      (oryginał niedostępny) — pytanie „Zatwierdzić mimo to?".
+      **Najważniejsze pytanie do Ciebie**: czy przepływ „jak śledzenie
+      zmian w Wordzie" jest taki, jak chciałeś, i czy panel 200 px po
+      prawej nie jest za ciasny. DOCX/TXT — celowo jeszcze bez sugestii
+      (Twoja decyzja: osobną partią).
 
 - [ ] **Usunięta stara, wyszarzona opcja „Dodatkowa weryfikacja AI
       (LLM)" (2026-09-23, na Twoją prośbę)** — to była inna, starsza

@@ -5383,6 +5383,120 @@ read the new design as a violation.
 of the real `AnonymizerApp` + `SettingsDialog` confirms neither still carries
 the old attribute.
 
+## LLM suggestion review, phase 2: review mode in the comparison window (2026-09-23)
+
+The one missing visible piece of the local-LLM suggestion feature: a
+Word-track-changes-style review of suggestions for **PDF outputs** in
+`gui_comparison_window.py`, plus the approval gate in `gui_app.py`.
+DOCX/TXT stays deferred (user decision: a separate batch - the pipeline
+does not even write a suggestions sidecar for them yet).
+
+**The open problem first: which text did the model number?** The model
+only ever returns sentence numbers, and the sidecar deliberately never
+stores document text, so the window has to rebuild the exact text the
+pipeline reviewed - a text-layer PDF reviews the pypdf text, a scan its
+word-box OCR page texts, an image its single OCR page, all joined with
+`PDF_PAGE_SEPARATOR`. Rebuilding alone is not proof: a Tesseract upgrade
+or a PDF the two extraction libraries judge differently would shift
+every sentence number silently and put a proposed rect on the wrong
+sentence. Solved with a **fingerprint**: `save_llm_suggestions_result`
+now takes `original_text` and stores only its SHA-256
+(`review_text_fingerprint`, BOM-normalized like the review itself);
+`anonymizer.candidate_llm_review_texts(source, word_pages)` rebuilds the
+candidates in the pipeline's own priority order from the window's
+already-cached detection `word_pages` (so OCR never runs twice), and
+`llm_suggestions.select_review_text` picks the one whose hash matches -
+or none, in which case every suggestion still shows (the gate needs a
+decision on each) but without any page, rect or quote, never a guess. A
+sidecar written before the fingerprint existed falls back to the first
+non-empty candidate. Verified by `tests/test_llm_review_text_reconstruction.py`,
+which runs the real pipeline with the LLM calls mocked to *capture* the
+text they received and proves the window's rebuild matches it and yields
+identical sentence numbering - for a text PDF, a scan (mocked OCR), an
+image (mocked OCR) and a scan with **real** Tesseract run twice.
+
+**Review mode** (all state in `ComparisonWindow`, "local-LLM suggestion
+review" section; pure helpers `prepare_ai_review`, `ai_scroll_fraction`,
+`ai_suggestion_title_pl`, `ai_quote_text` at module level):
+- Title-bar button "✨ Sprawdź sugestię AI (N)" and a "Sugestie AI"
+  section at the top of the sidebar (plus a ✨ button on the collapsed
+  rail): ◀ n/N ▶, the kind of suggestion in Polish, "AI: justification",
+  the locally-resolved sentence quote, page, and Zatwierdź / Odrzuć /
+  Zmień ręcznie; "Cofnij decyzję" on a decided one; "Zastosuj wszystkie
+  (K)" behind an "AI może się mylić" confirmation, touching only
+  suggestions with a ready rect.
+- Navigation scrolls the result pane to the rect's y offset (not just the
+  page - `_scroll_frame_to_offset`, a third of the way down the
+  viewport) and, while panes are linked, the original pane to the same
+  relative spot on its differently-rendered page.
+- `_redraw_overlay` draws a dashed turquoise outline (legend color
+  `#0D99A6`) around every pending proposal, the focused suggestion's
+  sentence as a finer-dashed hint when it has no rect, and staged
+  AI-labeled rects with a turquoise instead of red border.
+- Mapping per the agreed design: missed_redaction -> its proposed rects
+  staged as `ManualRect(label=AI_SUGGESTION_LABEL)`; narrative (and a
+  missed one whose sentence couldn't be located) -> hand-marking mode,
+  where every drawn rect is AI-labeled and counts as accepting;
+  unnecessary_redaction -> (user decision today) stage removal of the
+  existing redactions inside that sentence, falling back to the eraser
+  when none overlaps.
+- **Nothing redacts by itself**: accepting only stages ordinary
+  magic-pen edits, so the existing save confirmation (now with a
+  "Sugestie AI: zaakceptowane X, odrzucone Y" line), undo/redo, cancel
+  and erase all apply. A suggestion's status is *derived* from whether
+  the rects/keys it staged are still pending (`_ai_status`), so Ctrl+Z,
+  erasing the staged rect, or "Anuluj zmiany" revert it for free.
+  Rejections ride in the undo snapshot and count as a pending change; a
+  rejection-only save writes just the sidecar, without regenerating the
+  PDF or resetting the review status.
+- Decisions are persisted on save as `{id: accepted|rejected}` in the
+  sidecar's new `resolved` map (`save_ai_suggestion_resolutions` - ids
+  and statuses only). Rejected ones vanish; accepted ones live on as
+  turquoise `AI_SUGESTIA` rects. If the PDF was rewritten but the
+  decision write failed, the staged edits still leave the pending state
+  (keeping them would burn the same rects in twice next save) and the
+  status line says so.
+
+**Approval gate** (`AnonymizerApp._apply_ai_suggestion_gate`, called from
+`_confirm_then_approve`, the only user approval path):
+`count_unresolved_ai_suggestions` reads the sidecar next to the item's
+PDF. One file with pending suggestions -> not approved, offer to open
+the comparison; bulk -> the others are approved, these listed. A file
+whose original isn't available this session (folder reopened from
+Historia - the window can't review it) -> explicit "Zatwierdzić mimo
+to?" (user decision today, instead of blocking until re-anonymized).
+
+**Code review** (mandatory here - it sets real redactions and touches
+`anonymizer.py`; medium effort) found three real bugs, all fixed with
+regression tests: (1) in the eraser fallback of an "unnecessary
+redaction" suggestion, a mark-drag *added* a turquoise AI redaction and
+counted as accepting "this redaction is unnecessary" - drawing now
+creates an ordinary manual rect and accepts nothing there; (2) the
+overlap test for "redactions inside this sentence" accepted any
+intersection, and word boxes on tightly-leaded lines overlap the next
+line by a fraction of a point, so accepting could stage un-redacting a
+PESEL on the line below - now requires >50% vertical overlap; (3)
+pypdf's own exceptions are not `OSError`/`ValueError`, so a source PDF
+that became unreadable after anonymization crashed the window's
+constructor (and left the gate blocking with no way to review) - now
+degrades to "no location".
+
+Verified: 838 tests (44 new: text reconstruction incl. real OCR,
+sidecar resolutions/ids/overlap, 29 window/gate tests on real withdrawn
+Tk widgets), lint 71. Plus a headless script driving the **real**
+`ComparisonWindow` on a synthetic PDF with mocked LLM findings: 3
+suggestions loaded and located, both panes scrolled to the sentence
+(yview ~0.25), accept -> AI rect staged, all decided, save -> PDF
+regenerated with an `AI_SUGESTIA` rect, sidecar fully resolved, reopen
+shows nothing left. The display is locked in this sandbox, so the look
+(200px sidebar density, colors, dashed outlines) is on
+`docs/DO_ZWERYFIKOWANIA.md` for the user.
+
+Known limits: DOCX/TXT has no review yet; a decision is only persisted
+on save (closing the window drops unsaved ones, same as unsaved magic
+pen edits); duplicate-sentence and hyphen-wrap resolution limits from
+phase 1d still apply (fail closed).
+
 ## Warning
 
 This repository is still an early-stage portfolio MVP. Do not use it to

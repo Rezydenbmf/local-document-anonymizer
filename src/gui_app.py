@@ -134,6 +134,7 @@ try:
         truncate_filename_middle,
     )
     from .gui_settings_dialog import SettingsDialog
+    from .llm_suggestions import count_unresolved_ai_suggestions
     from .ocr import list_installed_languages
     from .output_cleanup import (
         apply_output_cleanup_plan,
@@ -276,6 +277,7 @@ except ImportError:
         truncate_filename_middle,
     )
     from gui_settings_dialog import SettingsDialog
+    from llm_suggestions import count_unresolved_ai_suggestions
     from ocr import list_installed_languages
     from output_cleanup import (
         apply_output_cleanup_plan,
@@ -3103,12 +3105,87 @@ class AnonymizerApp:
         items = [item for item in items if item.status != REVIEW_STATUS_APPROVED]
         if not items:
             return
+        items = self._apply_ai_suggestion_gate(items)
+        if not items:
+            return
         if hint_is_dismissed(APPROVAL_LOCK_HINT_ID):
             self._approve_items_confirmed(items)
             return
         ApprovalLockWarningDialog(
             self, len(items), lambda: self._approve_items_confirmed(items)
         )
+
+    def _unresolved_ai_suggestion_count(self, item: ReviewItem) -> int:
+        """Suggestions from the local LLM review still awaiting a decision
+        for this item's PDF (0 for DOCX/TXT or when the review was off)."""
+        if self.review_dir is None:
+            return 0
+        result_path = preferred_review_output_path(self.review_dir, item.output_name)
+        if result_path.suffix.lower() != ".pdf":
+            return 0
+        return count_unresolved_ai_suggestions(result_path)
+
+    def _ai_suggestions_reviewable(self, item: ReviewItem) -> bool:
+        """The comparison window can only review suggestions when it has
+        the original from this session (see ComparisonWindow's
+        magic_pen_available)."""
+        original_path = self.original_path_by_output_name.get(item.output_name)
+        return original_path is not None and original_path.exists()
+
+    def _apply_ai_suggestion_gate(self, items: list[ReviewItem]) -> list[ReviewItem]:
+        """Approval gate for local-LLM suggestions: every suggestion must
+        be accepted or rejected before its file is approved. Returns the
+        items that may still be approved.
+
+        A file whose original isn't available in this session (a folder
+        reopened from history) can't be reviewed at all - per the user's
+        2026-09-23 decision it may still be approved, but only after an
+        explicit warning, rather than being blocked until re-anonymized.
+        """
+        allowed: list[ReviewItem] = []
+        reviewable: list[tuple[ReviewItem, int]] = []
+        unreviewable: list[tuple[ReviewItem, int]] = []
+        for item in items:
+            count = self._unresolved_ai_suggestion_count(item)
+            if not count:
+                allowed.append(item)
+            elif self._ai_suggestions_reviewable(item):
+                reviewable.append((item, count))
+            else:
+                unreviewable.append((item, count))
+
+        if reviewable and len(items) == 1:
+            item, count = reviewable[0]
+            if messagebox.askyesno(
+                "Nierozstrzygnięte sugestie AI",
+                f"„{item.output_name}”: nierozstrzygnięte sugestie AI: {count}.\n\n"
+                "Każdą trzeba zatwierdzić lub odrzucić, zanim plik zostanie "
+                "zatwierdzony. Otworzyć porównanie i przejrzeć je teraz?",
+                parent=self.root,
+            ):
+                self.open_comparison(item)
+            return []
+        if reviewable:
+            names = "\n".join(f"• {item.output_name} ({count})" for item, count in reviewable)
+            messagebox.showwarning(
+                "Nierozstrzygnięte sugestie AI",
+                "Te pliki mają nierozstrzygnięte sugestie AI i nie zostaną "
+                f"zatwierdzone:\n\n{names}\n\nOtwórz porównanie każdego z nich "
+                "i zatwierdź lub odrzuć sugestie.",
+                parent=self.root,
+            )
+        if unreviewable:
+            names = "\n".join(f"• {item.output_name} ({count})" for item, count in unreviewable)
+            if messagebox.askyesno(
+                "Nieprzejrzane sugestie AI",
+                "Te pliki mają nieprzejrzane sugestie AI, ale ich oryginał nie "
+                f"jest dostępny w tej sesji, więc nie da się ich przejrzeć:\n\n{names}"
+                "\n\nAI mogło wskazać pominięte dane osobowe. Zatwierdzić mimo to?",
+                icon="warning",
+                parent=self.root,
+            ):
+                allowed.extend(item for item, _count in unreviewable)
+        return [item for item in items if item in allowed]
 
     def _approve_items_confirmed(self, items: list[ReviewItem]) -> None:
         approved_names = {item.output_name for item in items}

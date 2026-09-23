@@ -9,6 +9,8 @@ import sys
 import tkinter as tk
 from collections.abc import Mapping, Sequence
 from pathlib import Path
+from tkinter import messagebox
+from types import MappingProxyType
 from typing import NamedTuple
 
 import customtkinter as ctk
@@ -16,6 +18,7 @@ from PIL import Image, ImageTk
 
 try:
     from .anonymizer import (
+        candidate_llm_review_texts,
         category_selection_path,
         compute_pdf_redaction_spans,
         load_active_pages_selection,
@@ -74,8 +77,25 @@ try:
         magic_pen_bindings_description_pl,
         resolve_magic_pen_bindings,
     )
+    from .llm_suggestions import (
+        AI_SUGGESTION_SOURCE_NARRATIVE,
+        AI_SUGGESTION_STATUS_ACCEPTED,
+        AI_SUGGESTION_STATUS_PENDING,
+        AI_SUGGESTION_STATUS_REJECTED,
+        AiSuggestion,
+        ai_suggestion_sentence_texts,
+        build_ai_suggestions,
+        llm_suggestions_path,
+        load_llm_suggestions_sidecar,
+        locate_sentence_texts,
+        redactions_overlapping_area,
+        save_ai_suggestion_resolutions,
+        select_review_text,
+    )
     from .manual_redaction import (
+        AI_SUGGESTION_LABEL,
         EMPTY_MANUAL_EDITS,
+        MANUAL_REDACTION_LABEL,
         ManualEdits,
         ManualRect,
         apply_manual_redaction_count_to_report_text,
@@ -95,6 +115,7 @@ try:
     )
 except ImportError:
     from anonymizer import (
+        candidate_llm_review_texts,
         category_selection_path,
         compute_pdf_redaction_spans,
         load_active_pages_selection,
@@ -153,8 +174,25 @@ except ImportError:
         magic_pen_bindings_description_pl,
         resolve_magic_pen_bindings,
     )
+    from llm_suggestions import (
+        AI_SUGGESTION_SOURCE_NARRATIVE,
+        AI_SUGGESTION_STATUS_ACCEPTED,
+        AI_SUGGESTION_STATUS_PENDING,
+        AI_SUGGESTION_STATUS_REJECTED,
+        AiSuggestion,
+        ai_suggestion_sentence_texts,
+        build_ai_suggestions,
+        llm_suggestions_path,
+        load_llm_suggestions_sidecar,
+        locate_sentence_texts,
+        redactions_overlapping_area,
+        save_ai_suggestion_resolutions,
+        select_review_text,
+    )
     from manual_redaction import (
+        AI_SUGGESTION_LABEL,
         EMPTY_MANUAL_EDITS,
+        MANUAL_REDACTION_LABEL,
         ManualEdits,
         ManualRect,
         apply_manual_redaction_count_to_report_text,
@@ -363,6 +401,144 @@ def find_rect_at_point(
     return None
 
 
+# -- local-LLM suggestion review (PDF only) ---------------------------------
+
+# Same turquoise as the "sugestia AI zaakceptowana" legend entry
+# (gui_helpers.LEGEND_ITEMS / pdf_redaction.PDF_REDACTION_COLORS), so a
+# pending suggestion's dashed outline and its burned-in result read as the
+# same thing before and after saving.
+AI_SUGGESTION_OUTLINE_COLOR = "#0D99A6"
+# Where on screen a focused suggestion lands: a third of the way down the
+# viewport, so the lines just above it (context) stay visible too.
+AI_SUGGESTION_SCROLL_ANCHOR = 0.3
+AI_QUOTE_MAX_CHARS = 160
+
+_AI_CATEGORY_LABELS_PL = {
+    "PERSON_LIKE": "osoba",
+    "ORGANIZATION_LIKE": "organizacja",
+    "LOCATION_LIKE": "miejsce",
+    "ADDRESS_CONTEXT": "adres",
+    "CASE_REFERENCE_LIKE": "sygnatura / numer sprawy",
+    "CONTACT_DATA_LIKE": "dane kontaktowe",
+    "OTHER_SENSITIVE_CONTEXT": "inne dane wrażliwe",
+    "QUASI_IDENTIFIER_COMBINATION": "kombinacja szczegółów",
+}
+_AI_CONFIDENCE_LABELS_PL = {
+    "certain": "pewne",
+    "likely": "prawdopodobne",
+    "uncertain": "niepewne",
+}
+
+
+def ai_suggestion_title_pl(suggestion: AiSuggestion) -> str:
+    """One-line Polish description of what kind of suggestion this is."""
+    category = _AI_CATEGORY_LABELS_PL.get(suggestion.category, suggestion.category.lower())
+    if suggestion.source == AI_SUGGESTION_SOURCE_NARRATIVE:
+        confidence = _AI_CONFIDENCE_LABELS_PL.get(suggestion.confidence or "", "")
+        suffix = f" ({confidence})" if confidence else ""
+        return f"Dane mogą razem wskazać osobę{suffix}"
+    if suggestion.finding_type == "unnecessary_redaction":
+        return f"Możliwa zbędna redakcja: {category}"
+    return f"Możliwa pominięta dana: {category}"
+
+
+def ai_quote_text(sentence_texts: Sequence[str], max_chars: int = AI_QUOTE_MAX_CHARS) -> str:
+    """The locally-resolved sentence(s) a suggestion points at, shortened
+    for the narrow review panel. Never model output (see llm_review.py)."""
+    text = " … ".join(" ".join(sentence.split()) for sentence in sentence_texts)
+    if len(text) <= max_chars:
+        return text
+    return text[: max_chars - 1].rstrip() + "…"
+
+
+def ai_scroll_fraction(
+    widget_y: float,
+    offset_px: float,
+    total_height: float,
+    viewport_height: float,
+    anchor: float = AI_SUGGESTION_SCROLL_ANCHOR,
+) -> float:
+    """``yview_moveto`` fraction that puts a point ``offset_px`` below the
+    top of a page widget (itself ``widget_y`` into the scrolled content)
+    ``anchor`` of the way down the visible viewport - the rect-level
+    counterpart of _scroll_frame_to_widget's page-level jump."""
+    if total_height <= 0:
+        return 0.0
+    target = widget_y + offset_px - viewport_height * anchor
+    return max(0.0, min(1.0, target / total_height))
+
+
+class AiReviewData(NamedTuple):
+    """What the comparison window needs to review one PDF's suggestions:
+    the still-undecided suggestions (in reading order), each one's
+    location-hint rects and locally-resolved sentence text, and whether
+    the reconstructed document text matched the one the model reviewed
+    (False = suggestions are shown without any location, see
+    llm_suggestions.select_review_text)."""
+
+    suggestions: list[AiSuggestion]
+    location_rects: dict[str, list[dict[str, object]]]
+    sentence_texts: dict[str, list[str]]
+    text_matched: bool
+
+
+EMPTY_AI_REVIEW = AiReviewData([], {}, {}, True)
+
+
+def _ai_reading_order_key(
+    suggestion: AiSuggestion, location_rects: Sequence[Mapping[str, object]]
+) -> tuple[float, float]:
+    page = suggestion.page
+    if page is None and location_rects:
+        page = int(location_rects[0]["page"])
+    top = min((float(rect["y0"]) for rect in location_rects), default=0.0)
+    return (float(page) if page is not None else float("inf"), top)
+
+
+def prepare_ai_review(
+    result_path: Path, source_path: Path, word_pages: Sequence
+) -> AiReviewData:
+    """Load a PDF output's suggestion sidecar and resolve every undecided
+    suggestion against ``source_path``'s geometry.
+
+    The model's sentence numbers only mean something against the exact
+    text it reviewed, which the sidecar deliberately never stores - so it
+    is rebuilt here (anonymizer.candidate_llm_review_texts, from the same
+    ``word_pages`` the window's detection cache already holds, so OCR
+    never runs twice) and checked against the stored fingerprint. On a
+    mismatch every suggestion still appears (the approval gate needs a
+    decision on each), just with no page, rect or quote - never a guess.
+    """
+    sidecar = load_llm_suggestions_sidecar(llm_suggestions_path(result_path))
+    if not sidecar.unresolved_ids():
+        return EMPTY_AI_REVIEW
+    try:
+        candidates = candidate_llm_review_texts(source_path, word_pages)
+    except Exception:  # noqa: BLE001 - pypdf's own errors aren't OSError/ValueError;
+        # a source that became unreadable must degrade to "no location",
+        # never stop the comparison window (and so the review) from opening.
+        candidates = []
+    review_text = select_review_text(candidates, sidecar.original_text_sha256)
+    suggestions = build_ai_suggestions(
+        review_text or "",
+        comparison_result=sidecar.comparison_result,
+        narrative_result=sidecar.narrative_result,
+        word_pages=word_pages if review_text is not None else [],
+    )
+    suggestions = [s for s in suggestions if s.id not in sidecar.resolved]
+    location_rects: dict[str, list[dict[str, object]]] = {}
+    sentence_texts: dict[str, list[str]] = {}
+    for suggestion in suggestions:
+        texts = ai_suggestion_sentence_texts(review_text, suggestion) if review_text else []
+        sentence_texts[suggestion.id] = texts
+        if suggestion.rects:
+            location_rects[suggestion.id] = [dict(rect) for rect in suggestion.rects]
+        else:
+            location_rects[suggestion.id] = locate_sentence_texts(texts, word_pages)
+    suggestions.sort(key=lambda s: _ai_reading_order_key(s, location_rects[s.id]))
+    return AiReviewData(suggestions, location_rects, sentence_texts, review_text is not None)
+
+
 def _render_text_block(parent: ctk.CTkBaseClass, text: str, zoom: float = 1.0) -> None:
     box = ctk.CTkTextbox(
         parent,
@@ -472,6 +648,28 @@ class ComparisonWindow:
     drawing over the already redacted output.
     """
 
+    # Local-LLM suggestion review state (see "local-LLM suggestion review"
+    # below). Immutable class-level defaults, always *replaced* rather than
+    # mutated in place, so a window that never loads suggestions (DOCX/TXT,
+    # locked, or no sidecar) - and the bare instances the tests build
+    # without __init__ - behave exactly as before this feature existed.
+    ai_review: AiReviewData = EMPTY_AI_REVIEW
+    _ai_current_id: str | None = None
+    # The suggestion whose area the user is marking by hand ("Zmień
+    # ręcznie", or accepting a suggestion with no ready rect): every rect
+    # drawn meanwhile gets AI_SUGGESTION_LABEL and counts as accepting it.
+    _ai_manual_id: str | None = None
+    _ai_rejected: frozenset[str] = frozenset()
+    # Which staged rects/removal keys came from accepting which suggestion
+    # - a suggestion's status is *derived* from whether they are still
+    # pending (see _ai_status), so undo/redo/cancel/erase all update it for
+    # free instead of each needing its own bookkeeping.
+    _ai_accepted_rects: Mapping[str, tuple[ManualRect, ...]] = MappingProxyType({})
+    _ai_accepted_removals: Mapping[str, frozenset] = MappingProxyType({})
+    _ai_section: ctk.CTkFrame | None = None
+    _ai_title_button: ctk.CTkButton | None = None
+    _ai_manual_notice: str = ""
+
     def __init__(
         self,
         app: AnonymizerApp,
@@ -555,8 +753,8 @@ class ComparisonWindow:
         self._floating_actions: ctk.CTkFrame | None = None
         self._home_icon_image: ctk.CTkImage | None = None
         self.right_container: ctk.CTkFrame | None = None
-        self._edit_undo_stack: list[tuple[list[ManualRect], set, bool]] = []
-        self._edit_redo_stack: list[tuple[list[ManualRect], set, bool]] = []
+        self._edit_undo_stack: list[tuple[list[ManualRect], set, bool, frozenset]] = []
+        self._edit_redo_stack: list[tuple[list[ManualRect], set, bool, frozenset]] = []
         self.pen_status_label: ctk.CTkLabel | None = None
         # Etap 3: each mouse button (left/right/middle) is independently
         # bound to one of three actions (mark/erase/pan) per
@@ -708,7 +906,12 @@ class ComparisonWindow:
         # mode mid-edit without closing the preview first.
         self._build_settings_shortcut_button(title_row)
         if self.magic_pen_available and not self.locked:
+            # Loaded before any sidebar/title widget is built, since both
+            # show the suggestion count. Also warms the detection cache
+            # _reload_visible_rects below reuses.
+            self._load_ai_review()
             self._build_pen_tool_row(title_row)
+            self._build_ai_review_title_button(title_row)
 
         # content_row holds the draggable original/result split on the
         # left and, for PDFs, the fixed-width magic pen sidebar
@@ -2007,6 +2210,9 @@ class ComparisonWindow:
         collapse_button.pack(side="right")
         IconTooltip(collapse_button, "Ukryj legendę")
 
+        if not self.locked and self.ai_review.suggestions:
+            self._build_ai_review_section(inner)
+
         if self.locked:
             # Approved files render read-only: no tool chips, no drag/
             # click bindings on the canvas (see _build_magic_pen_pane) -
@@ -2115,6 +2321,25 @@ class ComparisonWindow:
         )
         reopen_button.pack(pady=10)
         IconTooltip(reopen_button, "Pokaż legendę")
+        if not self.locked and self.ai_review.suggestions:
+            # The review panel lives in the (now hidden) sidebar - keep a
+            # way back to it that doesn't require finding the legend toggle.
+            ai_button = ctk.CTkButton(
+                rail,
+                text="✨",
+                width=24,
+                height=24,
+                corner_radius=6,
+                fg_color=COLOR_BG,
+                border_width=1,
+                border_color=AI_SUGGESTION_OUTLINE_COLOR,
+                hover_color=COLOR_ICON_IDLE,
+                text_color=AI_SUGGESTION_OUTLINE_COLOR,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+                command=self._start_ai_review,
+            )
+            ai_button.pack(pady=(0, 10))
+            IconTooltip(ai_button, "Sugestie AI")
         return rail
 
     def _toggle_legend_sidebar_collapsed(self) -> None:
@@ -2143,6 +2368,585 @@ class ComparisonWindow:
             "przytrzymaj i przeciągnij, by usunąć kilka naraz. Licznik "
             "zmian - na dole okna."
         )
+
+    # -- local-LLM suggestion review ------------------------------------------
+    #
+    # Word-track-changes style: "Sprawdź sugestię AI" walks through the
+    # suggestions one at a time, scrolling both panes to the spot, with a
+    # dashed turquoise outline around what is pending and a panel in the
+    # sidebar with the AI's justification plus Zatwierdź / Odrzuć / Zmień
+    # ręcznie. Nothing here redacts anything by itself: accepting only
+    # *stages* ordinary magic-pen edits (pending_add_rects /
+    # pending_remove_keys), which still go through the same "Zapisz
+    # zmiany" confirmation and regeneration as a hand-drawn edit. Decisions
+    # are persisted to the suggestions sidecar on save, which is what the
+    # main window's approval gate reads (count_unresolved_ai_suggestions).
+
+    def _load_ai_review(self) -> None:
+        if self.source_path is None:
+            return
+        try:
+            word_pages, _spans = self._cached_detection()
+        except (OSError, RuntimeError, ValueError):
+            word_pages = []
+        self.ai_review = prepare_ai_review(self.result_path, self.source_path, word_pages)
+
+    def _ai_suggestion(self, suggestion_id: str | None) -> AiSuggestion | None:
+        for suggestion in self.ai_review.suggestions:
+            if suggestion.id == suggestion_id:
+                return suggestion
+        return None
+
+    def _ai_status(self, suggestion_id: str) -> str:
+        if suggestion_id in self._ai_rejected:
+            return AI_SUGGESTION_STATUS_REJECTED
+        staged_rects = self._ai_accepted_rects.get(suggestion_id, ())
+        if any(rect in self.pending_add_rects for rect in staged_rects):
+            return AI_SUGGESTION_STATUS_ACCEPTED
+        staged_keys = self._ai_accepted_removals.get(suggestion_id, frozenset())
+        if any(key in self.pending_remove_keys for key in staged_keys):
+            return AI_SUGGESTION_STATUS_ACCEPTED
+        return AI_SUGGESTION_STATUS_PENDING
+
+    def _ai_pending_ids(self) -> list[str]:
+        return [
+            suggestion.id
+            for suggestion in self.ai_review.suggestions
+            if self._ai_status(suggestion.id) == AI_SUGGESTION_STATUS_PENDING
+        ]
+
+    def _ai_ready_to_apply(self) -> list[AiSuggestion]:
+        """Pending suggestions with an auto-proposed rect - the only ones
+        "Zastosuj wszystkie" may touch (everything else needs a human to
+        say where)."""
+        return [
+            suggestion
+            for suggestion in self.ai_review.suggestions
+            if suggestion.rects
+            and self._ai_status(suggestion.id) == AI_SUGGESTION_STATUS_PENDING
+        ]
+
+    def _ai_resolutions(self) -> dict[str, str]:
+        """This session's decided suggestions, as the sidecar stores them."""
+        resolutions: dict[str, str] = {}
+        for suggestion in self.ai_review.suggestions:
+            status = self._ai_status(suggestion.id)
+            if status != AI_SUGGESTION_STATUS_PENDING:
+                resolutions[suggestion.id] = status
+        return resolutions
+
+    def _ai_suggestion_page(self, suggestion: AiSuggestion) -> int | None:
+        if suggestion.page is not None:
+            return suggestion.page
+        rects = self.ai_review.location_rects.get(suggestion.id, [])
+        return int(rects[0]["page"]) if rects else None
+
+    @staticmethod
+    def _ai_manual_rect_from(rect_info: Mapping[str, object]) -> ManualRect:
+        return ManualRect(
+            page=int(rect_info["page"]),
+            x0=float(rect_info["x0"]),
+            y0=float(rect_info["y0"]),
+            x1=float(rect_info["x1"]),
+            y1=float(rect_info["y1"]),
+            label=AI_SUGGESTION_LABEL,
+        )
+
+    def _stage_ai_rects(self, suggestion: AiSuggestion) -> None:
+        """Stage a suggestion's proposed rect(s) as pending AI-labeled
+        additions. Caller pushes the undo snapshot."""
+        new_rects = tuple(self._ai_manual_rect_from(rect) for rect in suggestion.rects)
+        self.pending_add_rects.extend(new_rects)
+        self._ai_accepted_rects = MappingProxyType(
+            {**self._ai_accepted_rects, suggestion.id: new_rects}
+        )
+
+    # -- actions --
+
+    def _start_ai_review(self) -> None:
+        if not self.ai_review.suggestions:
+            return
+        if self.legend_sidebar_collapsed:
+            self._toggle_legend_sidebar_collapsed()
+        pending = self._ai_pending_ids()
+        self._focus_ai_suggestion(pending[0] if pending else self.ai_review.suggestions[0].id)
+
+    def _focus_ai_suggestion(self, suggestion_id: str) -> None:
+        if self._ai_manual_id != suggestion_id:
+            self._ai_manual_id = None
+        self._ai_current_id = suggestion_id
+        self._refresh_ai_review_ui()
+        self._scroll_to_ai_suggestion(suggestion_id)
+
+    def _step_ai_suggestion(self, step: int) -> None:
+        ids = [suggestion.id for suggestion in self.ai_review.suggestions]
+        if not ids:
+            return
+        index = ids.index(self._ai_current_id) if self._ai_current_id in ids else -1
+        self._focus_ai_suggestion(ids[(index + step) % len(ids)])
+
+    def _advance_ai_review(self) -> None:
+        """After a decision, move on to the next still-pending suggestion
+        (wrapping around), or stay put once everything is decided."""
+        ids = [suggestion.id for suggestion in self.ai_review.suggestions]
+        pending = set(self._ai_pending_ids())
+        if not pending:
+            self._ai_manual_id = None
+            self._refresh_ai_review_ui()
+            return
+        start = ids.index(self._ai_current_id) + 1 if self._ai_current_id in ids else 0
+        for offset in range(len(ids)):
+            candidate = ids[(start + offset) % len(ids)]
+            if candidate in pending:
+                self._focus_ai_suggestion(candidate)
+                return
+
+    def _accept_ai_suggestion(self) -> None:
+        suggestion = self._ai_suggestion(self._ai_current_id)
+        if suggestion is None:
+            return
+        if suggestion.finding_type == "unnecessary_redaction":
+            # The model only points at a sentence: map "zbędna redakcja"
+            # onto un-redacting the existing redactions inside it (agreed
+            # with the user 2026-09-23), falling back to the eraser by
+            # hand when nothing overlaps.
+            area = self.ai_review.location_rects.get(suggestion.id, [])
+            keys = frozenset(
+                rect_info_key(hit)
+                for hit in redactions_overlapping_area(self.visible_rects, area)
+            )
+            if not keys:
+                self._enter_ai_manual_mode(
+                    suggestion.id,
+                    "Nie znaleziono redakcji w tym zdaniu. Odznacz ją ręcznie "
+                    "gumką - zostanie zaliczona do tej sugestii.",
+                )
+                return
+            self._push_undo_snapshot()
+            self.pending_remove_keys |= keys
+            self._ai_accepted_removals = MappingProxyType(
+                {**self._ai_accepted_removals, suggestion.id: keys}
+            )
+        elif suggestion.rects:
+            self._push_undo_snapshot()
+            self._stage_ai_rects(suggestion)
+        else:
+            # Narrative combinations (and a missed redaction whose sentence
+            # could not be located) have no ready rect: accepting always
+            # means marking the area by hand, with the justification as
+            # the hint.
+            self._enter_ai_manual_mode(
+                suggestion.id,
+                "Zaznacz ręcznie, co ukryć (np. tylko wybrane słowa). "
+                "Każde zaznaczenie zostanie oznaczone jako sugestia AI.",
+            )
+            return
+        self._redraw_all_overlays()
+        self._update_pending_state()
+        self._advance_ai_review()
+
+    def _reject_ai_suggestion(self) -> None:
+        suggestion = self._ai_suggestion(self._ai_current_id)
+        if suggestion is None:
+            return
+        self._push_undo_snapshot()
+        self._ai_rejected = self._ai_rejected | {suggestion.id}
+        if self._ai_manual_id == suggestion.id:
+            self._ai_manual_id = None
+        self._redraw_all_overlays()
+        self._update_pending_state()
+        self._advance_ai_review()
+
+    def _edit_ai_suggestion_manually(self) -> None:
+        suggestion = self._ai_suggestion(self._ai_current_id)
+        if suggestion is None:
+            return
+        self._enter_ai_manual_mode(
+            suggestion.id,
+            "Zaznacz ręcznie, co ukryć - np. zawęź propozycję AI do "
+            "wybranych słów. Każde zaznaczenie zostanie oznaczone jako "
+            "sugestia AI.",
+        )
+
+    def _enter_ai_manual_mode(self, suggestion_id: str, notice: str) -> None:
+        self._ai_manual_id = suggestion_id
+        self._ai_manual_notice = notice
+        self._focus_ai_suggestion(suggestion_id)
+
+    def _exit_ai_manual_mode(self) -> None:
+        self._ai_manual_id = None
+        self._refresh_ai_review_ui()
+        if self._ai_status(self._ai_current_id or "") != AI_SUGGESTION_STATUS_PENDING:
+            self._advance_ai_review()
+
+    def _undo_ai_decision(self) -> None:
+        """Take back this one suggestion's decision (its staged rects,
+        removals or rejection) without touching any other pending edit."""
+        suggestion_id = self._ai_current_id
+        if suggestion_id is None or self._ai_status(suggestion_id) == AI_SUGGESTION_STATUS_PENDING:
+            return
+        self._push_undo_snapshot()
+        self._ai_rejected = self._ai_rejected - {suggestion_id}
+        staged_rects = self._ai_accepted_rects.get(suggestion_id, ())
+        self.pending_add_rects = [
+            rect for rect in self.pending_add_rects if rect not in staged_rects
+        ]
+        self.pending_remove_keys = self.pending_remove_keys - set(
+            self._ai_accepted_removals.get(suggestion_id, frozenset())
+        )
+        self._redraw_all_overlays()
+        self._update_pending_state()
+
+    def _apply_all_ai_suggestions(self) -> None:
+        targets = self._ai_ready_to_apply()
+        if not targets:
+            return
+        remaining = len(self._ai_pending_ids()) - len(targets)
+        message = (
+            f"Zastosować {len(targets)} sugestii AI z gotowym zaznaczeniem?\n\n"
+            "AI może się mylić - zaznaczenie może objąć za dużo albo za "
+            "mało. Przed zapisem każdą zmianę nadal widać na podglądzie i "
+            "można ją cofnąć (Ctrl+Z) lub odznaczyć."
+        )
+        if remaining:
+            message += (
+                f"\n\nPozostałe sugestie ({remaining}) wymagają Twojej "
+                "decyzji - nie zostaną zmienione."
+            )
+        if not messagebox.askyesno(
+            "Zastosuj wszystkie sugestie AI", message, icon="warning", parent=self.window
+        ):
+            return
+        self._push_undo_snapshot()
+        for suggestion in targets:
+            self._stage_ai_rects(suggestion)
+        self._redraw_all_overlays()
+        self._update_pending_state()
+        self._advance_ai_review()
+
+    def _close_ai_review(self) -> None:
+        self._ai_current_id = None
+        self._ai_manual_id = None
+        self._redraw_all_overlays()
+        self._refresh_ai_review_ui()
+
+    # -- navigation --
+
+    def _scroll_to_ai_suggestion(self, suggestion_id: str) -> None:
+        suggestion = self._ai_suggestion(suggestion_id)
+        if suggestion is None:
+            return
+        page = self._ai_suggestion_page(suggestion)
+        if page is None:
+            return
+        page_rects = [
+            rect
+            for rect in self.ai_review.location_rects.get(suggestion_id, [])
+            if int(rect["page"]) == page
+        ]
+        top = min((float(rect["y0"]) for rect in page_rects), default=0.0)
+        self._scroll_panes_to_point(page, top)
+
+    def _scroll_panes_to_point(self, page_number: int, y_pt: float) -> None:
+        """Scroll the result pane so PDF point ``y_pt`` on ``page_number``
+        sits near the top of the view - and, while the panes are linked,
+        the "Oryginał" pane to the same relative spot on the same page
+        (its page is a differently-rendered image, so the offset is
+        carried over as a fraction of the page's height)."""
+        canvas = self._page_canvases.get(page_number)
+        if canvas is None:
+            return
+        offset_px = y_pt * self._page_zoom.get(page_number, 1.0)
+        self._scroll_frame_to_offset(self.right_frame, canvas, offset_px)
+        self.result_current_page = page_number
+        original_widget = self._original_page_widgets.get(page_number)
+        if self.zoom_linked and original_widget is not None:
+            try:
+                page_height = max(int(canvas.cget("height")), 1)
+                original_offset = offset_px / page_height * original_widget.winfo_height()
+            except (tk.TclError, ValueError):
+                original_offset = 0.0
+            self._scroll_frame_to_offset(self.left_frame, original_widget, original_offset)
+            self.original_current_page = page_number
+        self._refresh_page_nav_entries()
+
+    def _scroll_frame_to_offset(
+        self, frame: ctk.CTkScrollableFrame | None, widget: tk.Misc, offset_px: float
+    ) -> None:
+        """_scroll_frame_to_widget plus an offset into that widget - same
+        private-canvas reach and same defensive no-op on any Tk error."""
+        canvas = getattr(frame, "_parent_canvas", None)
+        if canvas is None:
+            return
+        try:
+            canvas.update_idletasks()
+            bbox = canvas.bbox("all")
+            if not bbox:
+                return
+            fraction = ai_scroll_fraction(
+                widget.winfo_y(),
+                offset_px,
+                max(bbox[3] - bbox[1], 1),
+                canvas.winfo_height(),
+            )
+            canvas.yview_moveto(fraction)
+        except tk.TclError:
+            pass
+
+    # -- drawing --
+
+    def _draw_ai_overlay(self, canvas: tk.Canvas, page_number: int, zoom: float) -> list[int]:
+        """Dashed outlines for the suggestions on this page: every pending
+        suggestion's auto-proposed rect, plus the focused suggestion's
+        location hint (its sentence) when it has no rect of its own.
+        Decided suggestions draw nothing extra - an accepted one already
+        shows as its staged edit, a rejected one simply disappears."""
+        drawn_ids: list[int] = []
+        for suggestion in self.ai_review.suggestions:
+            if self._ai_status(suggestion.id) != AI_SUGGESTION_STATUS_PENDING:
+                continue
+            is_current = suggestion.id == self._ai_current_id
+            if not suggestion.rects and not is_current:
+                continue
+            dash = (4, 2) if suggestion.rects else (2, 3)
+            for rect in self.ai_review.location_rects.get(suggestion.id, []):
+                if int(rect["page"]) != page_number:
+                    continue
+                drawn_ids.append(
+                    canvas.create_rectangle(
+                        float(rect["x0"]) * zoom - 2,
+                        float(rect["y0"]) * zoom - 2,
+                        float(rect["x1"]) * zoom + 2,
+                        float(rect["y1"]) * zoom + 2,
+                        outline=AI_SUGGESTION_OUTLINE_COLOR,
+                        width=3 if is_current else 2,
+                        dash=dash,
+                    )
+                )
+        return drawn_ids
+
+    # -- widgets --
+
+    def _build_ai_review_title_button(self, parent: ctk.CTkFrame) -> None:
+        if not self.ai_review.suggestions:
+            return
+        button = ctk.CTkButton(
+            parent,
+            text="",
+            height=30,
+            corner_radius=8,
+            border_width=1,
+            border_color=AI_SUGGESTION_OUTLINE_COLOR,
+            fg_color=COLOR_BG,
+            hover_color=COLOR_ICON_IDLE,
+            text_color=AI_SUGGESTION_OUTLINE_COLOR,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
+            command=self._start_ai_review,
+        )
+        button.pack(side="right", padx=(0, 10))
+        IconTooltip(
+            button,
+            "Przejdź po kolei przez sugestie lokalnego modelu AI. Każdą "
+            "trzeba zatwierdzić lub odrzucić przed zatwierdzeniem pliku.",
+        )
+        self._ai_title_button = button
+        self._refresh_ai_title_button()
+
+    def _refresh_ai_title_button(self) -> None:
+        button = self._ai_title_button
+        if button is None:
+            return
+        pending = len(self._ai_pending_ids())
+        text = (
+            f"✨ Sprawdź sugestię AI ({pending})" if pending else "✓ Sugestie AI przejrzane"
+        )
+        try:
+            button.configure(text=text)
+        except tk.TclError:
+            pass
+
+    def _build_ai_review_section(self, parent: ctk.CTkBaseClass) -> None:
+        section = ctk.CTkFrame(
+            parent,
+            corner_radius=8,
+            fg_color=COLOR_BG,
+            border_width=1,
+            border_color=AI_SUGGESTION_OUTLINE_COLOR,
+        )
+        section.pack(fill="x", pady=(0, 10))
+        self._ai_section = section
+        self._populate_ai_review_section()
+
+    def _ai_label(
+        self, parent: ctk.CTkBaseClass, text: str, *, size: int = 10, bold: bool = False,
+        color: str = COLOR_TEXT,
+    ) -> ctk.CTkLabel:
+        label = ctk.CTkLabel(
+            parent,
+            text=text,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=size, weight="bold" if bold else "normal"),
+            text_color=color,
+            anchor="w",
+            wraplength=146,
+            justify="left",
+        )
+        label.pack(fill="x", pady=(0, 4))
+        return label
+
+    def _ai_button(
+        self, parent: ctk.CTkBaseClass, text: str, command, *, primary: bool = False
+    ) -> ctk.CTkButton:
+        button = ctk.CTkButton(
+            parent,
+            text=text,
+            height=28,
+            corner_radius=8,
+            fg_color=AI_SUGGESTION_OUTLINE_COLOR if primary else "transparent",
+            hover_color=COLOR_ACCENT_HOVER if primary else COLOR_ICON_IDLE,
+            border_width=0 if primary else 1,
+            border_color=COLOR_BORDER,
+            text_color="#FFFFFF" if primary else COLOR_TEXT,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11, weight="bold" if primary else "normal"),
+            command=command,
+        )
+        button.pack(fill="x", pady=(0, 4))
+        return button
+
+    def _populate_ai_review_section(self) -> None:
+        section = self._ai_section
+        if section is None:
+            return
+        try:
+            if not section.winfo_exists():
+                return
+        except tk.TclError:
+            return
+        for child in section.winfo_children():
+            child.destroy()
+        inner = ctk.CTkFrame(section, fg_color="transparent")
+        inner.pack(fill="x", padx=10, pady=8)
+
+        suggestions = self.ai_review.suggestions
+        pending_count = len(self._ai_pending_ids())
+        self._ai_label(inner, "✨ Sugestie AI", size=12, bold=True)
+        if not suggestions:
+            self._ai_label(
+                inner, "✓ Wszystkie sugestie rozstrzygnięte i zapisane.", color=COLOR_TEXT_MUTED
+            )
+            return
+        if not self.ai_review.text_matched:
+            self._ai_label(
+                inner,
+                "Tekst dokumentu różni się od tego, który czytało AI - "
+                "sugestie nie mają wskazanego miejsca.",
+                color=COLOR_WARNING_TEXT,
+            )
+
+        current = self._ai_suggestion(self._ai_current_id)
+        if current is None:
+            if pending_count:
+                self._ai_label(
+                    inner,
+                    f"Do przejrzenia: {pending_count} z {len(suggestions)}. "
+                    "Każdą trzeba zatwierdzić lub odrzucić przed zatwierdzeniem pliku.",
+                    color=COLOR_TEXT_MUTED,
+                )
+                self._ai_button(inner, "Sprawdź sugestię AI", self._start_ai_review, primary=True)
+            else:
+                self._ai_label(
+                    inner,
+                    "Wszystkie sugestie rozstrzygnięte. Zapisz zmiany, by je utrwalić.",
+                    color=COLOR_TEXT_MUTED,
+                )
+                self._ai_button(inner, "Przejrzyj ponownie", self._start_ai_review)
+            self._build_ai_apply_all_button(inner)
+            return
+
+        nav = ctk.CTkFrame(inner, fg_color="transparent")
+        nav.pack(fill="x", pady=(0, 6))
+        position = [s.id for s in suggestions].index(current.id) + 1
+        for text, step, side in (("◀", -1, "left"), ("▶", 1, "right")):
+            ctk.CTkButton(
+                nav,
+                text=text,
+                width=26,
+                height=22,
+                corner_radius=6,
+                fg_color=COLOR_ICON_IDLE,
+                hover_color=COLOR_ACCENT_HOVER,
+                text_color=COLOR_TEXT,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+                command=lambda s=step: self._step_ai_suggestion(s),
+            ).pack(side=side)
+        ctk.CTkLabel(
+            nav,
+            text=f"{position} / {len(suggestions)}",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLOR_TEXT_MUTED,
+        ).pack(side="left", expand=True)
+
+        self._ai_label(inner, ai_suggestion_title_pl(current), size=11, bold=True)
+        if current.justification:
+            self._ai_label(inner, f"AI: {current.justification}", color=COLOR_TEXT_MUTED)
+        quote = ai_quote_text(self.ai_review.sentence_texts.get(current.id, []))
+        if quote:
+            self._ai_label(inner, f"„{quote}”")
+        page = self._ai_suggestion_page(current)
+        self._ai_label(
+            inner,
+            f"Strona {page}" if page is not None
+            else "Nie udało się wskazać miejsca - poszukaj go ręcznie.",
+            color=COLOR_TEXT_MUTED,
+        )
+
+        status = self._ai_status(current.id)
+        if self._ai_manual_id == current.id:
+            self._ai_label(inner, f"✏ {self._ai_manual_notice}", color=COLOR_WARNING_TEXT)
+            self._ai_button(inner, "Zakończ zaznaczanie", self._exit_ai_manual_mode, primary=True)
+        elif status == AI_SUGGESTION_STATUS_PENDING:
+            self._ai_button(inner, "Zatwierdź", self._accept_ai_suggestion, primary=True)
+            self._ai_button(inner, "Odrzuć", self._reject_ai_suggestion)
+            self._ai_button(inner, "Zmień ręcznie", self._edit_ai_suggestion_manually)
+        if status != AI_SUGGESTION_STATUS_PENDING:
+            self._ai_label(
+                inner,
+                "✓ Zaakceptowana" if status == AI_SUGGESTION_STATUS_ACCEPTED
+                else "✗ Odrzucona",
+                bold=True,
+                color=AI_SUGGESTION_OUTLINE_COLOR
+                if status == AI_SUGGESTION_STATUS_ACCEPTED
+                else COLOR_HIGH_RISK,
+            )
+            self._ai_label(
+                inner, "Zapisz zmiany, by utrwalić decyzję.", color=COLOR_TEXT_MUTED
+            )
+            if self._ai_manual_id != current.id:
+                self._ai_button(inner, "Cofnij decyzję", self._undo_ai_decision)
+
+        ctk.CTkFrame(inner, fg_color=COLOR_BORDER, height=1).pack(fill="x", pady=6)
+        self._ai_label(inner, f"Pozostało: {pending_count}", color=COLOR_TEXT_MUTED)
+        self._build_ai_apply_all_button(inner)
+        self._ai_button(inner, "Zamknij przegląd", self._close_ai_review)
+
+    def _build_ai_apply_all_button(self, parent: ctk.CTkBaseClass) -> None:
+        ready = len(self._ai_ready_to_apply())
+        if ready:
+            self._ai_button(parent, f"Zastosuj wszystkie ({ready})", self._apply_all_ai_suggestions)
+
+    def _refresh_ai_review_ui(self) -> None:
+        # Also runs (via _update_pending_state) in windows that never had
+        # suggestions - a cheap no-op there. Checks the widgets too, not
+        # only the list, so the panel still updates after the last
+        # suggestion has been saved and dropped from the review.
+        if (
+            not self.ai_review.suggestions
+            and self._ai_section is None
+            and self._ai_title_button is None
+        ):
+            return
+        self._populate_ai_review_section()
+        self._refresh_ai_title_button()
+        self._redraw_all_overlays()
 
     # -- magic pen: rendering -------------------------------------------------
 
@@ -2441,9 +3245,38 @@ class ComparisonWindow:
         px0, py0 = canvas_point_to_pdf_point(cx0, cy0, zoom)
         px1, py1 = canvas_point_to_pdf_point(cx1, cy1, zoom)
         self._push_undo_snapshot()
-        self.pending_add_rects.append(
-            ManualRect(page=page_number, x0=px0, y0=py0, x1=px1, y1=py1)
+        manual_suggestion = self._ai_suggestion(self._ai_manual_id)
+        # Only a suggestion asking for MORE redaction can be accepted by
+        # drawing: for an "unnecessary redaction" one (eraser fallback), a
+        # drawn box is an ordinary magic-pen rect and accepts nothing.
+        manual_suggestion_id = (
+            manual_suggestion.id
+            if manual_suggestion is not None
+            and manual_suggestion.finding_type != "unnecessary_redaction"
+            else None
         )
+        new_rect = ManualRect(
+            page=page_number,
+            x0=px0,
+            y0=py0,
+            x1=px1,
+            y1=py1,
+            label=AI_SUGGESTION_LABEL if manual_suggestion_id else MANUAL_REDACTION_LABEL,
+        )
+        self.pending_add_rects.append(new_rect)
+        if manual_suggestion_id:
+            # Marking by hand on behalf of an AI suggestion ("Zmień
+            # ręcznie" / accepting one with no ready rect): the rect counts
+            # as accepting that suggestion.
+            self._ai_accepted_rects = MappingProxyType(
+                {
+                    **self._ai_accepted_rects,
+                    manual_suggestion_id: (
+                        *self._ai_accepted_rects.get(manual_suggestion_id, ()),
+                        new_rect,
+                    ),
+                }
+            )
         self._redraw_overlay(page_number)
         self._update_pending_state()
 
@@ -2477,6 +3310,21 @@ class ComparisonWindow:
             self.pending_remove_keys.discard(key)
         else:
             self.pending_remove_keys.add(key)
+            manual_suggestion = self._ai_suggestion(self._ai_manual_id)
+            if (
+                manual_suggestion is not None
+                and manual_suggestion.finding_type == "unnecessary_redaction"
+            ):
+                # Un-redacting by hand on behalf of an "unnecessary
+                # redaction" suggestion counts as accepting it.
+                self._ai_accepted_removals = MappingProxyType(
+                    {
+                        **self._ai_accepted_removals,
+                        manual_suggestion.id: frozenset(
+                            {*self._ai_accepted_removals.get(manual_suggestion.id, ()), key}
+                        ),
+                    }
+                )
         self._redraw_overlay(page_number)
         self._update_pending_state()
 
@@ -2508,12 +3356,19 @@ class ComparisonWindow:
             if rect.page != page_number:
                 continue
             x0, y0, x1, y1 = rect.x0 * zoom, rect.y0 * zoom, rect.x1 * zoom, rect.y1 * zoom
+            # A staged rect accepted from an AI suggestion is outlined in
+            # its own legend color, so it's distinguishable from a plain
+            # hand-drawn one before saving too, not only after.
+            outline = (
+                AI_SUGGESTION_OUTLINE_COLOR if rect.label == AI_SUGGESTION_LABEL else "#dc2626"
+            )
             drawn_ids.append(
                 canvas.create_rectangle(
-                    x0, y0, x1, y1, fill="#111827", outline="#dc2626", width=2
+                    x0, y0, x1, y1, fill="#111827", outline=outline, width=2
                 )
             )
 
+        drawn_ids.extend(self._draw_ai_overlay(canvas, page_number, zoom))
         self._overlay_ids[page_number] = drawn_ids
 
     def _redraw_all_overlays(self) -> None:
@@ -2522,23 +3377,31 @@ class ComparisonWindow:
 
     # -- magic pen: undo/redo for pending (unsaved) edits --------------------
 
-    def _snapshot_pending_edit_state(self) -> tuple[list[ManualRect], set, bool]:
+    def _snapshot_pending_edit_state(self) -> tuple[list[ManualRect], set, bool, frozenset]:
         # Includes the signature toggle alongside the rects it has sat next
         # to ever since _has_pending_changes/_pending_change_count started
         # treating it as a pending change too - without this, cancelling a
         # toggle-only change (or a change made alongside rect edits) then
         # pressing Ctrl+Z would leave the toggle silently un-undone even
         # though the rects came back, a real bug code review caught.
+        # AI suggestion rejections ride along for the same reason: a
+        # rejection is a pending decision exactly like a staged rect.
         return (
             list(self.pending_add_rects),
             set(self.pending_remove_keys),
             self._current_strip_signatures,
+            self._ai_rejected,
         )
 
     def _restore_pending_edit_state(
-        self, snapshot: tuple[list[ManualRect], set, bool]
+        self, snapshot: tuple[list[ManualRect], set, bool, frozenset]
     ) -> None:
-        self.pending_add_rects, self.pending_remove_keys, strip_signatures = snapshot
+        (
+            self.pending_add_rects,
+            self.pending_remove_keys,
+            strip_signatures,
+            self._ai_rejected,
+        ) = snapshot
         self._current_strip_signatures = strip_signatures
         if self._strip_signatures_var is not None:
             self._strip_signatures_var.set(strip_signatures)
@@ -2609,6 +3472,11 @@ class ComparisonWindow:
         return self._current_strip_signatures != self._original_strip_signatures
 
     def _has_pending_changes(self) -> bool:
+        return self._has_pending_document_changes() or bool(self._ai_rejected)
+
+    def _has_pending_document_changes(self) -> bool:
+        """Pending changes that need the PDF regenerated - everything
+        except AI suggestion rejections, which only touch the sidecar."""
         return (
             bool(self.pending_remove_keys)
             or bool(self.pending_add_rects)
@@ -2626,6 +3494,7 @@ class ComparisonWindow:
             len(self.pending_remove_keys)
             + len(self.pending_add_rects)
             + int(self._signature_choice_changed())
+            + len(self._ai_rejected)
         )
 
     def _update_pending_state(self) -> None:
@@ -2641,11 +3510,14 @@ class ComparisonWindow:
                 text=format_floating_actions_status(mode, count)
             )
         self._update_floating_actions_visibility()
+        self._refresh_ai_review_ui()
 
     def _cancel_pending_changes(self) -> None:
         self._push_undo_snapshot()
         self.pending_remove_keys = set()
         self.pending_add_rects = []
+        self._ai_rejected = frozenset()
+        self._ai_manual_id = None
         self._current_strip_signatures = self._original_strip_signatures
         if self._strip_signatures_var is not None:
             self._strip_signatures_var.set(self._original_strip_signatures)
@@ -2680,6 +3552,15 @@ class ComparisonWindow:
             signature_removal_changed=signature_removal_changed,
             strip_signatures=self._current_strip_signatures,
         )
+        resolutions = self._ai_resolutions()
+        if resolutions:
+            accepted = sum(
+                1 for status in resolutions.values() if status == AI_SUGGESTION_STATUS_ACCEPTED
+            )
+            summary_lines.append(
+                f"Sugestie AI: zaakceptowane {accepted}, "
+                f"odrzucone {len(resolutions) - accepted}"
+            )
         self._build_save_confirmation_dialog(summary_lines)
 
     def _build_save_confirmation_dialog(self, summary_lines: list[str]) -> None:
@@ -2759,6 +3640,69 @@ class ComparisonWindow:
     def _save_pending_changes(self) -> None:
         if not self._has_pending_changes() or self.source_path is None:
             return
+        # Captured before anything is cleared - statuses are derived from
+        # the pending edits themselves (see _ai_status).
+        ai_resolutions = self._ai_resolutions()
+        document_changed = self._has_pending_document_changes()
+        if document_changed and not self._regenerate_with_pending_edits():
+            return
+        resolutions_saved = self._persist_ai_resolutions(ai_resolutions)
+        if not resolutions_saved and not document_changed:
+            # Nothing was written at all - keep every pending decision so
+            # the user can simply retry.
+            return
+
+        # Past this point the PDF (if anything in it changed) is already
+        # rewritten with the staged edits, so they must leave the pending
+        # state even if persisting the decisions failed - keeping them
+        # would stage the very same rects a second time on the next save.
+        self._clear_ai_decisions()
+        self.pending_remove_keys = set()
+        self.pending_add_rects = []
+        self._clear_undo_redo_history()
+        if document_changed:
+            self._reload_visible_rects()
+            self._reload_pdf_pane()
+            self._patch_report_with_manual_count(len(self.edits.added))
+            self.app.set_review_status(self.item, REVIEW_STATUS_NEEDS_REVIEW)
+        self._update_pending_state()
+        self._show_saved_confirmation()
+        if not resolutions_saved and self.pen_status_label is not None:
+            self.pen_status_label.configure(
+                text="PDF zapisany, ale nie udało się zapisać decyzji o sugestiach AI."
+            )
+
+    def _persist_ai_resolutions(self, resolutions: dict[str, str]) -> bool:
+        """Write the decided suggestions to the sidecar (what the main
+        window's approval gate reads) and drop them from this review -
+        rejected ones vanish, accepted ones now live on as ordinary
+        AI_SUGGESTION_LABEL rects in the saved edits. True when there was
+        nothing to write or the write succeeded."""
+        if not resolutions:
+            return True
+        try:
+            save_ai_suggestion_resolutions(llm_suggestions_path(self.result_path), resolutions)
+        except OSError:
+            if self.pen_status_label is not None:
+                self.pen_status_label.configure(
+                    text="Nie udało się zapisać decyzji o sugestiach AI."
+                )
+            return False
+        remaining = [s for s in self.ai_review.suggestions if s.id not in resolutions]
+        self.ai_review = self.ai_review._replace(suggestions=remaining)
+        if self._ai_current_id in resolutions:
+            self._ai_current_id = None
+        return True
+
+    def _clear_ai_decisions(self) -> None:
+        self._ai_rejected = frozenset()
+        self._ai_accepted_rects = MappingProxyType({})
+        self._ai_accepted_removals = MappingProxyType({})
+        self._ai_manual_id = None
+
+    def _regenerate_with_pending_edits(self) -> bool:
+        """Rebuild the output PDF with the staged rect/signature edits;
+        True once the new file and its edits sidecar are in place."""
         new_edits = apply_pending_overrides(
             self.edits, self.visible_rects, self.pending_remove_keys, self.pending_add_rects
         )
@@ -2804,7 +3748,7 @@ class ComparisonWindow:
             self._detection_cache_key = None
             if self.pen_status_label is not None:
                 self.pen_status_label.configure(text="Nie udało się zapisać zmian.")
-            return
+            return False
 
         if self._signature_choice_changed():
             try:
@@ -2825,15 +3769,7 @@ class ComparisonWindow:
             self._original_strip_signatures = self._current_strip_signatures
 
         self.edits = new_edits
-        self.pending_remove_keys = set()
-        self.pending_add_rects = []
-        self._clear_undo_redo_history()
-        self._reload_visible_rects()
-        self._reload_pdf_pane()
-        self._patch_report_with_manual_count(len(new_edits.added))
-        self.app.set_review_status(self.item, REVIEW_STATUS_NEEDS_REVIEW)
-        self._update_pending_state()
-        self._show_saved_confirmation()
+        return True
 
     def _patch_report_with_manual_count(self, manual_count: int) -> None:
         if self.app.review_dir is None or self.item.report_name is None:

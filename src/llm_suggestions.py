@@ -46,8 +46,9 @@ found" here rather than reusing that same widening logic.
 
 from __future__ import annotations
 
+import hashlib
 import json
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -262,6 +263,128 @@ def build_ai_suggestions(
     return suggestions
 
 
+def review_text_fingerprint(text: str) -> str:
+    """SHA-256 of the exact (normalized) text a review was run on.
+
+    Stored in the sidecar instead of the text itself, so the comparison
+    window can prove that the text it reconstructs on open (see
+    anonymizer.candidate_llm_review_texts) is the very text the model
+    numbered - a different OCR engine version, or a PDF whose text layer
+    the two extraction libraries disagree about, would otherwise shift
+    every sentence number silently and put a proposed rect on the wrong
+    sentence. A one-way hash of a whole document is not document content.
+    """
+    normalized = normalize_review_text(text)
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def select_review_text(
+    candidates: Sequence[str], fingerprint: str | None
+) -> str | None:
+    """Pick which reconstructed candidate text the model actually saw.
+
+    With a fingerprint: the first candidate whose hash matches, or None if
+    none does (fail closed - suggestions then surface without a location
+    rather than on a possibly-wrong sentence). Without one (a sidecar
+    written before the fingerprint existed): the first non-empty
+    candidate, i.e. the same priority order the pipeline itself uses.
+    """
+    if fingerprint:
+        for candidate in candidates:
+            if review_text_fingerprint(candidate) == fingerprint:
+                return candidate
+        return None
+    for candidate in candidates:
+        if candidate.strip():
+            return candidate
+    return None
+
+
+def ai_suggestion_sentence_texts(
+    original_text: str, suggestion: AiSuggestion
+) -> list[str]:
+    """The locally-resolved sentence text(s) a suggestion points at - never
+    anything taken from model output (see llm_review.py)."""
+    sentences = split_into_review_sentences(normalize_review_text(original_text))
+    texts = []
+    for index in suggestion.sentence_indices:
+        text = _sentence_text(sentences, index)
+        if text:
+            texts.append(text)
+    return texts
+
+
+def locate_sentence_texts(
+    sentence_texts: Sequence[str], word_pages: Sequence[PdfWordPage]
+) -> list[dict[str, object]]:
+    """Rects covering every resolvable sentence in ``sentence_texts`` -
+    used as a location hint (the dashed "look here" outline) for
+    suggestions that get no auto-proposed redaction rect of their own."""
+    rects: list[dict[str, object]] = []
+    for text in sentence_texts:
+        resolved = resolve_sentence_rects(text, "", word_pages)
+        if resolved:
+            rects.extend(resolved[1])
+    return rects
+
+
+# How much of the shorter rect's height two rects must share to count as
+# the same line. Word boxes on tightly-leaded lines touch or overlap their
+# neighbours by a fraction of a point; any-overlap would let an accepted
+# "unnecessary redaction" un-redact PII on the line above or below.
+_SAME_LINE_MIN_VERTICAL_OVERLAP = 0.5
+
+
+def _rects_overlap(first: Mapping[str, object], second: Mapping[str, object]) -> bool:
+    if int(first["page"]) != int(second["page"]):
+        return False
+    if not (
+        float(first["x0"]) < float(second["x1"]) and float(second["x0"]) < float(first["x1"])
+    ):
+        return False
+    shared = min(float(first["y1"]), float(second["y1"])) - max(
+        float(first["y0"]), float(second["y0"])
+    )
+    shorter = min(
+        float(first["y1"]) - float(first["y0"]), float(second["y1"]) - float(second["y0"])
+    )
+    return shorter > 0 and shared > shorter * _SAME_LINE_MIN_VERTICAL_OVERLAP
+
+
+def redactions_overlapping_area(
+    redaction_rects: Sequence[Mapping[str, object]],
+    area_rects: Sequence[Mapping[str, object]],
+) -> list[Mapping[str, object]]:
+    """Existing redaction rects that overlap any of ``area_rects`` - how an
+    accepted "unnecessary_redaction" finding maps onto concrete redactions
+    to un-redact (the model only ever points at a sentence)."""
+    return [
+        rect
+        for rect in redaction_rects
+        if any(_rects_overlap(rect, area) for area in area_rects)
+    ]
+
+
+def ai_suggestion_ids(
+    comparison_result: dict[str, object] | None,
+    narrative_result: dict[str, object] | None,
+) -> list[str]:
+    """Every suggestion id build_ai_suggestions would produce for these
+    results, without needing the document text or word geometry - lets
+    the main window's approval gate count unresolved suggestions cheaply.
+    Must enumerate exactly the way build_ai_suggestions does."""
+    ids: list[str] = []
+    for source, key, result in (
+        (AI_SUGGESTION_SOURCE_COMPARISON, "findings", comparison_result),
+        (AI_SUGGESTION_SOURCE_NARRATIVE, "suggestions", narrative_result),
+    ):
+        items = (result.get(key) if isinstance(result, dict) else None) or []
+        for index, item in enumerate(items):
+            if isinstance(item, dict):
+                ids.append(f"{source}-{index}")
+    return ids
+
+
 def llm_suggestions_path(output_pdf_path: str | Path) -> Path:
     """Sidecar JSON path for one visual PDF output's raw LLM comparison/
     narrative review results - mirrors manual_redaction.manual_edits_path
@@ -279,10 +402,15 @@ def save_llm_suggestions_result(
     *,
     comparison_result: dict[str, object] | None,
     narrative_result: dict[str, object] | None,
+    original_text: str | None = None,
 ) -> Path:
     """Persist the raw comparison/narrative results next to a visual PDF
     output, so the comparison window can build its suggestion list on
-    open without re-running the local LLM every time it's opened."""
+    open without re-running the local LLM every time it's opened.
+    ``original_text`` - the exact text the model reviewed - is only ever
+    stored as its fingerprint (see review_text_fingerprint). A fresh
+    save always starts with no user decisions ("resolved" is empty): it
+    belongs to a freshly-written output file."""
     destination = Path(path)
     payload = {
         "schema": LLM_SUGGESTIONS_SCHEMA,
@@ -292,6 +420,10 @@ def save_llm_suggestions_result(
         "narrative_result": (
             narrative_result if isinstance(narrative_result, dict) else None
         ),
+        "original_text_sha256": (
+            review_text_fingerprint(original_text) if original_text is not None else None
+        ),
+        "resolved": {},
     }
     destination.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
@@ -299,27 +431,108 @@ def save_llm_suggestions_result(
     return destination
 
 
-def load_llm_suggestions_result(
-    path: str | Path,
-) -> tuple[dict[str, object] | None, dict[str, object] | None]:
-    """Load a previously-saved (comparison_result, narrative_result) pair,
-    or (None, None) if the sidecar is missing or corrupt -
-    build_ai_suggestions already treats either as "no suggestions from
-    that source", the same fail-safe default as if the feature had never
-    been enabled for this document."""
+def _valid_resolutions(resolved: object) -> dict[str, str]:
+    """Keep only well-formed ``{id: accepted|rejected}`` entries - a
+    corrupt or hand-edited value must never be trusted verbatim."""
+    if not isinstance(resolved, Mapping):
+        return {}
+    return {
+        key: value
+        for key, value in resolved.items()
+        if isinstance(key, str)
+        and value in (AI_SUGGESTION_STATUS_ACCEPTED, AI_SUGGESTION_STATUS_REJECTED)
+    }
+
+
+@dataclass(frozen=True)
+class LlmSuggestionsSidecar:
+    """Everything the suggestions sidecar holds - see
+    save_llm_suggestions_result. ``resolved`` maps a suggestion id to the
+    user's saved decision (ids and statuses only, never content)."""
+
+    comparison_result: dict[str, object] | None = None
+    narrative_result: dict[str, object] | None = None
+    original_text_sha256: str | None = None
+    resolved: Mapping[str, str] = field(default_factory=dict)
+
+    def unresolved_ids(self) -> list[str]:
+        return [
+            suggestion_id
+            for suggestion_id in ai_suggestion_ids(
+                self.comparison_result, self.narrative_result
+            )
+            if suggestion_id not in self.resolved
+        ]
+
+
+EMPTY_LLM_SUGGESTIONS_SIDECAR = LlmSuggestionsSidecar()
+
+
+def load_llm_suggestions_sidecar(path: str | Path) -> LlmSuggestionsSidecar:
+    """Load the whole sidecar, or an empty one if it is missing/corrupt -
+    build_ai_suggestions already treats a missing result as "no
+    suggestions from that source", the same fail-safe default as if the
+    feature had never been enabled for this document."""
     try:
         raw_text = Path(path).read_text(encoding="utf-8")
         data = json.loads(raw_text)
     except (OSError, ValueError):
-        return None, None
+        return EMPTY_LLM_SUGGESTIONS_SIDECAR
     if not isinstance(data, dict):
-        return None, None
+        return EMPTY_LLM_SUGGESTIONS_SIDECAR
     comparison_result = data.get("comparison_result")
     narrative_result = data.get("narrative_result")
-    return (
-        comparison_result if isinstance(comparison_result, dict) else None,
-        narrative_result if isinstance(narrative_result, dict) else None,
+    fingerprint = data.get("original_text_sha256")
+    return LlmSuggestionsSidecar(
+        comparison_result=(
+            comparison_result if isinstance(comparison_result, dict) else None
+        ),
+        narrative_result=narrative_result if isinstance(narrative_result, dict) else None,
+        original_text_sha256=fingerprint if isinstance(fingerprint, str) else None,
+        resolved=_valid_resolutions(data.get("resolved")),
     )
+
+
+def load_llm_suggestions_result(
+    path: str | Path,
+) -> tuple[dict[str, object] | None, dict[str, object] | None]:
+    """Load a previously-saved (comparison_result, narrative_result) pair,
+    or (None, None) if the sidecar is missing or corrupt."""
+    sidecar = load_llm_suggestions_sidecar(path)
+    return sidecar.comparison_result, sidecar.narrative_result
+
+
+def save_ai_suggestion_resolutions(
+    path: str | Path, resolutions: Mapping[str, str]
+) -> Path | None:
+    """Merge the user's accept/reject decisions into an existing sidecar,
+    keeping everything else exactly as it was. Writes nothing (returns
+    None) when there is no sidecar to merge into - a decision only means
+    something for results that were actually saved."""
+    destination = Path(path)
+    if not destination.is_file():
+        return None
+    sidecar = load_llm_suggestions_sidecar(destination)
+    merged = dict(sidecar.resolved)
+    merged.update(_valid_resolutions(resolutions))
+    payload = {
+        "schema": LLM_SUGGESTIONS_SCHEMA,
+        "comparison_result": sidecar.comparison_result,
+        "narrative_result": sidecar.narrative_result,
+        "original_text_sha256": sidecar.original_text_sha256,
+        "resolved": merged,
+    }
+    destination.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    return destination
+
+
+def count_unresolved_ai_suggestions(output_pdf_path: str | Path) -> int:
+    """How many suggestions for this output still await a decision - the
+    main window's approval gate. 0 when there is no sidecar at all."""
+    sidecar = load_llm_suggestions_sidecar(llm_suggestions_path(output_pdf_path))
+    return len(sidecar.unresolved_ids())
 
 
 __all__ = [
@@ -329,11 +542,22 @@ __all__ = [
     "AI_SUGGESTION_STATUS_ACCEPTED",
     "AI_SUGGESTION_STATUS_PENDING",
     "AI_SUGGESTION_STATUS_REJECTED",
+    "EMPTY_LLM_SUGGESTIONS_SIDECAR",
     "AiSuggestion",
+    "LlmSuggestionsSidecar",
+    "ai_suggestion_ids",
+    "ai_suggestion_sentence_texts",
     "build_ai_suggestions",
+    "count_unresolved_ai_suggestions",
     "llm_suggestions_path",
     "load_llm_suggestions_result",
+    "load_llm_suggestions_sidecar",
+    "locate_sentence_texts",
+    "redactions_overlapping_area",
     "resolve_sentence_page",
     "resolve_sentence_rects",
+    "review_text_fingerprint",
+    "save_ai_suggestion_resolutions",
     "save_llm_suggestions_result",
+    "select_review_text",
 ]
