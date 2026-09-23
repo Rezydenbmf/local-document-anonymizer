@@ -38,6 +38,8 @@ class FakeApp:
         self.use_ner = True
         self.use_llm_review = False
         self.llm_model_name = ""
+        self.use_llm_comparison_review = False
+        self.use_llm_narrative_review = False
         self.pdf_output_label = "Widoczna redakcja (wizualna)"
         self.auto_open_on_approve = True
         self.show_usage_hints = True
