@@ -709,6 +709,15 @@ def word_pages_from_ocr_boxes(
     is the piece that lets a scanned page get the same true colored
     redaction boxes a text-layer PDF already gets, instead of only ever
     falling back to a rebuilt plain-text document.
+
+    Tesseract numbers ``line_no`` per paragraph (``par_no``), so the
+    first line of every paragraph in one block shares line_no=1. Words
+    are therefore ordered by (block, paragraph, line, word) and each
+    distinct (paragraph, line) pair gets a fresh line number unique
+    within its block - so every downstream consumer that identifies a
+    line by (block_no, line_no) (_build_word_page, merge_rects_by_line,
+    llm_suggestions) sees real lines instead of interleaved paragraphs.
+    A word without "par_no" (older data) counts as paragraph 0.
     """
     fitz = _load_fitz_module()
     pages: list[PdfWordPage] = []
@@ -717,20 +726,33 @@ def word_pages_from_ocr_boxes(
             ocr_page.get("words", []),
             key=lambda word: (
                 int(word["block_no"]),
+                int(word.get("par_no", 0)),
                 int(word["line_no"]),
                 int(word["word_no"]),
             ),
         )
-        normalized = [
-            (
-                str(word["text"]),
-                tuple(word["rect"]),
-                int(word["block_no"]),
+        normalized = []
+        line_numbers: dict[tuple[int, int, int], int] = {}
+        next_line_in_block: dict[int, int] = {}
+        for word in raw_words:
+            block_no = int(word["block_no"])
+            source_line = (
+                block_no,
+                int(word.get("par_no", 0)),
                 int(word["line_no"]),
-                int(word["word_no"]),
             )
-            for word in raw_words
-        ]
+            if source_line not in line_numbers:
+                line_numbers[source_line] = next_line_in_block.get(block_no, 0)
+                next_line_in_block[block_no] = line_numbers[source_line] + 1
+            normalized.append(
+                (
+                    str(word["text"]),
+                    tuple(word["rect"]),
+                    block_no,
+                    line_numbers[source_line],
+                    int(word["word_no"]),
+                )
+            )
         pages.append(
             _build_word_page(fitz, int(ocr_page["page_number"]), normalized)
         )

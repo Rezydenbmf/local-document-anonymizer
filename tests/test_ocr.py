@@ -877,6 +877,40 @@ class OcrWordBoxesTests(unittest.TestCase):
         words = ocr._ocr_word_boxes(FakePytesseract, image=object(), lang="pol")
         self.assertEqual([w["text"] for w in words], ["real"])
 
+    def test_keeps_tesseract_paragraph_number(self) -> None:
+        """line_num restarts in every paragraph, so par_num must survive
+        into the word box for pdf_redaction to tell those lines apart."""
+
+        class FakeOutput:
+            DICT = "dict"
+
+        class FakePytesseract:
+            Output = FakeOutput
+
+            @staticmethod
+            def image_to_data(image, lang=None, output_type=None):
+                return {
+                    "text": ["Pouczona", "Feralnego"],
+                    "conf": [95, 95],
+                    "left": [0, 0],
+                    "top": [0, 30],
+                    "width": [40, 40],
+                    "height": [10, 10],
+                    "block_num": [4, 4],
+                    "par_num": [1, 2],
+                    "line_num": [1, 1],
+                    "word_num": [1, 1],
+                }
+
+        words = ocr._ocr_word_boxes(FakePytesseract, image=object(), lang="pol")
+        self.assertEqual([w["par_no"] for w in words], [1, 2])
+        self.assertEqual([w["line_no"] for w in words], [1, 1])
+
+    def test_missing_par_num_defaults_to_zero(self) -> None:
+        fake = self._fake_image_to_data([95])
+        words = ocr._ocr_word_boxes(fake, image=object(), lang="pol")
+        self.assertEqual(words[0]["par_no"], 0)
+
     def test_extract_image_word_boxes_returns_one_page_with_words(self) -> None:
         fake = self._fake_image_to_data([90, 92, 88])
 

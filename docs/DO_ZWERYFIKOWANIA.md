@@ -157,6 +157,22 @@ przenoszę ją do „Potwierdzone" albo usuwam. Jeśli lista urośnie powyżej
       wcześniej, a raport `_RAPORT.txt` nie ma już sekcji „Local LLM
       review”.
 
+- [ ] **Skany: akapity nie sklejają się już w jedną linię (2026-09-23,
+      na Twoją zgodę „tak naprawiaj")** — błąd znaleziony na
+      syntetycznym skanie `llm_test_3_skan_protokol_2str.pdf`: OCR
+      mieszał pierwsze linie kilku akapitów w jedną („Pouczona
+      Feralnego Dzwonił o wieczoru…”), przez co numery telefonów, daty
+      czy adresy rozbite na kilka słów mogły zostać na skanie
+      niezamazane. Teraz tekst skanu czyta się linia po linii we
+      właściwej kolejności. Sprawdź na żywo: (1) zanonimizuj ten skan
+      jeszcze raz — telefony (np. „600 000 519”), data „15 lipca
+      1410” i adres „ul. Kasztanowa 12” mają być zamazane w całości;
+      (2) w oknie porównania ramki zamazań nie powinny obejmować kilku
+      linii naraz; (3) jeśli masz inne skany testowe (syntetyczne), zerknij,
+      czy wykrywanie nie pogorszyło się. Uwaga: sugestie AI zapisane dla
+      skanów PRZED tą poprawką pokażą „brak lokalizacji” — to celowe
+      (bezpieczne), wystarczy przetworzyć skan ponownie.
+
 ## Potwierdzone
 
 - [x] **Miganie okien terminala przy starcie — naprawione** (potwierdzone

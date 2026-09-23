@@ -100,7 +100,7 @@ class OcrWordPageExtraction:
     pdf_redaction.word_pages_from_ocr_boxes for that) plus the same safe
     metadata shape OcrExtraction uses. ``pages`` is a list of
     ``{"page_number": int, "words": [{"text", "rect", "block_no",
-    "line_no", "word_no"}, ...]}`` - "rect" is already converted to PDF
+    "par_no", "line_no", "word_no"}, ...]}`` - "rect" is already converted to PDF
     point space (an (x0, y0, x1, y1) tuple), not the OCR render's raw
     pixel space.
     """
@@ -715,6 +715,10 @@ def _ocr_word_boxes(
                 "text": text,
                 "rect": (left, top, left + width, top + height),
                 "block_no": int(data["block_num"][i]),
+                # Tesseract numbers line_num per paragraph (par_num), not
+                # per block - without par_no the first lines of two
+                # paragraphs in one block look like the same line.
+                "par_no": int(data["par_num"][i]) if "par_num" in data else 0,
                 "line_no": int(data["line_num"][i]),
                 "word_no": int(data["word_num"][i]),
             }
