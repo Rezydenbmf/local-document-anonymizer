@@ -840,7 +840,11 @@ def _add_redaction(page, rect, label: str) -> None:
     page.add_redact_annot(rect, fill=fill)
 
 
-def _merge_rects_by_line(words: Sequence[PdfWord]):
+def merge_rects_by_line(words: Sequence[PdfWord]):
+    """Group consecutive words on the same PDF line into one bounding
+    rect each. Public: llm_suggestions.py reuses this directly to turn a
+    matched word run into rects, rather than duplicating this line-
+    grouping logic."""
     if not words:
         return []
 
@@ -940,7 +944,7 @@ def _span_maps_to_full_words(page: PdfWordPage, span: PdfRedactionSpan) -> list:
     for word in matching_words[1:-1]:
         if word.start_offset < span.start_offset or word.end_offset > span.end_offset:
             return []
-    return _merge_rects_by_line(matching_words)
+    return merge_rects_by_line(matching_words)
 
 
 def _span_page_lookup(word_pages: Sequence[PdfWordPage]) -> dict[int, PdfWordPage]:
