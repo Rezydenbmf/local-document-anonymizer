@@ -144,6 +144,8 @@ class SettingsDialog:
         self.ner_var = tk.BooleanVar(value=app.use_ner)
         self.llm_var = tk.BooleanVar(value=app.use_llm_review)
         self.llm_model_var = tk.StringVar(value=app.llm_model_name)
+        self.llm_comparison_var = tk.BooleanVar(value=app.use_llm_comparison_review)
+        self.llm_narrative_var = tk.BooleanVar(value=app.use_llm_narrative_review)
         self.pdf_mode_var = tk.StringVar(value=app.pdf_output_label)
         self.auto_open_var = tk.BooleanVar(value=app.auto_open_on_approve)
         self.show_hints_var = tk.BooleanVar(value=app.show_usage_hints)
@@ -265,6 +267,25 @@ class SettingsDialog:
             status_ok=self.environment_status.get(ENV_ITEM_LLM),
             disabled=True,
             disabled_note="Jeszcze niedostępne w tej wersji rozwojowej - w przygotowaniu",
+        )
+        # Unlike the whole-document check above, these two are live from
+        # day one (2026-09-23 decision): they only ever produce
+        # suggestions the human reviews in the comparison window before
+        # anything is actually redacted, so there is no "silently applied"
+        # risk to gate behind "wkrótce".
+        self._build_toggle_section(
+            tab,
+            "AI: porównanie oryginał / wynik",
+            "Szuka pominiętych lub niepotrzebnych zamazań, wymaga lokalnego Ollama",
+            self.llm_comparison_var,
+            status_ok=self.environment_status.get(ENV_ITEM_LLM),
+        )
+        self._build_toggle_section(
+            tab,
+            "AI: czytanie kontekstowe całości",
+            "Szuka kombinacji szczegółów wskazujących na osobę, wymaga lokalnego Ollama",
+            self.llm_narrative_var,
+            status_ok=self.environment_status.get(ENV_ITEM_LLM),
         )
         self._build_ocr_language_section(tab)
 
@@ -876,6 +897,8 @@ class SettingsDialog:
         # off regardless of the switch state as a second guarantee on top
         # of the disabled control itself.
         self.app.use_llm_review = False
+        self.app.use_llm_comparison_review = self.llm_comparison_var.get()
+        self.app.use_llm_narrative_review = self.llm_narrative_var.get()
         self.app.pdf_output_label = self.pdf_mode_var.get()
         self.app.auto_open_on_approve = self.auto_open_var.get()
         self.app.show_usage_hints = self.show_hints_var.get()
@@ -893,7 +916,12 @@ class SettingsDialog:
             # elsewhere - never worth failing the whole save over a
             # read-only home folder.
             pass
-        if self.app.use_llm_review and not self.app.llm_model_name:
+        needs_llm_model = (
+            self.app.use_llm_review
+            or self.app.use_llm_comparison_review
+            or self.app.use_llm_narrative_review
+        )
+        if needs_llm_model and not self.app.llm_model_name:
             status, models = list_installed_models()
             _values, selected_model, _hint = format_llm_model_selector_state(
                 status, models
