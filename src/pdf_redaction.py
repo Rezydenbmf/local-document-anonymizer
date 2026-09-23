@@ -67,8 +67,14 @@ PDF_REDACTION_COLORS = {
     "DOWOD_OSOBISTY": (0.85, 0.12, 0.12),
     "IBAN": (0.85, 0.12, 0.12),
     "RECZNE": (0.08, 0.08, 0.08),
+    "AI_SUGESTIA": (0.05, 0.60, 0.65),
 }
 MANUAL_REDACTION_LABEL = "RECZNE"
+# A manually-added rect burned in after the user accepted a local-LLM
+# suggestion (see llm_review.py) - visually distinct from both an
+# auto-detected category and a plain manual "RECZNE" box, so a reviewer
+# can tell at a glance which redactions came from where.
+AI_SUGGESTION_LABEL = "AI_SUGESTIA"
 _SAFE_WORD_PADDING = set(".,;:!?()[]{}<>\"'")
 _UPPER_LETTERS = "A-ZĄĆĘŁŃÓŚŹŻ"
 _LOWER_LETTERS = "A-Za-zĄĆĘŁŃÓŚŹŻąćęłńóśźż"
@@ -1089,7 +1095,7 @@ def save_word_coordinate_redacted_pdf_copy(
     output_dir: str | Path | None = None,
     output_path: str | Path | None = None,
     removed_span_keys: object = frozenset(),
-    extra_redaction_rects: Iterable[tuple[int, object]] = (),
+    extra_redaction_rects: Iterable[tuple[int, object, str]] = (),
     active_pages: frozenset[int] | None = None,
     strip_signatures: bool = False,
 ) -> dict[str, object]:
@@ -1098,8 +1104,12 @@ def save_word_coordinate_redacted_pdf_copy(
     ``removed_span_keys`` (as produced by :func:`manual_edit_span_key`) lets a
     caller exclude specific auto-detected rectangles that a user manually
     un-redacted; ``extra_redaction_rects`` (an iterable of
-    ``(page_number, rect)`` pairs, in PDF point coordinates) lets a caller add
-    manually drawn redaction rectangles that were not detected automatically.
+    ``(page_number, rect, label)`` triples, in PDF point coordinates) lets a
+    caller add manually drawn redaction rectangles that were not detected
+    automatically - ``label`` is normally ``MANUAL_REDACTION_LABEL``
+    ("RECZNE") for a plain magic-pen box, or ``AI_SUGGESTION_LABEL`` for one
+    burned in after accepting a local-LLM suggestion, so each gets its own
+    color/legend entry.
     Both are optional and default to a no-op, so existing callers behave
     exactly as before. When ``output_path`` is given, that exact path is
     (over)written instead of picking a fresh collision-safe name — used to
@@ -1139,27 +1149,27 @@ def save_word_coordinate_redacted_pdf_copy(
             )
             _add_redaction(page, rect, str(rect_info["label"]))
 
-        for page_number, raw_rect in extra_redaction_rects:
+        for page_number, raw_rect, label in extra_redaction_rects:
             if page_number < 1 or page_number > len(document):
                 continue
             rect = raw_rect if isinstance(raw_rect, fitz.Rect) else fitz.Rect(raw_rect)
-            key = manual_edit_span_key(page_number, MANUAL_REDACTION_LABEL, rect)
+            key = manual_edit_span_key(page_number, label, rect)
             if key in seen:
                 continue
             seen.add(key)
             page = document[page_number - 1]
-            _add_redaction(page, rect, MANUAL_REDACTION_LABEL)
+            _add_redaction(page, rect, label)
             applied_rects.append(
                 {
                     "page": page_number,
-                    "label": MANUAL_REDACTION_LABEL,
+                    "label": label,
                     "x0": round(rect.x0, 2),
                     "y0": round(rect.y0, 2),
                     "x1": round(rect.x1, 2),
                     "y1": round(rect.y1, 2),
                 }
             )
-            counters[MANUAL_REDACTION_LABEL] = counters.get(MANUAL_REDACTION_LABEL, 0) + 1
+            counters[label] = counters.get(label, 0) + 1
 
         for page in document:
             page.apply_redactions()
@@ -1184,7 +1194,7 @@ def save_word_coordinate_redacted_image_copy(
     output_dir: str | Path | None = None,
     output_path: str | Path | None = None,
     removed_span_keys: object = frozenset(),
-    extra_redaction_rects: Iterable[tuple[int, object]] = (),
+    extra_redaction_rects: Iterable[tuple[int, object, str]] = (),
 ) -> dict[str, object]:
     """Create a true-redacted, colored visual PDF for a standalone
     scanned image - the image-source counterpart to

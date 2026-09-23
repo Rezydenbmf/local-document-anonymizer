@@ -22,7 +22,7 @@ from manual_redaction import (
     regenerate_pdf_with_manual_overrides,
     save_manual_edits,
 )
-from pdf_redaction import manual_edit_span_key
+from pdf_redaction import AI_SUGGESTION_LABEL, manual_edit_span_key
 
 
 def workspace_temp_dir():
@@ -94,6 +94,154 @@ class ManualEditsPersistenceTests(unittest.TestCase):
         self.assertTrue(EMPTY_MANUAL_EDITS.is_empty)
         non_empty = ManualEdits(added=(ManualRect(1, 0, 0, 1, 1),))
         self.assertFalse(non_empty.is_empty)
+
+
+class AiSuggestionLabelTests(unittest.TestCase):
+    """ManualRect.label lets a burned-in manual rect be tagged as an
+    accepted local-LLM suggestion (AI_SUGGESTION_LABEL) instead of a
+    plain magic-pen box (MANUAL_REDACTION_LABEL) - added alongside the
+    LLM comparison/narrative review feature so an accepted suggestion
+    gets its own color/legend entry rather than looking indistinguishable
+    from an ordinary manual edit. Every case here also pins down that a
+    plain ManualRect() with no label argument keeps behaving exactly as
+    it did before this field existed.
+    """
+
+    def test_manual_rect_defaults_to_the_plain_manual_label(self) -> None:
+        rect = ManualRect(page=1, x0=0.0, y0=0.0, x1=1.0, y1=1.0)
+        self.assertEqual(rect.label, "RECZNE")
+
+    def test_save_and_load_round_trips_a_custom_label(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            path = Path(temp_dir) / "roundtrip_MANUAL_EDITS.json"
+            edits = ManualEdits(
+                added=(
+                    ManualRect(
+                        page=1, x0=1.0, y0=2.0, x1=3.0, y1=4.0, label=AI_SUGGESTION_LABEL
+                    ),
+                )
+            )
+
+            save_manual_edits(path, edits)
+            loaded = load_manual_edits(path)
+
+            self.assertEqual(loaded, edits)
+            self.assertEqual(loaded.added[0].label, AI_SUGGESTION_LABEL)
+
+    def test_loading_a_sidecar_written_before_label_existed_defaults_to_manual(
+        self,
+    ) -> None:
+        with workspace_temp_dir() as temp_dir:
+            path = Path(temp_dir) / "old_format_MANUAL_EDITS.json"
+            # No "label" key at all - exactly what save_manual_edits wrote
+            # before this field existed.
+            path.write_text(
+                '{"schema": "x", "removed": [], '
+                '"added": [{"page": 1, "x0": 1.0, "y0": 2.0, "x1": 3.0, "y1": 4.0}]}',
+                encoding="utf-8",
+            )
+
+            loaded = load_manual_edits(path)
+
+            self.assertEqual(loaded.added[0].label, "RECZNE")
+
+    def test_visible_rects_expose_the_ai_suggestion_label(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            source_path = Path(temp_dir) / "source.pdf"
+            write_fitz_text_pdf(source_path, ["Contact tester@example.test today."])
+            edits = ManualEdits(
+                added=(
+                    ManualRect(
+                        page=1, x0=1.0, y0=2.0, x1=50.0, y1=20.0, label=AI_SUGGESTION_LABEL
+                    ),
+                )
+            )
+
+            visible = compute_visible_redaction_rects(source_path, edits=edits)
+
+            self.assertTrue(
+                any(
+                    rect["label"] == AI_SUGGESTION_LABEL and rect["x0"] == 1.0
+                    for rect in visible
+                )
+            )
+            self.assertFalse(any(rect["label"] == "RECZNE" for rect in visible))
+
+    def test_regenerate_burns_in_an_ai_suggestion_rect_with_its_own_counter(
+        self,
+    ) -> None:
+        with workspace_temp_dir() as temp_dir:
+            source_path = Path(temp_dir) / "source.pdf"
+            write_fitz_text_pdf(
+                source_path,
+                ["Contact tester@example.test today.", "Header Alpha Beta Gamma"],
+            )
+            output_path = Path(temp_dir) / "source_ANON_VISUAL.pdf"
+            from pdf_redaction import extract_pdf_word_pages
+
+            alpha_word = next(
+                word
+                for word in extract_pdf_word_pages(source_path)[0].words
+                if word.text == "Alpha"
+            )
+            edits = ManualEdits(
+                added=(
+                    ManualRect(
+                        page=1,
+                        x0=alpha_word.rect.x0,
+                        y0=alpha_word.rect.y0,
+                        x1=alpha_word.rect.x1,
+                        y1=alpha_word.rect.y1,
+                        label=AI_SUGGESTION_LABEL,
+                    ),
+                )
+            )
+
+            result = regenerate_pdf_with_manual_overrides(
+                source_path, output_path=output_path, edits=edits
+            )
+
+            import pymupdf as fitz
+
+            with fitz.open(output_path) as document:
+                visible_text = "\n".join(page.get_text("text") for page in document)
+            self.assertNotIn("Alpha", visible_text)
+            self.assertEqual(result["counters"].get(AI_SUGGESTION_LABEL), 1)
+            self.assertNotIn("RECZNE", result["counters"])
+
+    def test_apply_pending_overrides_identifies_ai_suggestion_rect_for_removal(
+        self,
+    ) -> None:
+        # Same case as
+        # test_staging_removal_of_previously_added_manual_rect_drops_it,
+        # but for a rect labeled AI_SUGGESTION_LABEL instead of the plain
+        # manual sentinel - this must be recognized as "a previously
+        # added rect being un-added", not misfiled as an auto-detected
+        # category being un-redacted.
+        added_rect = ManualRect(
+            page=1, x0=1.0, y0=2.0, x1=3.0, y1=4.0, label=AI_SUGGESTION_LABEL
+        )
+        edits = ManualEdits(added=(added_rect,))
+        key = manual_edit_span_key(added_rect.page, AI_SUGGESTION_LABEL, added_rect)
+
+        result = apply_pending_overrides(
+            edits,
+            visible_rects=[
+                {
+                    "page": 1,
+                    "label": AI_SUGGESTION_LABEL,
+                    "x0": 1.0,
+                    "y0": 2.0,
+                    "x1": 3.0,
+                    "y1": 4.0,
+                }
+            ],
+            pending_remove_keys={key},
+            pending_add_rects=[],
+        )
+
+        self.assertEqual(result.added, ())
+        self.assertEqual(result.removed, frozenset())
 
 
 class RegeneratePdfWithManualOverridesTests(unittest.TestCase):

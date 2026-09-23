@@ -24,6 +24,7 @@ try:
     from .anonymizer import compute_pdf_redaction_spans
     from .file_writers import IMAGE_EXTENSIONS, internal_artifacts_dir
     from .pdf_redaction import (
+        AI_SUGGESTION_LABEL,
         MANUAL_REDACTION_LABEL,
         compute_redaction_rects,
         manual_edit_span_key,
@@ -35,6 +36,7 @@ except ImportError:
     from anonymizer import compute_pdf_redaction_spans
     from file_writers import IMAGE_EXTENSIONS, internal_artifacts_dir
     from pdf_redaction import (
+        AI_SUGGESTION_LABEL,
         MANUAL_REDACTION_LABEL,
         compute_redaction_rects,
         manual_edit_span_key,
@@ -44,6 +46,15 @@ except ImportError:
     from sensitive_terms import SensitiveTerm
 
 
+# Rects carrying one of these labels were added by the user (directly, or
+# by accepting a local-LLM suggestion) rather than found by automatic
+# detection - see ManualRect.label. Kept as a set (not a single sentinel)
+# specifically so a new manually-added label can be introduced later
+# without hunting down every place that used to compare against one
+# fixed constant.
+_MANUAL_RECT_LABELS = frozenset({MANUAL_REDACTION_LABEL, AI_SUGGESTION_LABEL})
+
+
 MANUAL_EDITS_SUFFIX = "_MANUAL_EDITS"
 MANUAL_EDITS_EXTENSION = ".json"
 MANUAL_EDITS_SCHEMA = "local-document-anonymizer.manual-redaction-edits.v1"
@@ -51,13 +62,21 @@ MANUAL_EDITS_SCHEMA = "local-document-anonymizer.manual-redaction-edits.v1"
 
 @dataclass(frozen=True)
 class ManualRect:
-    """One manually drawn redaction rectangle, in PDF point coordinates."""
+    """One manually drawn redaction rectangle, in PDF point coordinates.
+
+    ``label`` defaults to the plain magic-pen sentinel (``RECZNE``) so
+    every existing caller that never mentions it keeps behaving exactly
+    as before; it is set to ``AI_SUGGESTION_LABEL`` for a rect burned in
+    after accepting a local-LLM suggestion instead, so it gets its own
+    color/legend entry rather than looking like an ordinary manual box.
+    """
 
     page: int
     x0: float
     y0: float
     x1: float
     y1: float
+    label: str = MANUAL_REDACTION_LABEL
 
     def as_tuple(self) -> tuple[float, float, float, float]:
         return (self.x0, self.y0, self.x1, self.y1)
@@ -117,6 +136,11 @@ def load_manual_edits(path: str | Path) -> ManualEdits:
         if not isinstance(entry, dict):
             continue
         try:
+            # "label" is missing from any sidecar written before this
+            # field existed - default to the plain manual sentinel so an
+            # old file still loads exactly as it always has.
+            raw_label = entry.get("label", MANUAL_REDACTION_LABEL)
+            label = str(raw_label) if raw_label else MANUAL_REDACTION_LABEL
             added_rects.append(
                 ManualRect(
                     page=int(entry["page"]),
@@ -124,6 +148,7 @@ def load_manual_edits(path: str | Path) -> ManualEdits:
                     y0=float(entry["y0"]),
                     x1=float(entry["x1"]),
                     y1=float(entry["y1"]),
+                    label=label,
                 )
             )
         except (KeyError, TypeError, ValueError):
@@ -139,7 +164,14 @@ def save_manual_edits(path: str | Path, edits: ManualEdits) -> Path:
         "schema": MANUAL_EDITS_SCHEMA,
         "removed": [list(key) for key in sorted(edits.removed, key=str)],
         "added": [
-            {"page": rect.page, "x0": rect.x0, "y0": rect.y0, "x1": rect.x1, "y1": rect.y1}
+            {
+                "page": rect.page,
+                "x0": rect.x0,
+                "y0": rect.y0,
+                "x1": rect.x1,
+                "y1": rect.y1,
+                "label": rect.label,
+            }
             for rect in edits.added
         ],
     }
@@ -241,7 +273,7 @@ def regenerate_pdf_with_manual_overrides(
         active_pages=active_pages,
     )
 
-    extra_rects = [(rect.page, rect.as_tuple()) for rect in edits.added]
+    extra_rects = [(rect.page, rect.as_tuple(), rect.label) for rect in edits.added]
     if Path(source_path).suffix.lower() in IMAGE_EXTENSIONS:
         # A standalone scan/photo: its visual output is a PDF wrapping the
         # redacted image, so regeneration has to go through the image
@@ -311,7 +343,7 @@ def compute_visible_redaction_rects(
     added_rects = [
         {
             "page": rect.page,
-            "label": MANUAL_REDACTION_LABEL,
+            "label": rect.label,
             "x0": rect.x0,
             "y0": rect.y0,
             "x1": rect.x1,
@@ -403,11 +435,10 @@ def apply_pending_overrides(
     kept_added = [
         rect
         for rect in edits.added
-        if manual_edit_span_key(rect.page, MANUAL_REDACTION_LABEL, rect)
-        not in pending_remove
+        if manual_edit_span_key(rect.page, rect.label, rect) not in pending_remove
     ]
     for rect_info in visible_rects:
-        if str(rect_info["label"]) == MANUAL_REDACTION_LABEL:
+        if str(rect_info["label"]) in _MANUAL_RECT_LABELS:
             continue
         key = rect_info_key(rect_info)
         if key in pending_remove:
@@ -417,6 +448,7 @@ def apply_pending_overrides(
 
 
 __all__ = [
+    "AI_SUGGESTION_LABEL",
     "EMPTY_MANUAL_EDITS",
     "MANUAL_REDACTION_LABEL",
     "ManualEdits",

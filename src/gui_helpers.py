@@ -1841,6 +1841,7 @@ LEGEND_ITEMS = (
     ("#806BB3", "organizacja (AI)"),
     ("#408C59", "lokalizacja, ulica, miejscowo\u015b\u0107"),
     ("#141414", "r\u0119cznie ukryte (magic pen)"),
+    ("#0D99A6", "sugestia AI zaakceptowana"),
 )
 
 
