@@ -26,7 +26,7 @@ from manual_redaction import (
     regenerate_pdf_with_manual_overrides,
 )
 from ocr import detect_ocr_support, extract_pdf_word_boxes, list_installed_languages
-from pdf_redaction import PdfWordPage, word_pages_from_ocr_boxes
+from pdf_redaction import PdfWordPage, merge_rects_by_line, word_pages_from_ocr_boxes
 
 
 def workspace_temp_dir():
@@ -116,6 +116,66 @@ class WordPagesFromOcrBoxesTests(unittest.TestCase):
         self.assertEqual(page.words[0].start_offset, 0)
         self.assertEqual(page.words[0].end_offset, 5)
         self.assertEqual(page.words[2].start_offset, 12)
+
+    @staticmethod
+    def _word(text, x, y, block, par, line, word_no):
+        word = {
+            "text": text,
+            "rect": (x, y, x + 40, y + 10),
+            "block_no": block,
+            "line_no": line,
+            "word_no": word_no,
+        }
+        if par is not None:
+            word["par_no"] = par
+        return word
+
+    def test_paragraphs_sharing_line_num_stay_separate_lines(self) -> None:
+        """Regression (2026-09-23, llm_test_3_skan_protokol_2str.pdf):
+        Tesseract numbers line_num per paragraph, so the first lines of
+        paragraphs 1, 2 and 3 in one block all have line_num=1 and used
+        to be merged into one interleaved line ("Pouczona Feralnego
+        Dzwonil o wieczoru wczesniej ..."), breaking multi-token matches
+        such as the phone group "600 000 519"."""
+        w = self._word
+        words = [
+            # Deliberately shuffled - input order must not matter.
+            w("Dzwonil", 0, 60, 4, 3, 1, 1),
+            w("Feralnego", 0, 30, 4, 2, 1, 1),
+            w("Pouczona", 0, 0, 4, 1, 1, 1),
+            w("o", 50, 0, 4, 1, 1, 2),
+            w("wieczoru", 50, 30, 4, 2, 1, 2),
+            w("600", 50, 60, 4, 3, 1, 2),
+            w("000", 100, 60, 4, 3, 1, 3),
+            w("519", 150, 60, 4, 3, 1, 4),
+            w("prawach", 0, 15, 4, 1, 2, 1),
+        ]
+
+        page = word_pages_from_ocr_boxes([{"page_number": 1, "words": words}])[0]
+
+        self.assertEqual(
+            page.text,
+            "Pouczona o\nprawach\nFeralnego wieczoru\nDzwonil 600 000 519",
+        )
+        self.assertIn("600 000 519", page.text)
+        # Each word keeps its own text range.
+        for word in page.words:
+            self.assertEqual(page.text[word.start_offset : word.end_offset], word.text)
+        # One rect per real line - never one rect spanning several lines.
+        rects = merge_rects_by_line(page.words)
+        self.assertEqual(len(rects), 4)
+        for rect in rects:
+            self.assertEqual(rect.y1 - rect.y0, 10)
+
+    def test_words_without_par_no_keep_previous_grouping(self) -> None:
+        w = self._word
+        words = [
+            w("B", 0, 15, 0, None, 1, 0),
+            w("A", 0, 0, 0, None, 0, 0),
+            w("A2", 50, 0, 0, None, 0, 1),
+        ]
+        page = word_pages_from_ocr_boxes([{"page_number": 1, "words": words}])[0]
+        self.assertEqual(page.text, "A A2\nB")
 
     def test_empty_pages_produce_no_words(self) -> None:
         pages = word_pages_from_ocr_boxes([{"page_number": 1, "words": []}])
