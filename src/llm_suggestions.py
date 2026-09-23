@@ -46,15 +46,23 @@ found" here rather than reusing that same widening logic.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from pathlib import Path
 
 try:
+    from .file_writers import internal_artifacts_dir
     from .llm_review import normalize_review_text, split_into_review_sentences
     from .pdf_redaction import PdfWord, PdfWordPage, merge_rects_by_line
 except ImportError:
+    from file_writers import internal_artifacts_dir
     from llm_review import normalize_review_text, split_into_review_sentences
     from pdf_redaction import PdfWord, PdfWordPage, merge_rects_by_line
+
+LLM_SUGGESTIONS_SUFFIX = "_LLM_SUGGESTIONS"
+LLM_SUGGESTIONS_EXTENSION = ".json"
+LLM_SUGGESTIONS_SCHEMA = "local-document-anonymizer.llm-suggestions.v1"
 
 
 AI_SUGGESTION_STATUS_PENDING = "pending"
@@ -254,6 +262,66 @@ def build_ai_suggestions(
     return suggestions
 
 
+def llm_suggestions_path(output_pdf_path: str | Path) -> Path:
+    """Sidecar JSON path for one visual PDF output's raw LLM comparison/
+    narrative review results - mirrors manual_redaction.manual_edits_path
+    (same hidden internal-artifacts folder, same "app state, not a
+    user-facing deliverable" reasoning). Holds only the already-sanitized
+    llm_review.py result dicts (status, categories, truncated
+    justifications, sentence numbers) - never document content."""
+    path = Path(output_pdf_path)
+    internal_dir = internal_artifacts_dir(path.parent)
+    return internal_dir / f"{path.stem}{LLM_SUGGESTIONS_SUFFIX}{LLM_SUGGESTIONS_EXTENSION}"
+
+
+def save_llm_suggestions_result(
+    path: str | Path,
+    *,
+    comparison_result: dict[str, object] | None,
+    narrative_result: dict[str, object] | None,
+) -> Path:
+    """Persist the raw comparison/narrative results next to a visual PDF
+    output, so the comparison window can build its suggestion list on
+    open without re-running the local LLM every time it's opened."""
+    destination = Path(path)
+    payload = {
+        "schema": LLM_SUGGESTIONS_SCHEMA,
+        "comparison_result": (
+            comparison_result if isinstance(comparison_result, dict) else None
+        ),
+        "narrative_result": (
+            narrative_result if isinstance(narrative_result, dict) else None
+        ),
+    }
+    destination.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    return destination
+
+
+def load_llm_suggestions_result(
+    path: str | Path,
+) -> tuple[dict[str, object] | None, dict[str, object] | None]:
+    """Load a previously-saved (comparison_result, narrative_result) pair,
+    or (None, None) if the sidecar is missing or corrupt -
+    build_ai_suggestions already treats either as "no suggestions from
+    that source", the same fail-safe default as if the feature had never
+    been enabled for this document."""
+    try:
+        raw_text = Path(path).read_text(encoding="utf-8")
+        data = json.loads(raw_text)
+    except (OSError, ValueError):
+        return None, None
+    if not isinstance(data, dict):
+        return None, None
+    comparison_result = data.get("comparison_result")
+    narrative_result = data.get("narrative_result")
+    return (
+        comparison_result if isinstance(comparison_result, dict) else None,
+        narrative_result if isinstance(narrative_result, dict) else None,
+    )
+
+
 __all__ = [
     "AI_SUGGESTION_SOURCE_COMPARISON",
     "AI_SUGGESTION_SOURCE_NARRATIVE",
@@ -263,6 +331,9 @@ __all__ = [
     "AI_SUGGESTION_STATUS_REJECTED",
     "AiSuggestion",
     "build_ai_suggestions",
+    "llm_suggestions_path",
+    "load_llm_suggestions_result",
     "resolve_sentence_page",
     "resolve_sentence_rects",
+    "save_llm_suggestions_result",
 ]

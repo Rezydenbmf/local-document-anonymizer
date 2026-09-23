@@ -65,6 +65,7 @@ try:
         run_llm_narrative_review,
         run_llm_review,
     )
+    from .llm_suggestions import llm_suggestions_path, save_llm_suggestions_result
     from .pdf_redaction import (
         PDF_REDACTION_STATUSES,
         PdfRedactionSpan,
@@ -156,6 +157,7 @@ except ImportError:
         run_llm_narrative_review,
         run_llm_review,
     )
+    from llm_suggestions import llm_suggestions_path, save_llm_suggestions_result
     from pdf_redaction import (
         PDF_REDACTION_STATUSES,
         PdfRedactionSpan,
@@ -2687,6 +2689,22 @@ def _anonymize_pdf_file_result(
         use_llm_narrative_review=use_llm_narrative_review,
         llm_model_name=llm_model_name,
     )
+    if use_llm_comparison_review or use_llm_narrative_review:
+        # Sidecar next to the visual PDF (same "app state, never document
+        # content" folder as manual_redaction's ManualEdits) so the
+        # comparison window can build its suggestion list without
+        # re-running the local LLM every time it opens this document.
+        try:
+            save_llm_suggestions_result(
+                llm_suggestions_path(pdf_visual_output_path),
+                comparison_result=llm_comparison_result,
+                narrative_result=llm_narrative_result,
+            )
+        except OSError:
+            # Same tolerance as the magic-pen config save elsewhere in
+            # this app - a read-only output folder shouldn't fail the
+            # whole anonymization run over a convenience cache file.
+            pass
     dictionary_result = _dictionary_result(
         status=dictionary_status,
         sensitive_terms=terms,

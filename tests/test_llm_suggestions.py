@@ -18,8 +18,11 @@ from llm_suggestions import (
     AI_SUGGESTION_SOURCE_NARRATIVE,
     AI_SUGGESTION_STATUS_PENDING,
     build_ai_suggestions,
+    llm_suggestions_path,
+    load_llm_suggestions_result,
     resolve_sentence_page,
     resolve_sentence_rects,
+    save_llm_suggestions_result,
 )
 from pdf_redaction import extract_pdf_word_pages
 
@@ -548,6 +551,59 @@ class BuildAiSuggestionsTests(unittest.TestCase):
             self.assertIsNotNone(result)
             page_number, _rects = result
             self.assertEqual(page_number, 1)
+
+
+class LlmSuggestionsSidecarTests(unittest.TestCase):
+    def test_path_lives_in_hidden_internal_subfolder_named_after_output(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            output_pdf = Path(temp_dir) / "document_ANON_VISUAL.pdf"
+            path = llm_suggestions_path(output_pdf)
+
+            self.assertEqual(path.name, "document_ANON_VISUAL_LLM_SUGGESTIONS.json")
+            self.assertEqual(path.parent, Path(temp_dir) / "_wewnetrzne")
+
+    def test_save_and_load_round_trips_both_results(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            output_pdf = Path(temp_dir) / "document_ANON_VISUAL.pdf"
+            comparison_result = {"status": "completed", "findings": [{"category": "PERSON_LIKE"}]}
+            narrative_result = {"status": "completed", "suggestions": [{"confidence": "likely"}]}
+
+            save_llm_suggestions_result(
+                llm_suggestions_path(output_pdf),
+                comparison_result=comparison_result,
+                narrative_result=narrative_result,
+            )
+            loaded_comparison, loaded_narrative = load_llm_suggestions_result(
+                llm_suggestions_path(output_pdf)
+            )
+
+            self.assertEqual(loaded_comparison, comparison_result)
+            self.assertEqual(loaded_narrative, narrative_result)
+
+    def test_load_missing_file_returns_none_none(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            missing = Path(temp_dir) / "does_not_exist_LLM_SUGGESTIONS.json"
+
+            self.assertEqual(load_llm_suggestions_result(missing), (None, None))
+
+    def test_load_corrupt_file_returns_none_none(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            corrupt = Path(temp_dir) / "corrupt_LLM_SUGGESTIONS.json"
+            corrupt.write_text("{not valid json", encoding="utf-8")
+
+            self.assertEqual(load_llm_suggestions_result(corrupt), (None, None))
+
+    def test_save_normalizes_a_non_dict_result_to_none(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            path = Path(temp_dir) / "garbage_LLM_SUGGESTIONS.json"
+
+            save_llm_suggestions_result(
+                path, comparison_result="not a dict", narrative_result=None
+            )
+            loaded_comparison, loaded_narrative = load_llm_suggestions_result(path)
+
+            self.assertIsNone(loaded_comparison)
+            self.assertIsNone(loaded_narrative)
 
 
 if __name__ == "__main__":

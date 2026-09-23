@@ -1,12 +1,11 @@
 ﻿"""Tests for optional local Ollama LLM review."""
 
 import json
-from pathlib import Path
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
-
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
@@ -58,6 +57,7 @@ from llm_review import (
     split_into_review_sentences,
     validate_configured_model,
 )
+from llm_suggestions import llm_suggestions_path, load_llm_suggestions_result
 from report import build_batch_summary_text, build_report_text
 
 
@@ -743,6 +743,57 @@ class LlmSuggestionReviewWiringTests(unittest.TestCase):
 
         self.assertEqual(result.llm_comparison_result["status"], LLM_STATUS_COMPLETED)
         self.assertEqual(result.llm_narrative_result["status"], LLM_STATUS_COMPLETED)
+
+    def test_pdf_file_result_writes_a_suggestions_sidecar_next_to_the_visual_pdf(
+        self,
+    ) -> None:
+        side_effects = [
+            completed("ollama version"),
+            completed("NAME ID SIZE MODIFIED\nlocal-model abc 1GB now\n"),
+            completed("ollama version"),
+            completed("NAME ID SIZE MODIFIED\nlocal-model abc 1GB now\n"),
+        ]
+        with workspace_temp_dir() as temp_dir:
+            output_dir = Path(temp_dir)
+            source_path = output_dir / "document.pdf"
+            write_text_pdf(source_path, "Jan Kowalski mieszka w Warszawie.")
+
+            with patch("llm_review._subprocess_run", side_effect=side_effects), patch(
+                "llm_review._ollama_api_generate",
+                side_effect=[
+                    json.dumps({"findings": []}),
+                    json.dumps({"suggestions": []}),
+                ],
+            ):
+                result = _anonymize_pdf_file_result(
+                    source_path,
+                    output_dir=output_dir,
+                    use_llm_comparison_review=True,
+                    use_llm_narrative_review=True,
+                    llm_model_name="local-model",
+                )
+
+            visual_output_path = result.pdf_redaction_result.get("output_name")
+            self.assertTrue(visual_output_path, "expected a visual PDF to be produced")
+            sidecar_path = llm_suggestions_path(output_dir / visual_output_path)
+            self.assertTrue(sidecar_path.exists())
+            comparison_result, narrative_result = load_llm_suggestions_result(sidecar_path)
+            self.assertEqual(comparison_result["status"], LLM_STATUS_COMPLETED)
+            self.assertEqual(narrative_result["status"], LLM_STATUS_COMPLETED)
+
+    def test_pdf_file_result_writes_no_sidecar_when_neither_llm_flag_is_enabled(
+        self,
+    ) -> None:
+        with workspace_temp_dir() as temp_dir:
+            output_dir = Path(temp_dir)
+            source_path = output_dir / "document.pdf"
+            write_text_pdf(source_path, "Jan Kowalski mieszka w Warszawie.")
+
+            result = _anonymize_pdf_file_result(source_path, output_dir=output_dir)
+
+            visual_output_path = result.pdf_redaction_result.get("output_name")
+            sidecar_path = llm_suggestions_path(output_dir / visual_output_path)
+            self.assertFalse(sidecar_path.exists())
 
     def test_docx_file_result_populates_comparison_and_narrative_results(self) -> None:
         side_effects = [
