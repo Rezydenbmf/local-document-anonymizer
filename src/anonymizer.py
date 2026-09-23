@@ -66,6 +66,7 @@ try:
         run_llm_review,
     )
     from .llm_suggestions import llm_suggestions_path, save_llm_suggestions_result
+    from .review import preferred_review_output_path
     from .pdf_redaction import (
         PDF_REDACTION_STATUSES,
         PdfRedactionSpan,
@@ -158,6 +159,7 @@ except ImportError:
         run_llm_review,
     )
     from llm_suggestions import llm_suggestions_path, save_llm_suggestions_result
+    from review import preferred_review_output_path
     from pdf_redaction import (
         PDF_REDACTION_STATUSES,
         PdfRedactionSpan,
@@ -1900,6 +1902,33 @@ def _run_optional_llm_review(
     )
 
 
+def _sanitize_llm_result_justifications(
+    result: dict[str, object], *, list_key: str
+) -> dict[str, object]:
+    """Defense in depth: llm_review.py's prompt instructs the model to
+    never quote source text in a justification, but nothing structurally
+    enforces that - a small local model can still fail to follow it.
+    Re-run each justification through the same deterministic regex/
+    dictionary redaction real document text gets before this result is
+    ever displayed or persisted to disk (llm_suggestions.
+    save_llm_suggestions_result is the first place these results reach
+    plaintext disk at all). NER is deliberately not used here - loading
+    that model per short justification string is not worth it, and this
+    is aimed at structured PII (PESEL, NIP, email, phone, ...) a model
+    might echo, not names.
+    """
+    items = result.get(list_key)
+    if not isinstance(items, list):
+        return result
+    sanitized_items: list[object] = []
+    for item in items:
+        if isinstance(item, dict) and isinstance(item.get("justification"), str):
+            sanitized_justification, _counters = anonymize_text(item["justification"])
+            item = {**item, "justification": sanitized_justification}
+        sanitized_items.append(item)
+    return {**result, list_key: sanitized_items}
+
+
 def _run_optional_llm_comparison_review(
     original_text: str,
     anonymized_text: str,
@@ -1911,12 +1940,13 @@ def _run_optional_llm_comparison_review(
     text - see llm_review.run_llm_comparison_review for the prompt-
     injection defenses (this is the first place real, unredacted document
     text reaches a local model; see CLAUDE.md "Bezpieczeństwo agentowe")."""
-    return run_llm_comparison_review(
+    result = run_llm_comparison_review(
         original_text,
         anonymized_text,
         enabled=use_llm_comparison_review,
         model_name=llm_model_name,
     )
+    return _sanitize_llm_result_justifications(result, list_key="findings")
 
 
 def _run_optional_llm_narrative_review(
@@ -1928,11 +1958,12 @@ def _run_optional_llm_narrative_review(
     """Optional local LLM narrative reading of the full original text for
     quasi-identifier combinations - see
     llm_review.run_llm_narrative_review."""
-    return run_llm_narrative_review(
+    result = run_llm_narrative_review(
         original_text,
         enabled=use_llm_narrative_review,
         model_name=llm_model_name,
     )
+    return _sanitize_llm_result_justifications(result, list_key="suggestions")
 
 
 def _merge_counters(target: dict[str, int], source: dict[str, int]) -> None:
@@ -2690,13 +2721,22 @@ def _anonymize_pdf_file_result(
         llm_model_name=llm_model_name,
     )
     if use_llm_comparison_review or use_llm_narrative_review:
-        # Sidecar next to the visual PDF (same "app state, never document
-        # content" folder as manual_redaction's ManualEdits) so the
-        # comparison window can build its suggestion list without
-        # re-running the local LLM every time it opens this document.
+        # Keyed to whichever PDF the comparison window will actually open
+        # (review.preferred_review_output_path's own existence-based
+        # fallback chain: _ANON_VISUAL -> _ORIGINAL_REDACTED ->
+        # _ANON_REVIEW -> legacy same-stem .pdf) - not unconditionally
+        # pdf_visual_output_path, which may not be the file that actually
+        # got written (pdf_output_mode other than "visual", or the visual-
+        # redaction branch above failing and falling back to the rebuilt-
+        # review PDF instead). Same hidden internal-artifacts folder, same
+        # "app state, never document content" reasoning as manual_
+        # redaction's ManualEdits sidecar.
+        review_output_path = preferred_review_output_path(
+            pdf_visual_output_path.parent, output_path.name
+        )
         try:
             save_llm_suggestions_result(
-                llm_suggestions_path(pdf_visual_output_path),
+                llm_suggestions_path(review_output_path),
                 comparison_result=llm_comparison_result,
                 narrative_result=llm_narrative_result,
             )
@@ -2904,6 +2944,7 @@ def _anonymize_image_file_result(
     )
 
     pdf_redaction_result: dict[str, object] = {}
+    image_visual_output_path: Path | None = None
     if ocr_word_pages:
         image_detection_spans = _pdf_detection_spans_for_word_pages(
             ocr_word_pages,
@@ -2950,6 +2991,22 @@ def _anonymize_image_file_result(
         use_llm_narrative_review=use_llm_narrative_review,
         llm_model_name=llm_model_name,
     )
+    if (
+        (use_llm_comparison_review or use_llm_narrative_review)
+        and image_visual_output_path is not None
+        and image_visual_output_path.is_file()
+    ):
+        # Only when word-coordinate OCR actually produced a visual PDF -
+        # unlike the PDF path, a scanned image with no visual output at
+        # all has nothing for the comparison window to key a sidecar to.
+        try:
+            save_llm_suggestions_result(
+                llm_suggestions_path(image_visual_output_path),
+                comparison_result=llm_comparison_result,
+                narrative_result=llm_narrative_result,
+            )
+        except OSError:
+            pass
     dictionary_result = _dictionary_result(
         status=dictionary_status,
         sensitive_terms=terms,
