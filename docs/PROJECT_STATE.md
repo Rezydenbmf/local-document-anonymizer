@@ -5281,6 +5281,59 @@ actually gets used for the first time - accepting a "missed_redaction"
 suggestion means staging one of `resolve_sentence_rects`'s returned
 rect dicts as exactly that.
 
+## LLM suggestion review, phase 1e: results persisted to disk (2026-09-23)
+
+Closed the last backend gap before GUI wiring can start: a JSON
+sidecar (`llm_suggestions_path`/`save_llm_suggestions_result`/
+`load_llm_suggestions_result` in `llm_suggestions.py`, same hidden
+`_wewnetrzne` folder and "app state, never document content"
+reasoning as `manual_redaction`'s `ManualEdits`) now persists a
+document's raw `llm_comparison_result`/`llm_narrative_result` next to
+the PDF the comparison window will open - without this, the window
+would have had to re-run the local LLM on every single open just to
+redisplay suggestions it already computed once at anonymization time.
+
+A 2-angle review caught two real issues before either had a reader to
+expose them: (1) the sidecar was unconditionally keyed to
+`pdf_visual_output_path`, but that file doesn't always exist -
+`pdf_output_mode=rebuilt_review`/`original_redaction`, or a visual-
+redaction failure, both leave a *different* PDF as the one
+`review.preferred_review_output_path` will actually resolve to (its
+own existence-based fallback: `_ANON_VISUAL` → `_ORIGINAL_REDACTED` →
+`_ANON_REVIEW` → legacy). Fixed to call that exact same resolution
+function rather than assume a filename, with a regression test that
+forces `rebuilt_review` mode and proves the sidecar lands next to the
+right file. The image pipeline had been missed entirely (same LLM
+calls, no sidecar) - added there too, gated on the visual PDF actually
+existing (a scanned image with failed word-box OCR has nothing to key
+to). (2) The sidecar is the first place these LLM results reach
+plaintext disk rather than staying in-memory for one run, and nothing
+had ever validated that a justification stays free of real document
+content beyond the prompt asking nicely - added a defense-in-depth
+pass (`_sanitize_llm_result_justifications` in `anonymizer.py`) that
+re-runs every justification through the same deterministic regex/
+dictionary redaction real document text gets, before it reaches
+`FileWorkflowResult` or disk. Verified with a test where a mocked
+Ollama response deliberately echoes a PESEL in its justification - it
+no longer survives.
+
+817 tests passing, lint at 72 (below the established baseline).
+
+**This closes out the entire backend for LLM suggestion review.**
+Everything from here is `gui_comparison_window.py` itself: loading the
+sidecar + building `AiSuggestion`s when a PDF's comparison window
+opens, the dashed-outline overlay on the existing magic-pen canvas,
+"Sprawdź sugestię AI" navigation (extending
+`_scroll_frame_to_widget`'s page-jump math to a specific rect), the
+accept/reject/manual-edit side panel (accept on a "missed_redaction"
+finding stages one of `resolve_sentence_rects`'s rects as a
+`ManualRect(label=AI_SUGGESTION_LABEL)`; every other case routes into
+the existing manual-draw flow), and the gate before finalizing. This
+is also the one piece of the whole feature this session's author
+(Claude) could not verify visually - the sandbox's display is locked -
+so it needs the user's own eyes before being considered done, not just
+green tests.
+
 ## Warning
 
 This repository is still an early-stage portfolio MVP. Do not use it to
