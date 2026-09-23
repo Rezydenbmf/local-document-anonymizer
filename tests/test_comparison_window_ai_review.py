@@ -292,6 +292,26 @@ class AiReviewDecisionTests(AiReviewWindowTestBase):
         window._erase_at_point(100, 405, 1)
         self.assertEqual(window._ai_status(UNNECESSARY.id), AI_SUGGESTION_STATUS_ACCEPTED)
 
+    def test_drawing_during_the_eraser_fallback_does_not_accept_unnecessary_redaction(
+        self,
+    ) -> None:
+        # Review finding: a mark-drag there used to add a turquoise AI
+        # redaction and count as accepting "this redaction is unnecessary".
+        window = self._build_window(UNNECESSARY)
+        window.visible_rects = [dict(UNRELATED_REDACTION)]
+        window._start_ai_review()
+        window._accept_ai_suggestion()
+        self.assertEqual(window._ai_manual_id, UNNECESSARY.id)
+
+        window._on_pane_button_press(types.SimpleNamespace(x=80, y=100, x_root=80, y_root=100), 1, "left")
+        window._on_pane_button_release(
+            types.SimpleNamespace(x=180, y=116, x_root=180, y_root=116), 1, "left"
+        )
+
+        self.assertEqual(len(window.pending_add_rects), 1)
+        self.assertEqual(window.pending_add_rects[0].label, MANUAL_REDACTION_LABEL)
+        self.assertEqual(window._ai_status(UNNECESSARY.id), AI_SUGGESTION_STATUS_PENDING)
+
     def test_narrative_accept_means_marking_by_hand_and_the_drawn_rect_is_ai_labeled(
         self,
     ) -> None:
@@ -597,6 +617,32 @@ class PrepareAiReviewTests(unittest.TestCase):
             self.assertEqual(review.suggestions[0].rects, ())
             self.assertEqual(review.location_rects["comparison-0"], [])
             self.assertEqual(review.sentence_texts["comparison-0"], [])
+
+    def test_an_unreadable_source_degrades_to_no_location_instead_of_raising(self) -> None:
+        # Review finding: pypdf's own errors aren't OSError/ValueError and
+        # used to escape, so the comparison window failed to open at all.
+        from pypdf.errors import PdfReadError
+
+        with workspace_temp_dir() as temp_dir:
+            temp_path = Path(temp_dir)
+            result_path = temp_path / "x_ANON_VISUAL.pdf"
+            save_llm_suggestions_result(
+                llm_suggestions_path(result_path),
+                comparison_result={
+                    "status": "completed",
+                    "findings": [{"finding_type": "missed_redaction", "sentence_index": 1}],
+                },
+                narrative_result=None,
+                original_text="Jan Kowalski.",
+            )
+            with patch(
+                "gui_comparison_window.candidate_llm_review_texts",
+                side_effect=PdfReadError("broken"),
+            ):
+                review = prepare_ai_review(result_path, temp_path / "x.pdf", [])
+
+            self.assertFalse(review.text_matched)
+            self.assertEqual([s.id for s in review.suggestions], ["comparison-0"])
 
     def test_no_sidecar_means_no_review(self) -> None:
         with workspace_temp_dir() as temp_dir:

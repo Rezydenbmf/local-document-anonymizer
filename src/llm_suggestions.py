@@ -328,15 +328,27 @@ def locate_sentence_texts(
     return rects
 
 
+# How much of the shorter rect's height two rects must share to count as
+# the same line. Word boxes on tightly-leaded lines touch or overlap their
+# neighbours by a fraction of a point; any-overlap would let an accepted
+# "unnecessary redaction" un-redact PII on the line above or below.
+_SAME_LINE_MIN_VERTICAL_OVERLAP = 0.5
+
+
 def _rects_overlap(first: Mapping[str, object], second: Mapping[str, object]) -> bool:
     if int(first["page"]) != int(second["page"]):
         return False
-    return (
-        float(first["x0"]) < float(second["x1"])
-        and float(second["x0"]) < float(first["x1"])
-        and float(first["y0"]) < float(second["y1"])
-        and float(second["y0"]) < float(first["y1"])
+    if not (
+        float(first["x0"]) < float(second["x1"]) and float(second["x0"]) < float(first["x1"])
+    ):
+        return False
+    shared = min(float(first["y1"]), float(second["y1"])) - max(
+        float(first["y0"]), float(second["y0"])
     )
+    shorter = min(
+        float(first["y1"]) - float(first["y0"]), float(second["y1"]) - float(second["y0"])
+    )
+    return shorter > 0 and shared > shorter * _SAME_LINE_MIN_VERTICAL_OVERLAP
 
 
 def redactions_overlapping_area(

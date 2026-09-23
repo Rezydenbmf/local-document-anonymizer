@@ -29,9 +29,13 @@ location or reasoning, and was strictly superseded by the comparison review.
 - `src/anonymizer.py` - threads `use_llm_comparison_review` /
   `use_llm_narrative_review` / `llm_model_name` through every file pipeline;
   sanitizes justifications; writes the sidecar.
-- `src/gui_app.py`, `src/gui_settings_dialog.py` - the two toggles.
+- `src/gui_app.py`, `src/gui_settings_dialog.py` - the two toggles;
+  `gui_app.py` also holds the approval gate.
+- `src/gui_comparison_window.py` - the PDF review mode.
 - `tests/test_llm_review.py`, `tests/test_llm_suggestions.py`,
-  `tests/test_settings_dialog_llm_suggestion_toggles.py`.
+  `tests/test_settings_dialog_llm_suggestion_toggles.py`,
+  `tests/test_llm_review_text_reconstruction.py`,
+  `tests/test_comparison_window_ai_review.py`.
 
 ## Runtime dependencies
 
@@ -53,8 +57,18 @@ run_llm_narrative_review(original_text, *, enabled, model_name) -> dict
 build_ai_suggestions(original_text, *, comparison_result, narrative_result, word_pages) -> list[AiSuggestion]
 resolve_sentence_rects(sentence_text, category, word_pages) -> (page, rects) | None
 llm_suggestions_path(output_pdf_path) -> Path
-save_llm_suggestions_result(path, *, comparison_result, narrative_result) -> Path
+save_llm_suggestions_result(path, *, comparison_result, narrative_result, original_text=None) -> Path
 load_llm_suggestions_result(path) -> (comparison_result | None, narrative_result | None)
+load_llm_suggestions_sidecar(path) -> LlmSuggestionsSidecar  # + fingerprint, resolved
+save_ai_suggestion_resolutions(path, {id: "accepted"|"rejected"}) -> Path | None
+count_unresolved_ai_suggestions(output_pdf_path) -> int
+review_text_fingerprint(text) -> str
+select_review_text(candidates, fingerprint) -> str | None
+ai_suggestion_ids / ai_suggestion_sentence_texts / locate_sentence_texts
+redactions_overlapping_area(redaction_rects, area_rects)
+
+# anonymizer.py
+candidate_llm_review_texts(source_path, word_pages) -> list[str]
 
 # anonymizer.py
 anonymize_file(..., llm_model_name="", use_llm_comparison_review=False, use_llm_narrative_review=False)
@@ -109,22 +123,40 @@ When either feature is enabled, the raw (sanitized) results are saved to
 `_wewnetrzne/<pdf stem>_LLM_SUGGESTIONS.json`, keyed to whichever PDF
 `review.preferred_review_output_path` will actually open, so the comparison
 window does not have to re-run the model on every open. It never contains
-document text.
+document text: besides the sanitized results it holds only
+`original_text_sha256` (a fingerprint of the reviewed text, so the window
+can prove its rebuilt text numbers sentences the same way - see
+`select_review_text`; on a mismatch suggestions show without a location)
+and `resolved` (suggestion id -> accepted/rejected, written on save).
 
-## Accepted suggestions
+## Review mode (PDF, comparison window)
 
-An accepted suggestion is burned in as a `ManualRect(label=AI_SUGGESTION_LABEL)`
-("AI_SUGESTIA"), with its own color and legend entry.
+"Sprawdź sugestię AI" walks through suggestions Word-track-changes style:
+both panes scroll to the sentence, pending proposals get a dashed turquoise
+outline, the sidebar shows the justification, locally-resolved quote and
+Zatwierdź / Odrzuć / Zmień ręcznie, plus "Zastosuj wszystkie" (only for
+suggestions with a ready rect, behind a warning). Accepting only stages
+ordinary magic-pen edits:
+
+- missed_redaction -> its proposed rect(s) as
+  `ManualRect(label=AI_SUGGESTION_LABEL)` ("AI_SUGESTIA", own color and
+  legend entry once saved);
+- narrative / unlocated -> hand-marking mode, drawn rects are AI-labeled;
+- unnecessary_redaction -> un-redact the existing redactions inside that
+  sentence (>50% vertical overlap), eraser fallback when none.
+
+Every file's suggestions must be decided before it can be approved
+(`gui_app._apply_ai_suggestion_gate`); a file whose original isn't
+available in this session asks "Zatwierdzić mimo to?" instead.
 
 ## Status (2026-09-23)
 
 Done: backend, pipeline wiring, prompt-injection defenses, PDF resolution,
-sidecar, `ManualRect` labels, the two GUI toggles.
+sidecar (with fingerprint and decisions), `ManualRect` labels, the two GUI
+toggles, the PDF review mode and the approval gate.
 
-Not yet done: the comparison-window review mode (dashed-outline overlay,
-"Sprawdź sugestię AI" navigation, accept/reject/manual-edit panel, gate
-before finalizing); DOCX/TXT suggestion display; hardware-aware model
-suggestion / install.
+Not yet done: DOCX/TXT suggestion display (the pipeline writes no sidecar
+for them yet); hardware-aware model suggestion / install.
 
 ## How to test
 

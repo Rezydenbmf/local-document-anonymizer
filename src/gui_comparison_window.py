@@ -514,7 +514,9 @@ def prepare_ai_review(
         return EMPTY_AI_REVIEW
     try:
         candidates = candidate_llm_review_texts(source_path, word_pages)
-    except (OSError, RuntimeError, ValueError):
+    except Exception:  # noqa: BLE001 - pypdf's own errors aren't OSError/ValueError;
+        # a source that became unreadable must degrade to "no location",
+        # never stop the comparison window (and so the review) from opening.
         candidates = []
     review_text = select_review_text(candidates, sidecar.original_text_sha256)
     suggestions = build_ai_suggestions(
@@ -3243,7 +3245,16 @@ class ComparisonWindow:
         px0, py0 = canvas_point_to_pdf_point(cx0, cy0, zoom)
         px1, py1 = canvas_point_to_pdf_point(cx1, cy1, zoom)
         self._push_undo_snapshot()
-        manual_suggestion_id = self._ai_manual_id
+        manual_suggestion = self._ai_suggestion(self._ai_manual_id)
+        # Only a suggestion asking for MORE redaction can be accepted by
+        # drawing: for an "unnecessary redaction" one (eraser fallback), a
+        # drawn box is an ordinary magic-pen rect and accepts nothing.
+        manual_suggestion_id = (
+            manual_suggestion.id
+            if manual_suggestion is not None
+            and manual_suggestion.finding_type != "unnecessary_redaction"
+            else None
+        )
         new_rect = ManualRect(
             page=page_number,
             x0=px0,

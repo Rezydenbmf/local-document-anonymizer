@@ -732,6 +732,18 @@ class SuggestionLocationTests(unittest.TestCase):
 
         self.assertEqual(result, [inside])
 
+    def test_a_neighbouring_line_that_only_grazes_the_sentence_is_not_picked(self) -> None:
+        # Review finding: tightly-leaded lines' word boxes overlap by a
+        # fraction of a point - that must not stage un-redacting PII on the
+        # line below the sentence.
+        area = [{"page": 1, "x0": 50, "y0": 100.0, "x1": 300, "y1": 113.6}]
+        next_line = {"page": 1, "label": "PESEL", "x0": 60, "y0": 113.2, "x1": 160, "y1": 126.8}
+        same_line = {"page": 1, "label": "PESEL", "x0": 60, "y0": 100.4, "x1": 160, "y1": 113.9}
+
+        result = redactions_overlapping_area([next_line, same_line], area)
+
+        self.assertEqual(result, [same_line])
+
 
 if __name__ == "__main__":
     unittest.main()
