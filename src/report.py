@@ -152,6 +152,7 @@ PDF_REDACTION_COLOR_LEGEND = (
         "locations, including a town/city name next to a postal code and a "
         "street name after ul./al./pl.",
     ),
+    ("teal", "a local-LLM suggestion the user reviewed and accepted"),
 )
 
 

@@ -76,7 +76,6 @@ try:
     )
     from .manual_redaction import (
         EMPTY_MANUAL_EDITS,
-        MANUAL_REDACTION_LABEL,
         ManualEdits,
         ManualRect,
         apply_manual_redaction_count_to_report_text,
@@ -156,7 +155,6 @@ except ImportError:
     )
     from manual_redaction import (
         EMPTY_MANUAL_EDITS,
-        MANUAL_REDACTION_LABEL,
         ManualEdits,
         ManualRect,
         apply_manual_redaction_count_to_report_text,
@@ -2318,7 +2316,7 @@ class ComparisonWindow:
         pending = [
             {
                 "page": rect.page,
-                "label": MANUAL_REDACTION_LABEL,
+                "label": rect.label,
                 "x0": rect.x0,
                 "y0": rect.y0,
                 "x1": rect.x1,
@@ -2456,7 +2454,7 @@ class ComparisonWindow:
             rect_key = rect_info_key(
                 {
                     "page": rect.page,
-                    "label": MANUAL_REDACTION_LABEL,
+                    "label": rect.label,
                     "x0": rect.x0,
                     "y0": rect.y0,
                     "x1": rect.x1,

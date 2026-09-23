@@ -39,6 +39,7 @@ try:
     from .file_writers import internal_artifacts_dir
     from .llm_review import LLM_STATUS_AVAILABLE, list_installed_models
     from .manual_redaction import (
+        AI_SUGGESTION_LABEL,
         EMPTY_MANUAL_EDITS,
         MANUAL_REDACTION_LABEL,
         ManualEdits,
@@ -105,6 +106,7 @@ except ImportError:
     from file_writers import internal_artifacts_dir
     from llm_review import LLM_STATUS_AVAILABLE, list_installed_models
     from manual_redaction import (
+        AI_SUGGESTION_LABEL,
         EMPTY_MANUAL_EDITS,
         MANUAL_REDACTION_LABEL,
         ManualEdits,
@@ -555,6 +557,7 @@ except ImportError:
 
 
 __all__ = [
+    "AI_SUGGESTION_LABEL",
     "APPROVAL_LOCK_HINT_ID",
     "APP_ABOUT_TEXT",
     "APP_ICON_ICO_PATH",

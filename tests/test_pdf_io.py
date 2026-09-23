@@ -28,6 +28,7 @@ from file_writers import (
     save_anonymized_pdf_txt_copy,
 )
 from pdf_redaction import (
+    MANUAL_REDACTION_LABEL,
     PDF_REDACTION_PATTERNS,
     PERSON_NAME_TYPO_PATTERN,
     PdfRedactionSpan,
@@ -1326,7 +1327,11 @@ class PdfIoTests(unittest.TestCase):
             )
 
             alpha_word = next(word for word in word_pages[0].words if word.text == "Alpha")
-            extra_rect = (word_pages[0].page_number, tuple(alpha_word.rect))
+            extra_rect = (
+                word_pages[0].page_number,
+                tuple(alpha_word.rect),
+                MANUAL_REDACTION_LABEL,
+            )
 
             override_output = Path(temp_dir) / "magic_pen_ANON_VISUAL_override.pdf"
             result = save_word_coordinate_redacted_pdf_copy(

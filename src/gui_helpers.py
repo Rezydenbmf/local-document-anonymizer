@@ -1504,6 +1504,7 @@ CATEGORY_LABELS_PL = {
     "NER_LOCATION": "Lokalizacja (AI)",
     "NER_MISC": "Inne (AI)",
     "RECZNE": "Ręcznie ukryte (magic pen)",
+    "AI_SUGESTIA": "Sugestia AI zaakceptowana",
 }
 
 # Etap 4: the 8 user-facing "co anonimizować w tym zadaniu" categories -
@@ -1841,6 +1842,7 @@ LEGEND_ITEMS = (
     ("#806BB3", "organizacja (AI)"),
     ("#408C59", "lokalizacja, ulica, miejscowo\u015b\u0107"),
     ("#141414", "r\u0119cznie ukryte (magic pen)"),
+    ("#0D99A6", "sugestia AI zaakceptowana"),
 )
 
 
