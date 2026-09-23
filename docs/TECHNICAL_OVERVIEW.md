@@ -10,7 +10,7 @@ input file
 -> anonymization
 -> optional local NER on remaining text when enabled and available
 -> collision-safe output file in selected output folder
--> optional local LLM review of already-anonymized output text only
+-> optional local LLM suggestion review (comparison / narrative) - suggestions only
 -> post-anonymization audit
 -> safe risk-level assignment for review prioritization
 -> safe report
@@ -36,11 +36,11 @@ regex replacements. It uses only a locally installed spaCy package and local
 Polish model, never downloads models at runtime, and records controlled
 statuses when the dependency or model is unavailable.
 
-Stage 21 adds an optional local Ollama review layer after anonymized output
-text exists. It analyzes only already-anonymized text and records safe
-structured metadata. It never receives raw source text, raw OCR text before
-anonymization, private dictionary terms, dictionary aliases, replacement maps,
-or source snippets.
+Stage 21 added an optional local Ollama review layer. Its original whole-
+document classifier (already-anonymized text only) was replaced on 2026-09-23
+by comparison and narrative suggestion review, which see the ORIGINAL text
+under structural prompt-injection safeguards and only ever produce
+suggestions for a human - see `docs/modules/16_LOCAL_LLM_REVIEW.md`.
 
 Stage 22 adds a separate local Knowledge Assistant path after manual approval.
 It loads approved anonymized TXT files only, chunks them, writes a local
@@ -93,10 +93,11 @@ returns controlled statuses such as `available`, `dependency_missing`,
 
 `llm_review.py` contains optional local Ollama review helpers. It checks for
 the local `ollama` command/service, lists installed models where possible,
-validates the configured model name, builds an in-memory prompt for
-already-anonymized text only, calls the local Ollama generate API with a
-timeout, and parses strict structured JSON into safe metadata. Controlled
-statuses include
+validates the configured model name, builds fenced, sentence-numbered prompts
+for comparison/narrative review, calls the local Ollama generate API with a
+timeout, and parses strict structured JSON into safe findings.
+`llm_suggestions.py` resolves findings to PDF pages/rects and persists them
+to a sidecar. Controlled statuses include
 `disabled`, `ollama_not_found`, `service_unavailable`, `no_model_configured`,
 `model_missing`, `timeout`, `invalid_response`, `processing_error`, and
 `completed`.
@@ -144,8 +145,9 @@ dispatcher workflows. Stage 19 adds an OCR image helper and scanned-PDF
 fallback inside the PDF workflow. Stage 20 adds keyword-only `use_ner` and
 `ner_model_name` controls so existing callers keep their return shapes. The
 existing helpers still return only the output path plus category counters.
-Stage 21 adds keyword-only `use_llm_review` and `llm_model_name` controls. The
-file helpers also run optional LLM review, audit, and safe report output.
+Keyword-only `llm_model_name`, `use_llm_comparison_review` and
+`use_llm_narrative_review` controls run optional LLM suggestion review; the
+file helpers also run audit and safe report output.
 
 `audit.py` contains the post-anonymization audit. It checks already anonymized
 output text for conservative suspicious remaining patterns. When a dictionary
@@ -181,15 +183,15 @@ and does not modify the original PDF.
 `report.py` builds and saves safe TXT reports without original sensitive source
 values. It receives only status, input type, output type, anonymization
 category counters, safe dictionary status metadata, dictionary label counters,
-safe OCR metadata, safe NER metadata, safe LLM review metadata, safe PDF
+safe OCR metadata, safe NER metadata, safe PDF
 redaction metadata, audit status, audit risk level, audit counters, and
 optional category ordering.
 Dictionary counters are labels only, such as `IMIE NAZWISKO: 2`; original
 dictionary terms are not passed to the report module. Stage 12 also adds safe
 batch summary text generation with safe filenames, aggregate counters, audit
 status counts, risk level counts, aggregate audit category counters, aggregate
-OCR status counts, aggregate NER status/category counts, aggregate LLM
-review status/risk/category counts, and controlled error descriptions only.
+OCR status counts, aggregate NER status/category counts, and controlled error
+descriptions only.
 
 `review.py` contains the manual review workflow metadata. It detects generated
 `_ANON` outputs in an output folder, pairs matching `_RAPORT` report basenames
@@ -263,8 +265,9 @@ remains a manual staging area, not automatic approval and not a guarantee of
 complete anonymization. The generated knowledge index is a local artifact that
 may contain approved anonymized text and must not be committed.
 
-LLM review results are metadata only. Reports and batch summaries must not
-include raw prompts, raw LLM responses, source text, source snippets, raw OCR
+LLM suggestion results are closed-schema findings only. Reports, batch
+summaries and the suggestions sidecar must not include raw prompts, raw LLM
+responses, source text, source snippets, raw OCR
 text, dictionary terms, dictionary aliases, detected entity values, full paths,
 tracebacks, or replacement maps. Invalid or unexpected model output becomes
 `invalid_response` rather than a crash.
@@ -309,10 +312,10 @@ runtime and does not bundle spaCy model files.
 
 ## LLM Review Limitations
 
-Stage 21 LLM review depends on Ollama and a local model installed outside the
-repository. It can miss sensitive context, misclassify harmless context, time
-out, or return invalid structured output. It is a post-anonymization review
-signal only and does not replace deterministic anonymization, private
+LLM suggestion review depends on Ollama and a local model installed outside
+the repository. It can miss sensitive context, misclassify harmless context,
+time out, or return invalid structured output. It only produces suggestions a
+human must accept, and does not replace deterministic anonymization, private
 dictionary matching, NER, audit, or manual review.
 
 ## DOCX Limitations

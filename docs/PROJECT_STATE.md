@@ -5334,6 +5334,55 @@ is also the one piece of the whole feature this session's author
 so it needs the user's own eyes before being considered done, not just
 green tests.
 
+## Legacy whole-document LLM classifier removed (2026-09-23)
+
+The user asked why the greyed-out "Dodatkowa weryfikacja AI (LLM)" checkbox
+existed at all when the comparison/narrative review *is* additional AI
+verification - a fair point: it was a different, older feature (Stage 21's
+`run_llm_review`) that only returned one coarse `ok / warning / high_risk`
+score over already-anonymized text, with no location or reasoning, and had
+been locked behind "wkrótce" since the alpha. Assessed as strictly
+superseded by the comparison review (which finds the same missed redactions
+with a specific sentence, justification and PDF location), and removed on the
+user's decision.
+
+Removed: the checkbox (Settings + quick panel) and the now-unused
+`disabled`/`disabled_note` support in `_build_toggle_section` (it had no other
+caller); `use_llm_review`/`llm_review_result` threading through every
+anonymizer.py pipeline (TXT/DOCX/PDF/image, the dispatcher, `anonymize_batch`)
+including the positional `llm_review_result` argument in `FileWorkflowResult`,
+`_save_review_checklist` and `_save_anonymization_report`; `BatchResult`'s
+three aggregate counters; the report/checklist/batch-summary/GUI-status
+sections it fed; `run_llm_review` and its prompt/schema/parser/metadata
+builder; `LLM_REVIEW_STATUSES`/`LLM_RISK_*`; 22 dedicated tests plus one
+settings test that only asserted the old checkbox stayed locked.
+
+Kept (shared by the remaining features): `llm_model_name`, Ollama detection,
+`list_installed_models`, `validate_configured_model` (now returns its own
+small `{status, model_name, warning}` dict - `knowledge_assistant.py` and the
+new features only read `status`/`warning`), the `LLM_STATUS_*` constants and
+`LLM_RESIDUAL_CATEGORIES`, and `ENV_ITEM_LLM` - whose label was renamed from
+"Dodatkowa weryfikacja AI (LLM)" to "Lokalny model AI (Ollama)", since it was
+the same confusing name but describes a prerequisite the remaining features
+still need.
+
+Positional-argument removal is exactly where a silent shift could land
+`pdf_redaction_result` in `output_dir` without a test failing, so a focused
+review mapped every positional argument at all 12 call sites against the new
+signatures (all correct), confirmed no reader of the removed `BatchResult`
+fields or per-file result keys remains, and that all 252 names in `gui.py`'s
+`__all__` still resolve. Its one finding - stale docs - was fixed:
+`docs/modules/16_LOCAL_LLM_REVIEW.md` rewritten to describe the current
+module, `01_ANONYMIZER_ENGINE.md` and `TECHNICAL_OVERVIEW.md` API/behaviour
+text updated, and `LESSONS_LEARNED.md` #20 ("LLM review must be
+post-anonymization only") given an explicit revision note explaining the
+structural safeguards that replaced that rule, so a future session doesn't
+read the new design as a violation.
+
+794 tests passing (817 minus the 23 removed), lint at 71; headless smoke test
+of the real `AnonymizerApp` + `SettingsDialog` confirms neither still carries
+the old attribute.
+
 ## Warning
 
 This repository is still an early-stage portfolio MVP. Do not use it to
