@@ -176,8 +176,12 @@ def _safe_model_name(model_name: object) -> str:
     return "local_model"
 
 
-def _normalize_review_text(value: object) -> str:
-    """Normalize already-anonymized text before sending it to local Ollama."""
+def normalize_review_text(value: object) -> str:
+    """Normalize text before sending it to local Ollama (or before
+    re-deriving the same sentence split elsewhere, e.g.
+    llm_suggestions.build_ai_suggestions - keep this in sync with
+    whatever original_text a caller fed into run_llm_comparison_review/
+    run_llm_narrative_review, or sentence_index numbering will drift)."""
     if not isinstance(value, str):
         raise TypeError("anonymized_text must be a string")
     return value.replace(UTF8_BOM, "")
@@ -380,7 +384,7 @@ def validate_configured_model(
 
 
 def _build_review_prompt(anonymized_text: str) -> str:
-    normalized_text = _normalize_review_text(anonymized_text)
+    normalized_text = normalize_review_text(anonymized_text)
     return (
         "Analyze only this already-anonymized text for possible residual "
         "sensitive context.\n"
@@ -1048,8 +1052,8 @@ def run_llm_comparison_review(
             status=LLM_STATUS_DISABLED, model_name=safe_model_name
         )
 
-    normalized_original = _normalize_review_text(original_text)
-    normalized_anonymized = _normalize_review_text(anonymized_text)
+    normalized_original = normalize_review_text(original_text)
+    normalized_anonymized = normalize_review_text(anonymized_text)
     if (
         len(normalized_original) > MAX_REVIEW_INPUT_CHARS
         or len(normalized_anonymized) > MAX_REVIEW_INPUT_CHARS
@@ -1159,7 +1163,7 @@ def run_llm_narrative_review(
             status=LLM_STATUS_DISABLED, model_name=safe_model_name
         )
 
-    normalized_original = _normalize_review_text(original_text)
+    normalized_original = normalize_review_text(original_text)
     if len(normalized_original) > MAX_REVIEW_INPUT_CHARS:
         return build_llm_narrative_metadata(
             status=LLM_STATUS_INPUT_TOO_LARGE,

@@ -9,10 +9,8 @@ The document's ORIGINAL text that llm_review.py splits into numbered
 sentences (see anonymizer.py's PDF pipeline) comes from a different
 extraction library (pypdf, via file_readers.read_pdf_file_pages) than
 the word-coordinate geometry every redaction rect in this app is
-resolved against (PyMuPDF, via pdf_redaction.extract_pdf_word_pages -
-see _pdf_detection_spans_for_word_pages, which already computes every
-auto-detected span against `PdfWordPage.text`, never against the
-pypdf-extracted text). Two different PDF text extractors can disagree
+resolved against (PyMuPDF, via pdf_redaction.extract_pdf_word_pages).
+Two different PDF text extractors can disagree
 on whitespace/line-joining for the exact same visible content, so a
 character-offset span computed against one library's text is not
 guaranteed to land correctly against the other's.
@@ -21,13 +19,29 @@ Matching at the WORD level sidesteps this: both extractors tokenize on
 whitespace, so a sentence's whitespace-split words should still appear,
 in order, in the PyMuPDF word list for the page that sentence is on,
 even if inter-word spacing/line-breaks differ. Finding that contiguous
-word run and reusing pdf_redaction._merge_rects_by_line (the same
+word run and reusing pdf_redaction.merge_rects_by_line (the same
 line-grouping logic every auto-detected redaction rect already goes
-through) keeps this consistent with, not parallel to, the existing
-detection-to-rect pipeline. A sentence that can't be found this way
-resolves to no rect at all rather than a guessed, possibly-wrong one -
-the suggestion still surfaces (with its justification) for the user to
-locate and act on manually.
+through - see anonymizer._pdf_detection_spans_for_word_pages, which
+computes every auto-detected span against `PdfWordPage.text`) keeps
+this consistent with, not parallel to, the existing detection-to-rect
+pipeline. A sentence that can't be found this way resolves to no rect
+at all rather than a guessed, possibly-wrong one - the suggestion
+still surfaces (with its justification) for the user to locate and act
+on manually.
+
+Known limitations (fail closed, not silently wrong, but worth naming):
+a sentence that legitimately repeats verbatim elsewhere in the same
+document (a name in both a letterhead and a signature block, a
+boilerplate footer) resolves to whichever occurrence is found first,
+not necessarily the one the model meant - there is no page-position
+hint in the LLM's output to disambiguate, by design (see llm_review.py
+- the model is deliberately never told, or allowed to return, more
+than a bare sentence number). A sentence broken across a PDF line/page
+in a way that tokenizes differently between the two extraction
+libraries (e.g. a hyphenated compound word split at the exact point
+the line wraps - the same bug class anonymizer.py's auto-detection
+already had to special-case for regex/NER spans) fails closed to "not
+found" here rather than reusing that same widening logic.
 """
 
 from __future__ import annotations
@@ -36,11 +50,11 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 try:
-    from .llm_review import split_into_review_sentences
-    from .pdf_redaction import PdfWord, PdfWordPage, _merge_rects_by_line
+    from .llm_review import normalize_review_text, split_into_review_sentences
+    from .pdf_redaction import PdfWord, PdfWordPage, merge_rects_by_line
 except ImportError:
-    from llm_review import split_into_review_sentences
-    from pdf_redaction import PdfWord, PdfWordPage, _merge_rects_by_line
+    from llm_review import normalize_review_text, split_into_review_sentences
+    from pdf_redaction import PdfWord, PdfWordPage, merge_rects_by_line
 
 
 AI_SUGGESTION_STATUS_PENDING = "pending"
@@ -135,7 +149,7 @@ def resolve_sentence_rects(
                 "x1": round(rect.x1, 2),
                 "y1": round(rect.y1, 2),
             }
-            for rect in _merge_rects_by_line(matched_words)
+            for rect in merge_rects_by_line(matched_words)
         ]
         return page.page_number, rects
     return None
@@ -161,11 +175,16 @@ def build_ai_suggestions(
     """Build the reviewable suggestion list for one PDF document from
     its raw llm_review.py results. ``original_text`` must be the exact
     same text that was passed to run_llm_comparison_review/
-    run_llm_narrative_review, so sentence numbering matches."""
-    sentences = split_into_review_sentences(original_text)
+    run_llm_narrative_review (normalized here the same way those
+    functions normalize it, via llm_review.normalize_review_text, so a
+    leading BOM can't shift sentence 1 out of alignment), so sentence
+    numbering matches."""
+    sentences = split_into_review_sentences(normalize_review_text(original_text))
     suggestions: list[AiSuggestion] = []
 
-    comparison_findings = (comparison_result or {}).get("findings") or []
+    comparison_findings = (
+        comparison_result.get("findings") if isinstance(comparison_result, dict) else None
+    ) or []
     for index, finding in enumerate(comparison_findings):
         if not isinstance(finding, dict):
             continue
@@ -182,22 +201,25 @@ def build_ai_suggestions(
                     page, rects = resolved
             else:
                 page = resolve_sentence_page(sentence_text, word_pages)
+        valid_sentence_index = (
+            isinstance(sentence_index, int) and not isinstance(sentence_index, bool)
+        )
         suggestions.append(
             AiSuggestion(
                 id=f"comparison-{index}",
                 source=AI_SUGGESTION_SOURCE_COMPARISON,
                 category=category,
                 justification=str(finding.get("justification", "")),
-                sentence_indices=(
-                    (sentence_index,) if isinstance(sentence_index, int) else ()
-                ),
+                sentence_indices=(sentence_index,) if valid_sentence_index else (),
                 finding_type=str(finding_type) if finding_type else None,
                 page=page,
                 rects=tuple(rects),
             )
         )
 
-    narrative_suggestions = (narrative_result or {}).get("suggestions") or []
+    narrative_suggestions = (
+        narrative_result.get("suggestions") if isinstance(narrative_result, dict) else None
+    ) or []
     for index, suggestion in enumerate(narrative_suggestions):
         if not isinstance(suggestion, dict):
             continue

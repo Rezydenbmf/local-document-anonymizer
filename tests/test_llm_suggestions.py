@@ -385,6 +385,170 @@ class BuildAiSuggestionsTests(unittest.TestCase):
 
             self.assertEqual(suggestions, [])
 
+    def test_garbage_top_level_results_do_not_crash(self) -> None:
+        # A malformed/legacy result shape (a string, a bare list) must
+        # degrade to "no suggestions from that source", never an
+        # unhandled AttributeError that would abort building suggestions
+        # for every OTHER finding in the same document too.
+        with workspace_temp_dir() as temp_dir:
+            source_path = Path(temp_dir) / "source.pdf"
+            write_fitz_text_pdf(source_path, [["Anything."]])
+            word_pages = extract_pdf_word_pages(source_path)
+
+            suggestions = build_ai_suggestions(
+                "Anything.",
+                comparison_result="llm call failed",
+                narrative_result=["not", "a", "dict"],
+                word_pages=word_pages,
+            )
+
+            self.assertEqual(suggestions, [])
+
+    def test_boolean_sentence_index_is_excluded_like_an_invalid_one(self) -> None:
+        # bool is a subclass of int in Python - True must not silently
+        # behave as sentence index 1.
+        with workspace_temp_dir() as temp_dir:
+            source_path = Path(temp_dir) / "source.pdf"
+            write_fitz_text_pdf(source_path, [["Jan Kowalski mieszka tutaj."]])
+            word_pages = extract_pdf_word_pages(source_path)
+            comparison_result = {
+                "findings": [
+                    {
+                        "finding_type": "missed_redaction",
+                        "category": "PERSON_LIKE",
+                        "sentence_index": True,
+                        "justification": "test",
+                    }
+                ]
+            }
+
+            suggestions = build_ai_suggestions(
+                "Jan Kowalski mieszka tutaj.",
+                comparison_result=comparison_result,
+                narrative_result=None,
+                word_pages=word_pages,
+            )
+
+            self.assertEqual(len(suggestions), 1)
+            self.assertEqual(suggestions[0].sentence_indices, ())
+            self.assertIsNone(suggestions[0].page)
+
+    def test_a_leading_bom_does_not_shift_sentence_one_out_of_alignment(self) -> None:
+        # run_llm_comparison_review/run_llm_narrative_review normalize
+        # (BOM-strip) original_text before splitting it into sentences,
+        # via llm_review.normalize_review_text - build_ai_suggestions
+        # must apply the exact same normalization, or sentence_index 1
+        # would resolve against a first "sentence" that still has the
+        # BOM character glued to its first word.
+        with workspace_temp_dir() as temp_dir:
+            source_path = Path(temp_dir) / "source.pdf"
+            write_fitz_text_pdf(source_path, [["Jan Kowalski mieszka tutaj."]])
+            word_pages = extract_pdf_word_pages(source_path)
+            comparison_result = {
+                "findings": [
+                    {
+                        "finding_type": "missed_redaction",
+                        "category": "PERSON_LIKE",
+                        "sentence_index": 1,
+                        "justification": "test",
+                    }
+                ]
+            }
+
+            suggestions = build_ai_suggestions(
+                "﻿Jan Kowalski mieszka tutaj.",
+                comparison_result=comparison_result,
+                narrative_result=None,
+                word_pages=word_pages,
+            )
+
+            self.assertEqual(suggestions[0].page, 1)
+            self.assertTrue(suggestions[0].rects)
+
+    def test_sentence_wrapping_across_two_lines_still_resolves(self) -> None:
+        # A real paragraph sentence commonly wraps onto a second line -
+        # _merge_rects_by_line must group the matched words into
+        # per-line rects covering the whole sentence, not just the part
+        # that happens to share the first line.
+        with workspace_temp_dir() as temp_dir:
+            source_path = Path(temp_dir) / "source.pdf"
+            # Two insert_text calls simulate two separate PDF lines that
+            # together make up one sentence, exactly as a wrapped
+            # paragraph line would extract via PyMuPDF's word list
+            # (different line_no, contiguous word order).
+            write_fitz_text_pdf(
+                source_path,
+                [
+                    [
+                        "Pacjentka urodzona w Warszawie obecnie mieszka",
+                        "w Krakowie i pracuje jako pielegniarka.",
+                    ]
+                ],
+            )
+            word_pages = extract_pdf_word_pages(source_path)
+            sentence = (
+                "Pacjentka urodzona w Warszawie obecnie mieszka "
+                "w Krakowie i pracuje jako pielegniarka."
+            )
+
+            result = resolve_sentence_rects(sentence, "PERSON_LIKE", word_pages)
+
+            self.assertIsNotNone(result)
+            page_number, rects = result
+            self.assertEqual(page_number, 1)
+            # One rect per PDF line the sentence's words span.
+            self.assertEqual(len(rects), 2)
+
+    def test_empty_word_pages_resolves_to_nothing_rather_than_crashing(self) -> None:
+        self.assertIsNone(resolve_sentence_rects("Anything.", "PERSON_LIKE", []))
+        self.assertIsNone(resolve_sentence_page("Anything.", []))
+
+        suggestions = build_ai_suggestions(
+            "Anything.",
+            comparison_result={
+                "findings": [
+                    {
+                        "finding_type": "missed_redaction",
+                        "category": "PERSON_LIKE",
+                        "sentence_index": 1,
+                        "justification": "test",
+                    }
+                ]
+            },
+            narrative_result=None,
+            word_pages=[],
+        )
+
+        self.assertEqual(len(suggestions), 1)
+        self.assertIsNone(suggestions[0].page)
+
+    def test_duplicate_sentence_text_resolves_to_the_first_occurrence(self) -> None:
+        # Pinning down the documented, known limitation (see
+        # llm_suggestions.py's module docstring): a sentence that
+        # legitimately repeats verbatim resolves to whichever occurrence
+        # is found first, not necessarily the one a human would expect.
+        # This test exists so that behavior stays intentional and
+        # visible, not an unspecified accident a future change could
+        # silently alter either direction.
+        with workspace_temp_dir() as temp_dir:
+            source_path = Path(temp_dir) / "source.pdf"
+            write_fitz_text_pdf(
+                source_path,
+                [
+                    ["Jan Kowalski, PESEL 12345678901."],
+                    ["Jan Kowalski, PESEL 12345678901."],
+                ],
+            )
+            word_pages = extract_pdf_word_pages(source_path)
+
+            result = resolve_sentence_rects(
+                "Jan Kowalski, PESEL 12345678901.", "PERSON_LIKE", word_pages
+            )
+
+            self.assertIsNotNone(result)
+            page_number, _rects = result
+            self.assertEqual(page_number, 1)
+
 
 if __name__ == "__main__":
     unittest.main()
