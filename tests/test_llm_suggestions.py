@@ -17,9 +17,17 @@ from llm_suggestions import (
     AI_SUGGESTION_SOURCE_COMPARISON,
     AI_SUGGESTION_SOURCE_NARRATIVE,
     AI_SUGGESTION_STATUS_PENDING,
+    AiSuggestion,
+    ai_suggestion_ids,
+    ai_suggestion_sentence_texts,
     build_ai_suggestions,
+    count_unresolved_ai_suggestions,
     llm_suggestions_path,
     load_llm_suggestions_result,
+    load_llm_suggestions_sidecar,
+    locate_sentence_texts,
+    redactions_overlapping_area,
+    save_ai_suggestion_resolutions,
     resolve_sentence_page,
     resolve_sentence_rects,
     save_llm_suggestions_result,
@@ -604,6 +612,124 @@ class LlmSuggestionsSidecarTests(unittest.TestCase):
 
             self.assertIsNone(loaded_comparison)
             self.assertIsNone(loaded_narrative)
+
+
+class SuggestionResolutionPersistenceTests(unittest.TestCase):
+    COMPARISON = {
+        "status": "completed",
+        "findings": [
+            {"finding_type": "missed_redaction", "sentence_index": 1},
+            "garbage entry - skipped but still consumes index 1",
+            {"finding_type": "unnecessary_redaction", "sentence_index": 2},
+        ],
+    }
+    NARRATIVE = {"status": "completed", "suggestions": [{"sentence_indices": [1]}]}
+
+    def test_ids_match_what_build_ai_suggestions_produces(self) -> None:
+        built = build_ai_suggestions(
+            "Jedno. Dwa.",
+            comparison_result=self.COMPARISON,
+            narrative_result=self.NARRATIVE,
+            word_pages=[],
+        )
+        self.assertEqual(
+            ai_suggestion_ids(self.COMPARISON, self.NARRATIVE),
+            [suggestion.id for suggestion in built],
+        )
+        self.assertEqual(
+            ai_suggestion_ids(self.COMPARISON, self.NARRATIVE),
+            ["comparison-0", "comparison-2", "narrative-0"],
+        )
+
+    def test_resolutions_merge_into_the_sidecar_and_drive_the_unresolved_count(
+        self,
+    ) -> None:
+        with workspace_temp_dir() as temp_dir:
+            output_pdf = Path(temp_dir) / "doc_ANON_VISUAL.pdf"
+            sidecar_path = llm_suggestions_path(output_pdf)
+            save_llm_suggestions_result(
+                sidecar_path,
+                comparison_result=self.COMPARISON,
+                narrative_result=self.NARRATIVE,
+                original_text="Jedno. Dwa.",
+            )
+            self.assertEqual(count_unresolved_ai_suggestions(output_pdf), 3)
+
+            save_ai_suggestion_resolutions(sidecar_path, {"comparison-0": "accepted"})
+            save_ai_suggestion_resolutions(sidecar_path, {"narrative-0": "rejected"})
+
+            sidecar = load_llm_suggestions_sidecar(sidecar_path)
+            self.assertEqual(
+                dict(sidecar.resolved),
+                {"comparison-0": "accepted", "narrative-0": "rejected"},
+            )
+            self.assertEqual(sidecar.unresolved_ids(), ["comparison-2"])
+            self.assertEqual(count_unresolved_ai_suggestions(output_pdf), 1)
+            # Everything else survives the merge untouched.
+            self.assertEqual(sidecar.comparison_result, self.COMPARISON)
+            self.assertIsNotNone(sidecar.original_text_sha256)
+
+    def test_invalid_resolution_values_are_never_trusted(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            sidecar_path = Path(temp_dir) / "x_LLM_SUGGESTIONS.json"
+            save_llm_suggestions_result(
+                sidecar_path, comparison_result=self.COMPARISON, narrative_result=None
+            )
+            save_ai_suggestion_resolutions(
+                sidecar_path, {"comparison-0": "maybe", "comparison-2": "accepted"}
+            )
+            self.assertEqual(
+                dict(load_llm_suggestions_sidecar(sidecar_path).resolved),
+                {"comparison-2": "accepted"},
+            )
+
+    def test_no_sidecar_means_nothing_to_resolve_and_nothing_written(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            output_pdf = Path(temp_dir) / "doc_ANON_VISUAL.pdf"
+            self.assertEqual(count_unresolved_ai_suggestions(output_pdf), 0)
+            self.assertIsNone(
+                save_ai_suggestion_resolutions(
+                    llm_suggestions_path(output_pdf), {"comparison-0": "accepted"}
+                )
+            )
+            self.assertFalse(llm_suggestions_path(output_pdf).exists())
+
+
+class SuggestionLocationTests(unittest.TestCase):
+    def test_sentence_texts_resolve_locally_by_index(self) -> None:
+        suggestion = AiSuggestion(
+            id="narrative-0",
+            source=AI_SUGGESTION_SOURCE_NARRATIVE,
+            category="QUASI",
+            justification="",
+            sentence_indices=(2, 99),
+        )
+        self.assertEqual(
+            ai_suggestion_sentence_texts("Pierwsze zdanie. Drugie zdanie.", suggestion),
+            ["Drugie zdanie."],
+        )
+
+    def test_locate_sentence_texts_returns_hint_rects_on_the_right_page(self) -> None:
+        with workspace_temp_dir() as temp_dir:
+            source_path = Path(temp_dir) / "source.pdf"
+            write_fitz_text_pdf(source_path, [["Nic tu nie ma."], ["Pracuje jako chirurg."]])
+            word_pages = extract_pdf_word_pages(source_path)
+
+            rects = locate_sentence_texts(["Pracuje jako chirurg.", "Nie istnieje."], word_pages)
+
+            self.assertEqual(len(rects), 1)
+            self.assertEqual(rects[0]["page"], 2)
+
+    def test_redactions_overlapping_area_only_picks_same_page_overlaps(self) -> None:
+        area = [{"page": 1, "x0": 50, "y0": 50, "x1": 200, "y1": 70}]
+        inside = {"page": 1, "label": "PESEL", "x0": 60, "y0": 52, "x1": 120, "y1": 68}
+        other_line = {"page": 1, "label": "PESEL", "x0": 60, "y0": 80, "x1": 120, "y1": 95}
+        other_page = {"page": 2, "label": "PESEL", "x0": 60, "y0": 52, "x1": 120, "y1": 68}
+        touching_edge = {"page": 1, "label": "PESEL", "x0": 200, "y0": 52, "x1": 220, "y1": 68}
+
+        result = redactions_overlapping_area([inside, other_line, other_page, touching_edge], area)
+
+        self.assertEqual(result, [inside])
 
 
 if __name__ == "__main__":

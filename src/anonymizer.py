@@ -1609,6 +1609,37 @@ def word_pages_for_redaction_geometry(source_path: str | Path) -> list:
     return word_pages_from_ocr_boxes(extraction.pages)
 
 
+def candidate_llm_review_texts(
+    source_path: str | Path, word_pages: Iterable
+) -> list[str]:
+    """Rebuild, in the pipeline's own priority order, the texts the local
+    LLM review may have been given for ``source_path`` - so the comparison
+    window can renumber sentences exactly as the model did without the
+    sidecar ever storing document text (see llm_suggestions.
+    select_review_text, which picks the one matching the stored
+    fingerprint).
+
+    Mirrors _anonymize_pdf_file_result/_anonymize_image_file_result: a PDF
+    with a pypdf text layer reviews that text, joined with
+    PDF_PAGE_SEPARATOR; a scan reviews its word-box OCR page texts joined
+    the same way; an image reviews its single OCR page's text (which that
+    same join reduces to). ``word_pages`` must come from
+    word_pages_for_redaction_geometry for the same file - the comparison
+    window already caches exactly that, so OCR never runs twice.
+    """
+    candidates: list[str] = []
+    if Path(source_path).suffix.lower() not in IMAGE_EXTENSIONS:
+        try:
+            page_texts = read_pdf_file_pages(source_path)
+        except (OSError, ValueError):
+            page_texts = []
+        if any(page_text.strip() for page_text in page_texts):
+            candidates.append(PDF_PAGE_SEPARATOR.join(page_texts))
+    if word_pages:
+        candidates.append(PDF_PAGE_SEPARATOR.join(page.text for page in word_pages))
+    return candidates
+
+
 def compute_pdf_redaction_spans(
     source_path: str | Path,
     *,
@@ -2678,6 +2709,7 @@ def _anonymize_pdf_file_result(
                 llm_suggestions_path(review_output_path),
                 comparison_result=llm_comparison_result,
                 narrative_result=llm_narrative_result,
+                original_text=text,
             )
         except OSError:
             # Same tolerance as the magic-pen config save elsewhere in
@@ -2930,6 +2962,7 @@ def _anonymize_image_file_result(
                 llm_suggestions_path(image_visual_output_path),
                 comparison_result=llm_comparison_result,
                 narrative_result=llm_narrative_result,
+                original_text=ocr_text,
             )
         except OSError:
             pass
