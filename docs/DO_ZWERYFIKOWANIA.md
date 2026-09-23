@@ -105,12 +105,21 @@ przenoszę ją do „Potwierdzone" albo usuwam. Jeśli lista urośnie powyżej
       historię" na folderze wyników z nowymi podfolderami dat — ma
       usunąć wszystko tak jak dotychczas na starym, płaskim folderze.
 
-Po tym: początek prac nad wykorzystaniem lokalnego LLM (Ollama) —
-osobny, większy temat, wymaga wcześniej ustalenia dokładnego zakresu
-(patrz nasza wcześniejsza rozmowa o różnicy między dzisiejszą warstwą
-przeglądu a kontekstowym wykrywaniem, o którym mówiłeś) i zaprojektowania
-zabezpieczenia przed prompt injection, zanim treść dokumentu zacznie
-trafiać do promptu.
+- [ ] **LLM — warstwa sugestii (porównanie + czytanie narracyjne),
+      faza 1: backend + spięcie z `anonymizer.py` — zbudowane
+      2026-09-23, na razie nie ma czego klikać w apce.** Zaplanowaliśmy
+      architekturę razem (w tym zabezpieczenie przed prompt injection —
+      numerowanie zdań, losowa „ogrodzona” treść, model odpowiada tylko
+      numerami linii, nigdy cytatem) i zbudowałem obie nowe funkcje w
+      `llm_review.py` plus pełne przewleczenie przez cztery typy plików
+      w `anonymizer.py`. **To jest czysto techniczny fundament — nic w
+      GUI się jeszcze nie zmieniło**, więc nie ma tu nic do
+      przeklikania na żywo; 775 testów automatycznych (25 nowych)
+      pilnuje poprawności zamiast Ciebie na tym etapie. Następny krok
+      (osobna sesja): tryb recenzji sugestii w oknie porównania
+      (przerywana obwódka, nawigacja „Sprawdź sugestię AI”, panel
+      akceptuj/odrzuć/zmień ręcznie) — dopiero to będzie miało coś do
+      faktycznego przetestowania na żywo.
 
 ## Potwierdzone
 
