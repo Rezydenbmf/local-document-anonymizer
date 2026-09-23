@@ -5497,6 +5497,48 @@ on save (closing the window drops unsaved ones, same as unsaved magic
 pen edits); duplicate-sentence and hyphen-wrap resolution limits from
 phase 1d still apply (fail closed).
 
+## OCR: paragraphs inside one Tesseract block were merged into one line (2026-09-23)
+
+Found while testing the AI suggestion review on the synthetic scan
+`_manual_test/pliki do testow/llm_test_3_skan_protokol_2str.pdf`
+(generator `_manual_test/generuj_llm_test.py`). Tesseract's
+`image_to_data` numbers `line_num` per **paragraph** (`par_num`), not
+per block. `ocr._ocr_word_boxes` never stored `par_num`, and
+`pdf_redaction.word_pages_from_ocr_boxes` sorted/grouped words by
+(block, line, word) only - so the first line of paragraphs 1, 2 and 3
+of one block (all `line_num=1`) became ONE line with interleaved words
+("Pouczona Feralnego Dzwonil o wieczoru wczesniej ..."). Effects: the
+OCR text fed to regex/NER and to the local-LLM review was scrambled,
+multi-token patterns (phone groups "600 000 519", dates "15 lipca
+1410", "ul. X 12") could fail to match on scans (missed redactions),
+and `merge_rects_by_line` could build one rect spanning several lines.
+
+Fix (single choke point - every OCR word-box path, scanned PDF, image
+and the comparison window, goes through `word_pages_from_ocr_boxes`):
+`_ocr_word_boxes` now also stores `par_no` (0 when Tesseract data has no
+`par_num`); `word_pages_from_ocr_boxes` sorts by (block, paragraph,
+line, word) and renumbers `line_no` so each (paragraph, line) pair gets
+a number unique within its block. `PdfWord` keeps its shape, so the
+consumers that identify a line by (block_no, line_no) -
+`_build_word_page`, `merge_rects_by_line`, `llm_suggestions` - needed
+no changes. Renumbered line numbers are only compared for equality,
+never persisted.
+
+Side effect (intended, fails closed): the reconstructed OCR text of
+scans changes, so the LLM sidecar's `review_text_fingerprint` for a
+scan processed before this fix no longer matches - its saved
+suggestions degrade to "no location" instead of pointing at the wrong
+place. Text-layer PDFs are unaffected (PyMuPDF line numbers are
+already unique per block).
+
+Verified: 842 tests (4 new: par_no captured / defaulted in
+`test_ocr.py`; shuffled two-paragraph regression with shared
+`line_num` checking the text, per-word offsets and one rect per line,
+plus the no-`par_no` fallback, in `test_ocr_visual_redaction.py`),
+lint 71, `code-review` (medium) with no findings. Real OCR on the
+synthetic scan: both pages now read line by line in document order,
+no rect spans several lines.
+
 ## Warning
 
 This repository is still an early-stage portfolio MVP. Do not use it to
