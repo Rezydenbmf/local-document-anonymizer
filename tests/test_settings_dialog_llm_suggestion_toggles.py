@@ -1,8 +1,6 @@
-"""Tests for the two new, unlocked-from-day-one LLM suggestion-review
-toggles ("AI: porownanie oryginal / wynik" and "AI: czytanie kontekstowe
-calosci") added to the Settings dialog and the main window's quick
-settings panel (2026-09-23) - unlike the existing whole-document LLM
-review checkbox, these are never gated behind "wkrotce".
+"""Tests for the two LLM suggestion-review toggles ("AI: porownanie
+oryginal / wynik" and "AI: czytanie kontekstowe calosci") in the Settings
+dialog (2026-09-23).
 """
 
 import sys
@@ -27,7 +25,6 @@ class FakeApp:
     def __init__(self, root, config_path: Path):
         self.root = root
         self.use_ner = True
-        self.use_llm_review = False
         self.llm_model_name = ""
         self.use_llm_comparison_review = False
         self.use_llm_narrative_review = False
@@ -81,30 +78,11 @@ class SettingsDialogLlmSuggestionTogglesTests(unittest.TestCase):
             self.assertTrue(app.use_llm_comparison_review)
             self.assertFalse(app.use_llm_narrative_review)
 
-    def test_whole_document_llm_review_stays_forced_off_regardless(self) -> None:
-        # The pre-existing alpha-locked checkbox must stay locked even
-        # though these two new, related toggles are live - they are
-        # independent features with independent risk profiles.
-        with workspace_temp_dir() as temp_dir:
-            config_path = Path(temp_dir) / "magic_pen_interaction.json"
-            app = FakeApp(self._root, config_path)
-            dialog = SettingsDialog(app)
-
-            dialog.llm_var.set(True)
-            dialog.llm_comparison_var.set(True)
-            dialog.llm_narrative_var.set(True)
-            dialog._save_and_close()
-
-            self.assertFalse(app.use_llm_review)
-            self.assertTrue(app.use_llm_comparison_review)
-            self.assertTrue(app.use_llm_narrative_review)
-
-    def test_enabling_either_new_toggle_triggers_model_auto_select_fallback(
+    def test_enabling_either_toggle_triggers_model_auto_select_fallback(
         self,
     ) -> None:
-        # Auto-selecting an installed model on save (when none is
-        # configured yet) previously only fired for use_llm_review; it
-        # must also cover these two new, independently-enabled toggles.
+        # Enabling either toggle with no model configured yet must run the
+        # "auto-select an installed model on save" fallback.
         with workspace_temp_dir() as temp_dir:
             config_path = Path(temp_dir) / "magic_pen_interaction.json"
             app = FakeApp(self._root, config_path)
@@ -115,8 +93,7 @@ class SettingsDialogLlmSuggestionTogglesTests(unittest.TestCase):
             # No local Ollama models are installed in the test
             # environment, so the fallback resolves to an empty string -
             # what matters here is that the auto-select branch actually
-            # runs (no exception, no leftover None) rather than being
-            # skipped because only use_llm_review used to be checked.
+            # runs (no exception, no leftover None).
             dialog._save_and_close()
 
             self.assertEqual(app.llm_model_name, "")

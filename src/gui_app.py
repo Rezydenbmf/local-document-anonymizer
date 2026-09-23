@@ -319,7 +319,6 @@ class AnonymizerApp:
         self.output_dir: Path | None = self._prepare_default_output_dir()
         self.sensitive_terms_path: Path | None = None
         self.use_ner = True
-        self.use_llm_review = False
         self.llm_model_name = ""
         self.use_llm_comparison_review = False
         self.use_llm_narrative_review = False
@@ -1153,7 +1152,7 @@ class AnonymizerApp:
         the button can never be pushed out of reach, on any window size.
 
         Deliberately only wraps settings that are real, already-wired
-        toggles (self.use_ner, self.use_llm_review) - OCR has no such
+        toggles (self.use_ner, the two LLM suggestion toggles) - OCR has no such
         toggle in this app (it runs automatically when available, there
         is nothing to switch off), so that row stays a read-only status
         like it already is in the full Settings dialog, rather than
@@ -1395,47 +1394,9 @@ class AnonymizerApp:
             justify="left",
         ).pack(fill="x", padx=(24, 0), pady=(0, 10))
 
-        # Disabled in this alpha build: local-LLM review (Ollama) exists
-        # in the code but has not been tested enough to offer yet. The
-        # checkbox stays visible (so it's clear the feature is coming,
-        # not missing) but locked off - self.use_llm_review is never set
-        # from here while it's disabled.
-        llm_var = tk.BooleanVar(value=False)
-
-        llm_label_row = ctk.CTkFrame(inner, fg_color="transparent")
-        llm_label_row.pack(fill="x", pady=(0, 2))
-        ctk.CTkCheckBox(
-            llm_label_row,
-            text="Dodatkowa kontrola wyniku (AI)",
-            variable=llm_var,
-            state="disabled",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-            text_color=COLOR_TEXT_MUTED,
-            fg_color=COLOR_ACCENT,
-            hover_color=COLOR_ACCENT_HOVER,
-        ).pack(side="left")
-        ctk.CTkLabel(
-            llm_label_row,
-            text="wkrótce",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=10, weight="bold"),
-            text_color=COLOR_ACCENT,
-        ).pack(side="left", padx=(6, 0))
-        ctk.CTkLabel(
-            inner,
-            text="Jeszcze niedostępne w tej wersji rozwojowej - w przygotowaniu",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
-            text_color=COLOR_TEXT_MUTED,
-            anchor="w",
-            wraplength=QUICK_SETTINGS_PANEL_WIDTH - 40,
-            justify="left",
-        ).pack(fill="x", padx=(24, 0), pady=(0, 10))
-
-        # Unlike the whole-document LLM checkbox above, these two are live
-        # from day one (per the user's own 2026-09-23 decision) - they only
+        # Live from day one (the user's own 2026-09-23 decision) - both only
         # ever produce *suggestions* the human reviews in the comparison
-        # window, never an automatic redaction, so there is no "untested
-        # in production" risk class to gate behind "wkrótce" the way the
-        # older, silently-applied-to-the-report whole-document check has.
+        # window, never an automatic redaction.
         llm_comparison_var = tk.BooleanVar(value=self.use_llm_comparison_review)
 
         def _on_llm_comparison_toggle() -> None:
@@ -2704,7 +2665,6 @@ class AnonymizerApp:
                 dated_output_dir,
                 sensitive_terms_path=self.sensitive_terms_path,
                 use_ner=self.use_ner,
-                use_llm_review=self.use_llm_review,
                 llm_model_name=self.llm_model_name,
                 use_llm_comparison_review=self.use_llm_comparison_review,
                 use_llm_narrative_review=self.use_llm_narrative_review,

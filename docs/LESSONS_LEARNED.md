@@ -116,6 +116,17 @@ output text only, and reports should store only structured status/risk/category
 metadata. Missing Ollama, missing models, timeouts, and invalid model output
 should become controlled statuses, not crashes or logged prompts/responses.
 
+**Revised 2026-09-23.** The "anonymized output only" rule was deliberately
+relaxed: catching missed redactions and quasi-identifier combinations requires
+the model to see the original text, and that is the whole value of the
+feature. What replaced the rule is a set of structural safeguards, not a
+weaker promise: the model may cite only sentence numbers (never text), the
+document sits inside a random per-call "data, not instructions" fence, output
+is schema-constrained and range-checked, justifications are re-sanitized
+before storage, the model never redacts on its own, and everything stays local.
+See `docs/modules/16_LOCAL_LLM_REVIEW.md`. The original whole-document
+classifier this lesson described was removed.
+
 ## 21. Local knowledge assistance must start from approved anonymized sources.
 
 A knowledge assistant should not re-open original documents or treat generated

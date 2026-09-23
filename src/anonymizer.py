@@ -58,12 +58,8 @@ try:
     from .ner import detect_entities, detect_entities_with_details
     from .llm_review import (
         LLM_ANALYSIS_STATUSES,
-        LLM_REVIEW_STATUSES,
-        LLM_RESIDUAL_CATEGORIES,
-        LLM_RISK_LEVELS,
         run_llm_comparison_review,
         run_llm_narrative_review,
-        run_llm_review,
     )
     from .llm_suggestions import llm_suggestions_path, save_llm_suggestions_result
     from .review import preferred_review_output_path
@@ -151,12 +147,8 @@ except ImportError:
     from ner import detect_entities, detect_entities_with_details
     from llm_review import (
         LLM_ANALYSIS_STATUSES,
-        LLM_REVIEW_STATUSES,
-        LLM_RESIDUAL_CATEGORIES,
-        LLM_RISK_LEVELS,
         run_llm_comparison_review,
         run_llm_narrative_review,
-        run_llm_review,
     )
     from llm_suggestions import llm_suggestions_path, save_llm_suggestions_result
     from review import preferred_review_output_path
@@ -935,7 +927,6 @@ class FileWorkflowResult:
     audit_result: dict[str, object]
     ocr_result: dict[str, object]
     ner_result: dict[str, object]
-    llm_review_result: dict[str, object]
     pdf_redaction_result: dict[str, object] = field(default_factory=dict)
     llm_comparison_result: dict[str, object] = field(default_factory=dict)
     llm_narrative_result: dict[str, object] = field(default_factory=dict)
@@ -956,9 +947,6 @@ class BatchResult:
     results: list[dict[str, object]]
     ner_status_counts: dict[str, int] = field(default_factory=dict)
     ner_category_counters: dict[str, int] = field(default_factory=dict)
-    llm_review_status_counts: dict[str, int] = field(default_factory=dict)
-    llm_review_risk_level_counts: dict[str, int] = field(default_factory=dict)
-    llm_review_category_counters: dict[str, int] = field(default_factory=dict)
     pdf_redaction_status_counts: dict[str, int] = field(default_factory=dict)
     llm_comparison_status_counts: dict[str, int] = field(default_factory=dict)
     llm_narrative_status_counts: dict[str, int] = field(default_factory=dict)
@@ -1889,19 +1877,6 @@ def _attach_ner_result(
     return audit_with_ner
 
 
-def _run_optional_llm_review(
-    anonymized_text: str,
-    *,
-    use_llm_review: bool,
-    llm_model_name: str,
-) -> dict[str, object]:
-    return run_llm_review(
-        anonymized_text,
-        enabled=use_llm_review,
-        model_name=llm_model_name,
-    )
-
-
 def _sanitize_llm_result_justifications(
     result: dict[str, object], *, list_key: str
 ) -> dict[str, object]:
@@ -1979,7 +1954,6 @@ def anonymize_txt_file(
     *,
     use_ner: bool = False,
     ner_model_name: str = DEFAULT_NER_MODEL,
-    use_llm_review: bool = False,
     llm_model_name: str = "",
     use_llm_comparison_review: bool = False,
     use_llm_narrative_review: bool = False,
@@ -1992,7 +1966,6 @@ def anonymize_txt_file(
         output_dir=output_dir,
         use_ner=use_ner,
         ner_model_name=ner_model_name,
-        use_llm_review=use_llm_review,
         llm_model_name=llm_model_name,
         use_llm_comparison_review=use_llm_comparison_review,
         use_llm_narrative_review=use_llm_narrative_review,
@@ -2008,7 +1981,6 @@ def anonymize_txt_file_with_audit(
     *,
     use_ner: bool = False,
     ner_model_name: str = DEFAULT_NER_MODEL,
-    use_llm_review: bool = False,
     llm_model_name: str = "",
     use_llm_comparison_review: bool = False,
     use_llm_narrative_review: bool = False,
@@ -2021,7 +1993,6 @@ def anonymize_txt_file_with_audit(
         output_dir=output_dir,
         use_ner=use_ner,
         ner_model_name=ner_model_name,
-        use_llm_review=use_llm_review,
         llm_model_name=llm_model_name,
         use_llm_comparison_review=use_llm_comparison_review,
         use_llm_narrative_review=use_llm_narrative_review,
@@ -2037,7 +2008,6 @@ def _anonymize_txt_file_result(
     *,
     use_ner: bool = False,
     ner_model_name: str = DEFAULT_NER_MODEL,
-    use_llm_review: bool = False,
     llm_model_name: str = "",
     use_llm_comparison_review: bool = False,
     use_llm_narrative_review: bool = False,
@@ -2060,11 +2030,6 @@ def _anonymize_txt_file_result(
     )
     output_path = save_anonymized_txt_copy(
         source_path, anonymized, output_dir=output_dir
-    )
-    llm_review_result = _run_optional_llm_review(
-        anonymized,
-        use_llm_review=use_llm_review,
-        llm_model_name=llm_model_name,
     )
     llm_comparison_result = _run_optional_llm_comparison_review(
         text,
@@ -2101,7 +2066,6 @@ def _anonymize_txt_file_result(
         audit_result,
         ocr_result,
         ner_result,
-        llm_review_result,
         anonymized,
         output_dir=output_dir,
     )
@@ -2113,7 +2077,6 @@ def _anonymize_txt_file_result(
         dictionary_result,
         ocr_result,
         ner_result,
-        llm_review_result,
         output_dir=output_dir,
         report_path=report_path,
         checklist_result={"created": True, "output_name": checklist_path.name},
@@ -2126,7 +2089,6 @@ def _anonymize_txt_file_result(
         audit_result,
         ocr_result,
         ner_result,
-        llm_review_result,
         llm_comparison_result=llm_comparison_result,
         llm_narrative_result=llm_narrative_result,
     )
@@ -2140,7 +2102,6 @@ def anonymize_docx_file(
     *,
     use_ner: bool = False,
     ner_model_name: str = DEFAULT_NER_MODEL,
-    use_llm_review: bool = False,
     llm_model_name: str = "",
     use_llm_comparison_review: bool = False,
     use_llm_narrative_review: bool = False,
@@ -2153,7 +2114,6 @@ def anonymize_docx_file(
         output_dir=output_dir,
         use_ner=use_ner,
         ner_model_name=ner_model_name,
-        use_llm_review=use_llm_review,
         llm_model_name=llm_model_name,
         use_llm_comparison_review=use_llm_comparison_review,
         use_llm_narrative_review=use_llm_narrative_review,
@@ -2169,7 +2129,6 @@ def anonymize_docx_file_with_audit(
     *,
     use_ner: bool = False,
     ner_model_name: str = DEFAULT_NER_MODEL,
-    use_llm_review: bool = False,
     llm_model_name: str = "",
     use_llm_comparison_review: bool = False,
     use_llm_narrative_review: bool = False,
@@ -2182,7 +2141,6 @@ def anonymize_docx_file_with_audit(
         output_dir=output_dir,
         use_ner=use_ner,
         ner_model_name=ner_model_name,
-        use_llm_review=use_llm_review,
         llm_model_name=llm_model_name,
         use_llm_comparison_review=use_llm_comparison_review,
         use_llm_narrative_review=use_llm_narrative_review,
@@ -2198,7 +2156,6 @@ def _anonymize_docx_file_result(
     *,
     use_ner: bool = False,
     ner_model_name: str = DEFAULT_NER_MODEL,
-    use_llm_review: bool = False,
     llm_model_name: str = "",
     use_llm_comparison_review: bool = False,
     use_llm_narrative_review: bool = False,
@@ -2259,11 +2216,6 @@ def _anonymize_docx_file_result(
     )
     anonymized_text = read_docx_file(output_path)
     original_text = read_docx_file(source_path)
-    llm_review_result = _run_optional_llm_review(
-        anonymized_text,
-        use_llm_review=use_llm_review,
-        llm_model_name=llm_model_name,
-    )
     llm_comparison_result = _run_optional_llm_comparison_review(
         original_text,
         anonymized_text,
@@ -2306,7 +2258,6 @@ def _anonymize_docx_file_result(
         audit_result,
         ocr_result,
         ner_result,
-        llm_review_result,
         anonymized_text,
         sections=anonymized_text.splitlines(),
         section_label="Paragraph",
@@ -2320,7 +2271,6 @@ def _anonymize_docx_file_result(
         dictionary_result,
         ocr_result,
         ner_result,
-        llm_review_result,
         output_dir=output_dir,
         report_path=report_path,
         checklist_result={"created": True, "output_name": checklist_path.name},
@@ -2333,7 +2283,6 @@ def _anonymize_docx_file_result(
         audit_result,
         ocr_result,
         ner_result,
-        llm_review_result,
         llm_comparison_result=llm_comparison_result,
         llm_narrative_result=llm_narrative_result,
     )
@@ -2347,7 +2296,6 @@ def anonymize_pdf_file(
     *,
     use_ner: bool = False,
     ner_model_name: str = DEFAULT_NER_MODEL,
-    use_llm_review: bool = False,
     llm_model_name: str = "",
     use_llm_comparison_review: bool = False,
     use_llm_narrative_review: bool = False,
@@ -2362,7 +2310,6 @@ def anonymize_pdf_file(
         output_dir=output_dir,
         use_ner=use_ner,
         ner_model_name=ner_model_name,
-        use_llm_review=use_llm_review,
         llm_model_name=llm_model_name,
         use_llm_comparison_review=use_llm_comparison_review,
         use_llm_narrative_review=use_llm_narrative_review,
@@ -2380,7 +2327,6 @@ def anonymize_pdf_file_with_audit(
     *,
     use_ner: bool = False,
     ner_model_name: str = DEFAULT_NER_MODEL,
-    use_llm_review: bool = False,
     llm_model_name: str = "",
     use_llm_comparison_review: bool = False,
     use_llm_narrative_review: bool = False,
@@ -2395,7 +2341,6 @@ def anonymize_pdf_file_with_audit(
         output_dir=output_dir,
         use_ner=use_ner,
         ner_model_name=ner_model_name,
-        use_llm_review=use_llm_review,
         llm_model_name=llm_model_name,
         use_llm_comparison_review=use_llm_comparison_review,
         use_llm_narrative_review=use_llm_narrative_review,
@@ -2413,7 +2358,6 @@ def _anonymize_pdf_file_result(
     *,
     use_ner: bool = False,
     ner_model_name: str = DEFAULT_NER_MODEL,
-    use_llm_review: bool = False,
     llm_model_name: str = "",
     use_llm_comparison_review: bool = False,
     use_llm_narrative_review: bool = False,
@@ -2704,11 +2648,6 @@ def _anonymize_pdf_file_result(
     output_path = save_anonymized_pdf_txt_copy(
         source_path, anonymized_output_text, output_path=pdf_txt_output_path
     )
-    llm_review_result = _run_optional_llm_review(
-        anonymized_output_text,
-        use_llm_review=use_llm_review,
-        llm_model_name=llm_model_name,
-    )
     llm_comparison_result = _run_optional_llm_comparison_review(
         text,
         anonymized_output_text,
@@ -2786,7 +2725,6 @@ def _anonymize_pdf_file_result(
         audit_result,
         ocr_result,
         ner_result,
-        llm_review_result,
         anonymized_output_text,
         sections=anonymized_pages if text_based_pdf else None,
         section_label="Source page",
@@ -2801,7 +2739,6 @@ def _anonymize_pdf_file_result(
         dictionary_result,
         ocr_result,
         ner_result,
-        llm_review_result,
         pdf_redaction_result,
         output_dir=output_dir,
         report_path=report_path,
@@ -2815,7 +2752,6 @@ def _anonymize_pdf_file_result(
         audit_result,
         ocr_result,
         ner_result,
-        llm_review_result,
         pdf_redaction_result,
         llm_comparison_result=llm_comparison_result,
         llm_narrative_result=llm_narrative_result,
@@ -2830,7 +2766,6 @@ def anonymize_image_file(
     *,
     use_ner: bool = False,
     ner_model_name: str = DEFAULT_NER_MODEL,
-    use_llm_review: bool = False,
     llm_model_name: str = "",
     use_llm_comparison_review: bool = False,
     use_llm_narrative_review: bool = False,
@@ -2843,7 +2778,6 @@ def anonymize_image_file(
         output_dir=output_dir,
         use_ner=use_ner,
         ner_model_name=ner_model_name,
-        use_llm_review=use_llm_review,
         llm_model_name=llm_model_name,
         use_llm_comparison_review=use_llm_comparison_review,
         use_llm_narrative_review=use_llm_narrative_review,
@@ -2859,7 +2793,6 @@ def anonymize_image_file_with_audit(
     *,
     use_ner: bool = False,
     ner_model_name: str = DEFAULT_NER_MODEL,
-    use_llm_review: bool = False,
     llm_model_name: str = "",
     use_llm_comparison_review: bool = False,
     use_llm_narrative_review: bool = False,
@@ -2872,7 +2805,6 @@ def anonymize_image_file_with_audit(
         output_dir=output_dir,
         use_ner=use_ner,
         ner_model_name=ner_model_name,
-        use_llm_review=use_llm_review,
         llm_model_name=llm_model_name,
         use_llm_comparison_review=use_llm_comparison_review,
         use_llm_narrative_review=use_llm_narrative_review,
@@ -2888,7 +2820,6 @@ def _anonymize_image_file_result(
     *,
     use_ner: bool = False,
     ner_model_name: str = DEFAULT_NER_MODEL,
-    use_llm_review: bool = False,
     llm_model_name: str = "",
     use_llm_comparison_review: bool = False,
     use_llm_narrative_review: bool = False,
@@ -2975,11 +2906,6 @@ def _anonymize_image_file_result(
             pdf_redaction_result = build_pdf_redaction_metadata(status="unavailable")
             pdf_redaction_result["text_extraction"] = "ocr_word_coordinates"
 
-    llm_review_result = _run_optional_llm_review(
-        anonymized,
-        use_llm_review=use_llm_review,
-        llm_model_name=llm_model_name,
-    )
     llm_comparison_result = _run_optional_llm_comparison_review(
         ocr_text,
         anonymized,
@@ -3030,7 +2956,6 @@ def _anonymize_image_file_result(
         audit_result,
         ocr_metadata,
         ner_result,
-        llm_review_result,
         anonymized,
         pdf_redaction_result=pdf_redaction_result,
         output_dir=output_dir,
@@ -3043,7 +2968,6 @@ def _anonymize_image_file_result(
         dictionary_result,
         ocr_metadata,
         ner_result,
-        llm_review_result,
         pdf_redaction_result,
         output_dir=output_dir,
         report_path=report_path,
@@ -3057,7 +2981,6 @@ def _anonymize_image_file_result(
         audit_result,
         ocr_metadata,
         ner_result,
-        llm_review_result,
         pdf_redaction_result,
         llm_comparison_result=llm_comparison_result,
         llm_narrative_result=llm_narrative_result,
@@ -3100,7 +3023,6 @@ def _save_review_checklist(
     audit_result: dict[str, object],
     ocr_result: dict[str, object],
     ner_result: dict[str, object],
-    llm_review_result: dict[str, object],
     anonymized_text: str,
     *,
     sections: list[str] | None = None,
@@ -3117,7 +3039,6 @@ def _save_review_checklist(
         audit_result=audit_result,
         ocr_result=ocr_result,
         ner_result=ner_result,
-        llm_review_result=llm_review_result,
         anonymized_text=anonymized_text,
         sections=sections,
         section_label=section_label,
@@ -3138,7 +3059,6 @@ def _save_anonymization_report(
     dictionary_result: dict[str, object],
     ocr_result: dict[str, object],
     ner_result: dict[str, object],
-    llm_review_result: dict[str, object],
     pdf_redaction_result: dict[str, object] | None = None,
     output_dir: str | Path | None = None,
     report_path: str | Path | None = None,
@@ -3162,7 +3082,6 @@ def _save_anonymization_report(
         dictionary_result=dictionary_result,
         ocr_result=ocr_result,
         ner_result=ner_result,
-        llm_review_result=llm_review_result,
         pdf_redaction_result=pdf_redaction_result,
         checklist_result=checklist_result,
     )
@@ -3176,7 +3095,6 @@ def anonymize_file(
     *,
     use_ner: bool = False,
     ner_model_name: str = DEFAULT_NER_MODEL,
-    use_llm_review: bool = False,
     llm_model_name: str = "",
     use_llm_comparison_review: bool = False,
     use_llm_narrative_review: bool = False,
@@ -3191,7 +3109,6 @@ def anonymize_file(
         output_dir=output_dir,
         use_ner=use_ner,
         ner_model_name=ner_model_name,
-        use_llm_review=use_llm_review,
         llm_model_name=llm_model_name,
         use_llm_comparison_review=use_llm_comparison_review,
         use_llm_narrative_review=use_llm_narrative_review,
@@ -3209,7 +3126,6 @@ def anonymize_file_with_audit(
     *,
     use_ner: bool = False,
     ner_model_name: str = DEFAULT_NER_MODEL,
-    use_llm_review: bool = False,
     llm_model_name: str = "",
     use_llm_comparison_review: bool = False,
     use_llm_narrative_review: bool = False,
@@ -3224,7 +3140,6 @@ def anonymize_file_with_audit(
         output_dir=output_dir,
         use_ner=use_ner,
         ner_model_name=ner_model_name,
-        use_llm_review=use_llm_review,
         llm_model_name=llm_model_name,
         use_llm_comparison_review=use_llm_comparison_review,
         use_llm_narrative_review=use_llm_narrative_review,
@@ -3242,7 +3157,6 @@ def _anonymize_file_result(
     *,
     use_ner: bool = False,
     ner_model_name: str = DEFAULT_NER_MODEL,
-    use_llm_review: bool = False,
     llm_model_name: str = "",
     use_llm_comparison_review: bool = False,
     use_llm_narrative_review: bool = False,
@@ -3263,7 +3177,6 @@ def _anonymize_file_result(
             output_dir=output_dir,
             use_ner=use_ner,
             ner_model_name=ner_model_name,
-            use_llm_review=use_llm_review,
             llm_model_name=llm_model_name,
             use_llm_comparison_review=use_llm_comparison_review,
             use_llm_narrative_review=use_llm_narrative_review,
@@ -3277,7 +3190,6 @@ def _anonymize_file_result(
             output_dir=output_dir,
             use_ner=use_ner,
             ner_model_name=ner_model_name,
-            use_llm_review=use_llm_review,
             llm_model_name=llm_model_name,
             use_llm_comparison_review=use_llm_comparison_review,
             use_llm_narrative_review=use_llm_narrative_review,
@@ -3291,7 +3203,6 @@ def _anonymize_file_result(
             output_dir=output_dir,
             use_ner=use_ner,
             ner_model_name=ner_model_name,
-            use_llm_review=use_llm_review,
             llm_model_name=llm_model_name,
             use_llm_comparison_review=use_llm_comparison_review,
             use_llm_narrative_review=use_llm_narrative_review,
@@ -3309,7 +3220,6 @@ def _anonymize_file_result(
             output_dir=output_dir,
             use_ner=use_ner,
             ner_model_name=ner_model_name,
-            use_llm_review=use_llm_review,
             llm_model_name=llm_model_name,
             use_llm_comparison_review=use_llm_comparison_review,
             use_llm_narrative_review=use_llm_narrative_review,
@@ -3383,7 +3293,6 @@ def anonymize_batch(
     *,
     use_ner: bool = False,
     ner_model_name: str = DEFAULT_NER_MODEL,
-    use_llm_review: bool = False,
     llm_model_name: str = "",
     use_llm_comparison_review: bool = False,
     use_llm_narrative_review: bool = False,
@@ -3398,9 +3307,8 @@ def anonymize_batch(
     """Anonymize supported files sequentially into one output workspace.
 
     ``use_llm_comparison_review``/``use_llm_narrative_review`` (LLM
-    suggestion review) are additive, independent local-LLM passes on top
-    of ``use_llm_review`` (the existing whole-document risk classifier):
-    they see the ORIGINAL document text, not just the anonymized result,
+    suggestion review) are independent, optional local-LLM passes: they
+    see the ORIGINAL document text, not just the anonymized result,
     to compare it against the anonymized output and to read it
     narratively for quasi-identifier combinations - see
     ``llm_review.run_llm_comparison_review``/``run_llm_narrative_review``
@@ -3460,9 +3368,6 @@ def anonymize_batch(
     audit_category_counters = {category: 0 for category in AUDIT_CATEGORY_ORDER}
     ner_status_counts = {status: 0 for status in NER_STATUSES}
     ner_category_counters = {label: 0 for label in NER_LABELS}
-    llm_review_status_counts = {status: 0 for status in LLM_REVIEW_STATUSES}
-    llm_review_risk_level_counts = {risk: 0 for risk in LLM_RISK_LEVELS}
-    llm_review_category_counters = {category: 0 for category in LLM_RESIDUAL_CATEGORIES}
     pdf_redaction_status_counts = {status: 0 for status in PDF_REDACTION_STATUSES}
     llm_comparison_status_counts = {status: 0 for status in LLM_ANALYSIS_STATUSES}
     llm_narrative_status_counts = {status: 0 for status in LLM_ANALYSIS_STATUSES}
@@ -3501,7 +3406,6 @@ def anonymize_batch(
                 output_dir=output_dir,
                 use_ner=use_ner,
                 ner_model_name=ner_model_name,
-                use_llm_review=use_llm_review,
                 llm_model_name=llm_model_name,
                 use_llm_comparison_review=use_llm_comparison_review,
                 use_llm_narrative_review=use_llm_narrative_review,
@@ -3544,25 +3448,6 @@ def anonymize_batch(
                     ner_category_counters[label] = (
                         ner_category_counters.get(label, 0) + count
                     )
-        llm_status = str(result.llm_review_result.get("status", "disabled"))
-        if llm_status not in llm_review_status_counts:
-            llm_status = "unavailable"
-        llm_review_status_counts[llm_status] = (
-            llm_review_status_counts.get(llm_status, 0) + 1
-        )
-        llm_risk_level = str(result.llm_review_result.get("risk_level", "unknown"))
-        if llm_risk_level not in llm_review_risk_level_counts:
-            llm_risk_level = "unknown"
-        llm_review_risk_level_counts[llm_risk_level] = (
-            llm_review_risk_level_counts.get(llm_risk_level, 0) + 1
-        )
-        llm_categories = result.llm_review_result.get("possible_residual_categories", [])
-        if isinstance(llm_categories, list):
-            for category in llm_categories:
-                if category in llm_review_category_counters:
-                    llm_review_category_counters[category] = (
-                        llm_review_category_counters.get(category, 0) + 1
-                    )
         if result.pdf_redaction_result:
             pdf_redaction_status = str(
                 result.pdf_redaction_result.get("status", "unavailable")
@@ -3603,9 +3488,6 @@ def anonymize_batch(
             "ocr_status": result.ocr_result.get("status", "not_used"),
             "ner_used": result.ner_result.get("used", False),
             "ner_status": result.ner_result.get("status", "unavailable"),
-            "llm_review_used": result.llm_review_result.get("used", False),
-            "llm_review_status": result.llm_review_result.get("status", "disabled"),
-            "llm_risk_level": result.llm_review_result.get("risk_level", "unknown"),
             "llm_comparison_status": result.llm_comparison_result.get("status", "disabled"),
             "llm_comparison_finding_count": len(
                 result.llm_comparison_result.get("findings", []) or []
@@ -3657,9 +3539,6 @@ def anonymize_batch(
         audit_category_counters=audit_category_counters,
         ner_status_counts=ner_status_counts,
         ner_category_counters=ner_category_counters,
-        llm_review_status_counts=llm_review_status_counts,
-        llm_review_risk_level_counts=llm_review_risk_level_counts,
-        llm_review_category_counters=llm_review_category_counters,
         pdf_redaction_status_counts=pdf_redaction_status_counts,
         results=results,
         category_order=REPORT_CATEGORY_ORDER,
@@ -3680,9 +3559,6 @@ def anonymize_batch(
         results=results,
         ner_status_counts=ner_status_counts,
         ner_category_counters=ner_category_counters,
-        llm_review_status_counts=llm_review_status_counts,
-        llm_review_risk_level_counts=llm_review_risk_level_counts,
-        llm_review_category_counters=llm_review_category_counters,
         pdf_redaction_status_counts=pdf_redaction_status_counts,
         llm_comparison_status_counts=llm_comparison_status_counts,
         llm_narrative_status_counts=llm_narrative_status_counts,

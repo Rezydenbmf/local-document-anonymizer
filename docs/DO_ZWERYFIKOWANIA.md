@@ -127,6 +127,20 @@ przenoszę ją do „Potwierdzone" albo usuwam. Jeśli lista urośnie powyżej
       kolor w legendzie) — dopiero to będzie miało coś realnego do
       przeklikania.
 
+- [ ] **Usunięta stara, wyszarzona opcja „Dodatkowa weryfikacja AI
+      (LLM)" (2026-09-23, na Twoją prośbę)** — to była inna, starsza
+      funkcja (jedna ogólna ocena ryzyka całego dokumentu, bez wskazania
+      miejsca), całkowicie zastąpiona przez „AI: porównanie
+      oryginał/wynik". Sprawdź na żywo (2 minuty): (1) w Ustawieniach →
+      zakładka wykrywania nie ma już wyszarzonej pozycji z plakietką
+      „wkrótce”, są tylko dwie opcje „AI: …”; (2) to samo w panelu
+      szybkich ustawień na ekranie głównym; (3) na liście statusu
+      środowiska (tam, gdzie widać Tesseract/NER) pozycja Ollamy nazywa
+      się teraz „Lokalny model AI (Ollama)” zamiast mylącego „Dodatkowa
+      weryfikacja AI (LLM)”; (4) zwykła anonimizacja PDF-a działa jak
+      wcześniej, a raport `_RAPORT.txt` nie ma już sekcji „Local LLM
+      review”.
+
 ## Potwierdzone
 
 - [x] **Miganie okien terminala przy starcie — naprawione** (potwierdzone

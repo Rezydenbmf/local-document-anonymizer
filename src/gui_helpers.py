@@ -953,47 +953,6 @@ def format_batch_audit_result(batch_result: BatchResult | None) -> str:
             f"unavailable or disabled: {ner_unavailable_or_disabled_count}",
         ]
     )
-    llm_attempted_count = sum(
-        1
-        for result in batch_result.results
-        if result.get("llm_review_status")
-        in ("completed", "timeout", "invalid_response", "processing_error")
-    )
-    llm_attempt_failed_count = sum(
-        1
-        for result in batch_result.results
-        if result.get("llm_review_status")
-        in ("timeout", "invalid_response", "processing_error")
-    )
-    llm_unavailable_or_disabled_count = sum(
-        1
-        for result in batch_result.results
-        if result.get("llm_review_status")
-        in (
-            "disabled",
-            "unavailable",
-            "ollama_not_found",
-            "service_unavailable",
-            "no_model_configured",
-            "model_missing",
-        )
-    )
-    llm_status_counts = batch_result.llm_review_status_counts
-    ollama_unavailable_count = (
-        llm_status_counts.get("ollama_not_found", 0)
-        + llm_status_counts.get("service_unavailable", 0)
-    )
-    lines.extend(
-        [
-            "Local LLM review:",
-            f"attempted: {llm_attempted_count}",
-            f"attempted but failed safely: {llm_attempt_failed_count}",
-            f"unavailable, disabled, or skipped: {llm_unavailable_or_disabled_count}",
-            f"completed: {llm_status_counts.get('completed', 0)}",
-            f"no model configured: {llm_status_counts.get('no_model_configured', 0)}",
-            f"ollama unavailable: {ollama_unavailable_count}",
-        ]
-    )
     return "\n".join(lines)
 
 
