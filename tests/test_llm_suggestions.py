@@ -27,9 +27,9 @@ from llm_suggestions import (
     load_llm_suggestions_sidecar,
     locate_sentence_texts,
     redactions_overlapping_area,
-    save_ai_suggestion_resolutions,
     resolve_sentence_page,
     resolve_sentence_rects,
+    save_ai_suggestion_resolutions,
     save_llm_suggestions_result,
 )
 from pdf_redaction import extract_pdf_word_pages
@@ -614,30 +614,31 @@ class LlmSuggestionsSidecarTests(unittest.TestCase):
             self.assertIsNone(loaded_narrative)
 
 
-class SuggestionResolutionPersistenceTests(unittest.TestCase):
-    COMPARISON = {
-        "status": "completed",
-        "findings": [
-            {"finding_type": "missed_redaction", "sentence_index": 1},
-            "garbage entry - skipped but still consumes index 1",
-            {"finding_type": "unnecessary_redaction", "sentence_index": 2},
-        ],
-    }
-    NARRATIVE = {"status": "completed", "suggestions": [{"sentence_indices": [1]}]}
+_COMPARISON = {
+    "status": "completed",
+    "findings": [
+        {"finding_type": "missed_redaction", "sentence_index": 1},
+        "garbage entry - skipped but still consumes index 1",
+        {"finding_type": "unnecessary_redaction", "sentence_index": 2},
+    ],
+}
+_NARRATIVE = {"status": "completed", "suggestions": [{"sentence_indices": [1]}]}
 
+
+class SuggestionResolutionPersistenceTests(unittest.TestCase):
     def test_ids_match_what_build_ai_suggestions_produces(self) -> None:
         built = build_ai_suggestions(
             "Jedno. Dwa.",
-            comparison_result=self.COMPARISON,
-            narrative_result=self.NARRATIVE,
+            comparison_result=_COMPARISON,
+            narrative_result=_NARRATIVE,
             word_pages=[],
         )
         self.assertEqual(
-            ai_suggestion_ids(self.COMPARISON, self.NARRATIVE),
+            ai_suggestion_ids(_COMPARISON, _NARRATIVE),
             [suggestion.id for suggestion in built],
         )
         self.assertEqual(
-            ai_suggestion_ids(self.COMPARISON, self.NARRATIVE),
+            ai_suggestion_ids(_COMPARISON, _NARRATIVE),
             ["comparison-0", "comparison-2", "narrative-0"],
         )
 
@@ -649,8 +650,8 @@ class SuggestionResolutionPersistenceTests(unittest.TestCase):
             sidecar_path = llm_suggestions_path(output_pdf)
             save_llm_suggestions_result(
                 sidecar_path,
-                comparison_result=self.COMPARISON,
-                narrative_result=self.NARRATIVE,
+                comparison_result=_COMPARISON,
+                narrative_result=_NARRATIVE,
                 original_text="Jedno. Dwa.",
             )
             self.assertEqual(count_unresolved_ai_suggestions(output_pdf), 3)
@@ -666,14 +667,14 @@ class SuggestionResolutionPersistenceTests(unittest.TestCase):
             self.assertEqual(sidecar.unresolved_ids(), ["comparison-2"])
             self.assertEqual(count_unresolved_ai_suggestions(output_pdf), 1)
             # Everything else survives the merge untouched.
-            self.assertEqual(sidecar.comparison_result, self.COMPARISON)
+            self.assertEqual(sidecar.comparison_result, _COMPARISON)
             self.assertIsNotNone(sidecar.original_text_sha256)
 
     def test_invalid_resolution_values_are_never_trusted(self) -> None:
         with workspace_temp_dir() as temp_dir:
             sidecar_path = Path(temp_dir) / "x_LLM_SUGGESTIONS.json"
             save_llm_suggestions_result(
-                sidecar_path, comparison_result=self.COMPARISON, narrative_result=None
+                sidecar_path, comparison_result=_COMPARISON, narrative_result=None
             )
             save_ai_suggestion_resolutions(
                 sidecar_path, {"comparison-0": "maybe", "comparison-2": "accepted"}
