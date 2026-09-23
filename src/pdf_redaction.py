@@ -1109,9 +1109,14 @@ def save_word_coordinate_redacted_pdf_copy(
     automatically - ``label`` is normally ``MANUAL_REDACTION_LABEL``
     ("RECZNE") for a plain magic-pen box, or ``AI_SUGGESTION_LABEL`` for one
     burned in after accepting a local-LLM suggestion, so each gets its own
-    color/legend entry.
-    Both are optional and default to a no-op, so existing callers behave
-    exactly as before. When ``output_path`` is given, that exact path is
+    color/legend entry. ``extra_redaction_rects`` changed from
+    ``(page_number, rect)`` pairs to these ``(page_number, rect, label)``
+    triples together with adding the ``label`` field - every in-repo
+    caller was updated accordingly; a caller still passing the old
+    2-element shape will raise rather than silently misbehave. Both
+    parameters still default to a no-op, so a caller that omits them
+    entirely behaves exactly as before. When ``output_path`` is given,
+    that exact path is
     (over)written instead of picking a fresh collision-safe name — used to
     regenerate an existing visual PDF in place after manual edits.
     ``strip_signatures`` (Etap 7) is ``False`` by default - a deliberate

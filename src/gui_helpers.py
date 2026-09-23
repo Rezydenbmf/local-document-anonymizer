@@ -1504,6 +1504,7 @@ CATEGORY_LABELS_PL = {
     "NER_LOCATION": "Lokalizacja (AI)",
     "NER_MISC": "Inne (AI)",
     "RECZNE": "Ręcznie ukryte (magic pen)",
+    "AI_SUGESTIA": "Sugestia AI zaakceptowana",
 }
 
 # Etap 4: the 8 user-facing "co anonimizować w tym zadaniu" categories -

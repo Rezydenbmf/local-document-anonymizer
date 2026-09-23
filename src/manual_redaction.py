@@ -138,9 +138,13 @@ def load_manual_edits(path: str | Path) -> ManualEdits:
         try:
             # "label" is missing from any sidecar written before this
             # field existed - default to the plain manual sentinel so an
-            # old file still loads exactly as it always has.
-            raw_label = entry.get("label", MANUAL_REDACTION_LABEL)
-            label = str(raw_label) if raw_label else MANUAL_REDACTION_LABEL
+            # old file still loads exactly as it always has. Anything
+            # other than one of the known manual-rect labels (missing,
+            # null, corrupted, or hand-edited) also falls back rather
+            # than being trusted verbatim - this value flows straight
+            # into color/legend lookups downstream.
+            raw_label = entry.get("label")
+            label = raw_label if raw_label in _MANUAL_RECT_LABELS else MANUAL_REDACTION_LABEL
             added_rects.append(
                 ManualRect(
                     page=int(entry["page"]),

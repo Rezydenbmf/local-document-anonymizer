@@ -145,6 +145,25 @@ class AiSuggestionLabelTests(unittest.TestCase):
 
             self.assertEqual(loaded.added[0].label, "RECZNE")
 
+    def test_loading_an_unknown_label_falls_back_to_manual_rather_than_trusting_it(
+        self,
+    ) -> None:
+        # A hand-edited or corrupted sidecar could contain any string here
+        # - only the known manual-rect labels should ever be trusted,
+        # since this value flows straight into color/legend lookups.
+        with workspace_temp_dir() as temp_dir:
+            path = Path(temp_dir) / "garbage_label_MANUAL_EDITS.json"
+            path.write_text(
+                '{"schema": "x", "removed": [], '
+                '"added": [{"page": 1, "x0": 1.0, "y0": 2.0, "x1": 3.0, "y1": 4.0, '
+                '"label": "NOT_A_REAL_LABEL"}]}',
+                encoding="utf-8",
+            )
+
+            loaded = load_manual_edits(path)
+
+            self.assertEqual(loaded.added[0].label, "RECZNE")
+
     def test_visible_rects_expose_the_ai_suggestion_label(self) -> None:
         with workspace_temp_dir() as temp_dir:
             source_path = Path(temp_dir) / "source.pdf"
