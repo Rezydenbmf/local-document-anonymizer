@@ -105,21 +105,27 @@ przenoszę ją do „Potwierdzone" albo usuwam. Jeśli lista urośnie powyżej
       historię" na folderze wyników z nowymi podfolderami dat — ma
       usunąć wszystko tak jak dotychczas na starym, płaskim folderze.
 
-- [ ] **LLM — warstwa sugestii (porównanie + czytanie narracyjne),
-      faza 1: backend + spięcie z `anonymizer.py` — zbudowane
-      2026-09-23, na razie nie ma czego klikać w apce.** Zaplanowaliśmy
-      architekturę razem (w tym zabezpieczenie przed prompt injection —
-      numerowanie zdań, losowa „ogrodzona” treść, model odpowiada tylko
-      numerami linii, nigdy cytatem) i zbudowałem obie nowe funkcje w
-      `llm_review.py` plus pełne przewleczenie przez cztery typy plików
-      w `anonymizer.py`. **To jest czysto techniczny fundament — nic w
-      GUI się jeszcze nie zmieniło**, więc nie ma tu nic do
-      przeklikania na żywo; 775 testów automatycznych (25 nowych)
-      pilnuje poprawności zamiast Ciebie na tym etapie. Następny krok
-      (osobna sesja): tryb recenzji sugestii w oknie porównania
-      (przerywana obwódka, nawigacja „Sprawdź sugestię AI”, panel
-      akceptuj/odrzuć/zmień ręcznie) — dopiero to będzie miało coś do
-      faktycznego przetestowania na żywo.
+- [ ] **LLM — warstwa sugestii (porównanie + czytanie narracyjne) —
+      backend gotowy i zmergowany, checkboxy widoczne w apce, ale
+      jeszcze NIC nie da się sensownie przetestować (2026-09-23).**
+      Zaplanowaliśmy architekturę razem (w tym zabezpieczenie przed
+      prompt injection) i zbudowałem obie funkcje w `llm_review.py`,
+      pełne spięcie przez `anonymizer.py`, oraz dwa nowe, odblokowane
+      od razu checkboxy w Ustawieniach i w panelu szybkich ustawień:
+      „AI: porównanie oryginał/wynik” i „AI: czytanie kontekstowe
+      całości”. **Uwaga, żeby nie zmarnować czasu na test**: jeśli
+      teraz zaznaczysz któryś z nich i uruchomisz anonimizację, model
+      lokalny (Ollama) faktycznie dostanie prawdziwy tekst dokumentu i
+      coś policzy — ale wynik **nigdzie się jeszcze nie wyświetla**
+      (ani w raporcie, ani w oknie porównania). Zobaczysz tylko trochę
+      wolniejsze przetwarzanie, nic więcej. Nie testuj jeszcze tego na
+      żywo — czekaj na kolejny krok. 781 testów automatycznych (29
+      nowych) pilnuje poprawności na tym etapie.
+      Następny krok (większy, osobny kawałek pracy): tryb recenzji
+      sugestii w oknie porównania (przerywana obwódka, nawigacja
+      „Sprawdź sugestię AI”, panel akceptuj/odrzuć/zmień ręcznie, nowy
+      kolor w legendzie) — dopiero to będzie miało coś realnego do
+      przeklikania.
 
 ## Potwierdzone
 

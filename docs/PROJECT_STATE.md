@@ -5075,6 +5075,55 @@ project-wide (below the established 77 baseline). Not yet done: GUI
 review-mode, report/checklist text output, and hardware-aware model
 tier suggestions - all agreed as later, separate steps.
 
+## LLM suggestion review, phase 1b: GUI toggles unlocked (2026-09-23)
+
+Closed the gap the phase-1 code-review pass flagged: the backend
+functions existed but nothing in the GUI could reach them. Added two
+checkboxes - "AI: porównanie oryginał/wynik" and "AI: czytanie
+kontekstowe całości" - to both the full Settings dialog
+(`gui_settings_dialog.py`) and the main window's quick settings panel
+(`gui_app.py`), wired to `AnonymizerApp.use_llm_comparison_review`/
+`use_llm_narrative_review` and threaded into the `anonymize_batch(...)`
+call. Unlike the pre-existing whole-document LLM review checkbox
+(still forced off, "wkrótce"), these two stay **unlocked from day
+one** per the user's own 2026-09-23 decision - they only ever produce
+suggestions a human reviews, never an automatic redaction, so there is
+no untested-in-production risk to gate. The existing "auto-select an
+installed model on save if none is configured" fallback, previously
+tied only to `use_llm_review`, now also fires for either of these two.
+
+This is the moment CLAUDE.md's "Bezpieczeństwo agentowe" section calls
+out explicitly ("gdy DocShield dostanie realny kanał wychodzący z
+dostępem do treści dokumentu... to sygnał do ponownego przeglądu
+bezpieczeństwa") - turning a checkbox on in the real running app now
+actually sends real document text to a local Ollama model, not just in
+a direct Python function call from a test. The security-relevant work
+happened at the backend layer in phase 1 (prompt-injection defenses,
+range-checked parsing) and was already reviewed there; this increment
+is UI-only (no document-processing logic changed), which is why it
+was merged without a fresh code-review pass, per CLAUDE.md's own
+carve-out for UI/process-only changes.
+
+**Important caveat for whoever tests this next**: enabling either
+checkbox today computes real findings/suggestions via a real local
+Ollama call, but **nothing displays them anywhere yet** - not the
+report, not the checklist, not the comparison window. A user who turns
+one on and runs a batch will only notice slower processing (and, if
+Ollama isn't running/configured, silently-empty results) - there is no
+visible behavior change to test yet. The actual review UI (dashed-
+outline overlay on suggested spans, a "Sprawdź sugestię AI" navigation
+walkthrough, accept/reject/manual-edit, a gate before finalizing
+anonymization, and a new legend color for AI-accepted redactions once
+applied) is the next, larger piece of work, not yet started.
+
+Verified: headless Tk smoke test (`DnDCTk` root withdrawn, real
+`AnonymizerApp` + `SettingsDialog` construction - this sandbox's
+display is locked, so no visual/screenshot verification was possible)
+plus 4 new automated tests covering seeding from app state, independent
+persistence of both toggles, the existing whole-document checkbox
+staying forced off regardless, and the auto-select-model fallback now
+firing for the new toggles too. 781 tests passing, lint at 73.
+
 ## Warning
 
 This repository is still an early-stage portfolio MVP. Do not use it to
