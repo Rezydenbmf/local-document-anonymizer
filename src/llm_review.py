@@ -137,6 +137,19 @@ _SENTENCE_ABBREVIATIONS = (
     "godz.", "tel.", "dr.", "mgr.", "prof.", "in\u017c.", "nr.", "z\u0142.", "pkt.",
     "art.", "ust.", "poz.", "wg.", "ok.", "r.", "w.", "os.",
 )
+# A lookbehind guarding against matching an abbreviation as a mere suffix of
+# an unrelated word (e.g. "w." inside "Krak\u00f3w." - without this guard the
+# trailing "w." would be "protected" as an abbreviation and swallow the
+# sentence boundary, silently merging two sentences and shifting every
+# later line number the model refers to).
+_ABBREVIATION_PATTERN = re.compile(
+    r"(?<![A-Za-z\u0104\u0106\u0118\u0141\u0143\u00d3\u015a\u0179\u017b\u0105\u0107\u0119\u0142\u0144\u00f3\u015b\u017a\u017c])(?:"
+    + "|".join(
+        re.escape(abbreviation)
+        for abbreviation in sorted(_SENTENCE_ABBREVIATIONS, key=len, reverse=True)
+    )
+    + ")"
+)
 _SENTENCE_BOUNDARY_RE = re.compile(
     r"(?<=[.!?])\s+(?=[A-Z\u0104\u0106\u0118\u0141\u0143\u00d3\u015a\u0179\u017b0-9\"\u201e\u201c(])"
 )
@@ -650,15 +663,28 @@ def split_into_review_sentences(text: str) -> list[str]:
     right area" in the review screen and adjusts the exact redacted span
     manually - which is the existing, required safety net for every
     LLM-sourced suggestion in this app.
+
+    An overlong "sentence" (no punctuation for MAX_REVIEW_SENTENCE_CHARS+
+    characters) is truncated in place rather than split into several
+    numbered entries: run_llm_comparison_review numbers the original and
+    the anonymized text independently and assumes matching line counts,
+    so multiplying entries here - which redaction-driven length changes
+    could do differently on each side - would silently desynchronize that
+    numbering instead of just losing the tail of one pathological line.
     """
     normalized = text.replace("\r\n", "\n").replace("\r", "\n")
-    placeholders: dict[str, str] = {}
-    protected = normalized
-    for index, abbreviation in enumerate(_SENTENCE_ABBREVIATIONS):
-        if abbreviation in protected:
-            placeholder = f"\x00ABBR{index}\x00"
-            placeholders[placeholder] = abbreviation
-            protected = protected.replace(abbreviation, placeholder)
+    placeholder_map: dict[str, str] = {}
+
+    def _protect_abbreviation(match: re.Match) -> str:
+        matched_text = match.group(0)
+        placeholder = placeholder_map.get(matched_text)
+        if placeholder is None:
+            placeholder = f"\x00ABBR{len(placeholder_map)}\x00"
+            placeholder_map[matched_text] = placeholder
+        return placeholder
+
+    protected = _ABBREVIATION_PATTERN.sub(_protect_abbreviation, normalized)
+    restore_map = {placeholder: original for original, placeholder in placeholder_map.items()}
 
     raw_sentences: list[str] = []
     for paragraph in protected.split("\n"):
@@ -671,13 +697,9 @@ def split_into_review_sentences(text: str) -> list[str]:
 
     sentences: list[str] = []
     for sentence in raw_sentences:
-        for placeholder, original in placeholders.items():
+        for placeholder, original in restore_map.items():
             sentence = sentence.replace(placeholder, original)
-        if len(sentence) <= MAX_REVIEW_SENTENCE_CHARS:
-            sentences.append(sentence)
-            continue
-        for start in range(0, len(sentence), MAX_REVIEW_SENTENCE_CHARS):
-            sentences.append(sentence[start : start + MAX_REVIEW_SENTENCE_CHARS])
+        sentences.append(sentence[:MAX_REVIEW_SENTENCE_CHARS])
     return sentences
 
 
@@ -1048,8 +1070,10 @@ def run_llm_comparison_review(
             warning=str(validation.get("warning", "")),
         )
 
-    original_sentences = split_into_review_sentences(normalized_original)[:MAX_REVIEW_SENTENCES]
+    full_original_sentences = split_into_review_sentences(normalized_original)
+    original_sentences = full_original_sentences[:MAX_REVIEW_SENTENCES]
     anonymized_sentences = split_into_review_sentences(normalized_anonymized)[:MAX_REVIEW_SENTENCES]
+    sentences_truncated = len(full_original_sentences) > MAX_REVIEW_SENTENCES
     fence = _fence_token()
     payload = {
         "model": safe_model_name,
@@ -1104,9 +1128,15 @@ def run_llm_comparison_review(
             warning="local LLM comparison review failed safely",
         )
 
-    return parse_llm_comparison_response(
+    result = parse_llm_comparison_response(
         response_text, safe_model_name, max_sentence_index=len(original_sentences)
     )
+    if sentences_truncated and result["status"] == LLM_STATUS_COMPLETED:
+        result["warning"] = (
+            f"document truncated to the first {MAX_REVIEW_SENTENCES} lines "
+            "for local LLM comparison review - remaining content was not analyzed"
+        )
+    return result
 
 
 def run_llm_narrative_review(
@@ -1147,7 +1177,9 @@ def run_llm_narrative_review(
             warning=str(validation.get("warning", "")),
         )
 
-    original_sentences = split_into_review_sentences(normalized_original)[:MAX_REVIEW_SENTENCES]
+    full_original_sentences = split_into_review_sentences(normalized_original)
+    original_sentences = full_original_sentences[:MAX_REVIEW_SENTENCES]
+    sentences_truncated = len(full_original_sentences) > MAX_REVIEW_SENTENCES
     fence = _fence_token()
     payload = {
         "model": safe_model_name,
@@ -1202,6 +1234,12 @@ def run_llm_narrative_review(
             warning="local LLM narrative review failed safely",
         )
 
-    return parse_llm_narrative_response(
+    result = parse_llm_narrative_response(
         response_text, safe_model_name, max_sentence_index=len(original_sentences)
     )
+    if sentences_truncated and result["status"] == LLM_STATUS_COMPLETED:
+        result["warning"] = (
+            f"document truncated to the first {MAX_REVIEW_SENTENCES} lines "
+            "for local LLM narrative review - remaining content was not analyzed"
+        )
+    return result

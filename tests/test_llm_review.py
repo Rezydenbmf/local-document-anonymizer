@@ -39,6 +39,7 @@ from llm_review import (
     MAX_JUSTIFICATION_CHARS,
     MAX_REVIEW_INPUT_CHARS,
     MAX_REVIEW_SENTENCE_CHARS,
+    MAX_REVIEW_SENTENCES,
     _build_comparison_prompt,
     _build_narrative_prompt,
     _build_ollama_generate_payload,
@@ -859,12 +860,36 @@ class LlmComparisonAndNarrativeReviewTests(unittest.TestCase):
         self.assertIn("np.", sentences[0])
         self.assertIn("ul.", sentences[1])
 
-    def test_split_into_review_sentences_hard_wraps_long_run(self) -> None:
+    def test_split_into_review_sentences_truncates_long_run_as_one_entry(self) -> None:
+        # A single overlong "sentence" is truncated in place, never split
+        # into several numbered entries - multiplying entries here could
+        # desynchronize the original/anonymized line numbering that
+        # run_llm_comparison_review relies on (see the function's own
+        # docstring for why).
         long_run = "a" * 1200
         sentences = split_into_review_sentences(long_run)
 
-        self.assertTrue(all(len(sentence) <= MAX_REVIEW_SENTENCE_CHARS for sentence in sentences))
-        self.assertEqual("".join(sentences), long_run)
+        self.assertEqual(len(sentences), 1)
+        self.assertEqual(len(sentences[0]), MAX_REVIEW_SENTENCE_CHARS)
+
+    def test_split_into_review_sentences_does_not_treat_word_suffix_as_abbreviation(
+        self,
+    ) -> None:
+        # "w." is a real abbreviation entry, but must not match as a bare
+        # suffix of an unrelated word like "Kraków." - a naive substring
+        # match here would swallow the real sentence boundary and merge
+        # two sentences into one, shifting every later line number.
+        # The regression case: a word ending in the letter "w" immediately
+        # followed by a period ("Kraków.") must not be mistaken for the
+        # "w." abbreviation and swallow the sentence boundary.
+        sentences = split_into_review_sentences(
+            "Zamieszkały przy ul. Polnej 5, 30-001 Kraków. Ma 30 lat."
+        )
+
+        self.assertEqual(
+            sentences,
+            ["Zamieszkały przy ul. Polnej 5, 30-001 Kraków.", "Ma 30 lat."],
+        )
 
     def test_comparison_review_disabled_is_controlled(self) -> None:
         result = run_llm_comparison_review("Oryginał.", "[OSOBA].", enabled=False)
@@ -883,6 +908,30 @@ class LlmComparisonAndNarrativeReviewTests(unittest.TestCase):
 
         mock_generate.assert_not_called()
         self.assertEqual(result["status"], LLM_STATUS_INPUT_TOO_LARGE)
+
+    def test_comparison_review_warns_when_sentence_count_is_truncated(self) -> None:
+        # More short lines than MAX_REVIEW_SENTENCES but under
+        # MAX_REVIEW_INPUT_CHARS (e.g. a long list/table) must not be
+        # silently analyzed only in part with no visible sign of that.
+        many_short_lines = " ".join(f"Pozycja {i}." for i in range(MAX_REVIEW_SENTENCES + 20))
+        side_effects = [
+            completed("ollama version"),
+            completed("NAME ID SIZE MODIFIED\nlocal-model abc 1GB now\n"),
+        ]
+
+        with patch("llm_review._subprocess_run", side_effect=side_effects), patch(
+            "llm_review._ollama_api_generate",
+            return_value=json.dumps({"findings": []}),
+        ):
+            result = run_llm_comparison_review(
+                many_short_lines,
+                many_short_lines,
+                enabled=True,
+                model_name="local-model",
+            )
+
+        self.assertEqual(result["status"], LLM_STATUS_COMPLETED)
+        self.assertIn("truncated", result["warning"])
 
     def test_comparison_review_success_resolves_findings_by_line_number(self) -> None:
         side_effects = [
