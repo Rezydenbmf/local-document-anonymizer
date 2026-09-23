@@ -5124,6 +5124,89 @@ persistence of both toggles, the existing whole-document checkbox
 staying forced off regardless, and the auto-select-model fallback now
 firing for the new toggles too. 781 tests passing, lint at 73.
 
+## LLM suggestion review, phase 1c: ManualRect gets a label (2026-09-23)
+
+Explored `gui_comparison_window.py`'s rendering architecture before
+writing any GUI code, since the plan (a dashed-outline overlay for
+pending AI suggestions, extending the existing magic-pen mechanism)
+rested on an assumption that turned out to be wrong: there is no
+"overlay canvas on top of a CTkTextbox" precedent anywhere in this
+codebase. PDF category-color fills are baked directly into the
+rendered page image at anonymization time (`pdf_redaction._add_
+redaction`); the only overlay-drawing GUI actually does is a handful
+of transient/pending markers on a `tk.Canvas` (`_redraw_overlay`),
+which already uses a dashed style for one case (the live rectangle-
+drag). DOCX/TXT has **no** highlighting mechanism at all - it's a
+plain disabled `CTkTextbox`, because DOCX/TXT redaction is inline text
+substitution (the sensitive text is simply gone, replaced by
+`[LABEL]`), not a burned-in visual overlay the way PDF is. Corrected
+course with the user: build the full review-mode UI for **PDF only**
+first (real precedent, verifiable via coordinate-math tests even
+without visual/screenshot access in this sandbox); DOCX/TXT gets a
+sidebar list with a locally-resolved text excerpt instead of in-place
+highlighting, deferred to a later phase since it needs a UI mechanism
+built from scratch.
+
+For a comparison-review "missed redaction" finding to get its own
+auto-proposed rectangle (not just a page number the user draws on
+manually - the user was explicit this matters, since a page-only
+pointer was judged too big a scope cut), the plan reuses existing,
+tested machinery end to end rather than building new geometry code:
+resolve the LLM's `sentence_index` back to sentence text (same
+`split_into_review_sentences` the backend already uses), find which
+PDF page contains that text via a plain substring search over
+`PdfWordPage.text` (already cached per open comparison window),
+construct a `PdfRedactionSpan` for that in-page character range, and
+hand it to the existing `compute_redaction_rects` - the same function
+that already resolves auto-detected regex/NER spans to word-accurate,
+multi-line-aware rectangles. This is deliberately *not* new geometry
+logic; it's the existing span→rect resolver fed a differently-sourced
+span.
+
+Landed the first concrete piece of that plan: `ManualRect` (a burned-
+in manual redaction box) gained a `label` field, defaulting to the
+existing `MANUAL_REDACTION_LABEL` ("RECZNE") so every current caller
+is unaffected, with a new `AI_SUGGESTION_LABEL` ("AI_SUGESTIA") value
+for a box accepted from a suggestion - its own color
+(`PDF_REDACTION_COLORS`) and legend entry
+(`gui_helpers.LEGEND_ITEMS`/`CATEGORY_LABELS_PL`, `report.
+PDF_REDACTION_COLOR_LEGEND`), so a reviewer can tell at a glance which
+redactions came from where. Threaded the label through the actual
+redaction-burning function (`save_word_coordinate_redacted_pdf_copy`'s
+`extra_redaction_rects`, now `(page, rect, label)` triples instead of
+`(page, rect)` pairs), the JSON sidecar (old files without "label"
+still load, now validated against the known label set rather than
+trusted verbatim), and the two rect-identity checks in
+`apply_pending_overrides` that used to compare against one hardcoded
+sentinel constant (generalized to a small `_MANUAL_RECT_LABELS` set).
+
+A 5-angle code-review pass on this (mandatory per CLAUDE.md for
+`pdf_redaction.py`/`manual_redaction.py`) found two real latent bugs
+before they could bite: `gui_comparison_window.py`'s
+`_hit_test_pool`/`_toggle_pending_remove` built pending-rect dicts with
+a hardcoded `MANUAL_REDACTION_LABEL` instead of each rect's own
+`.label` - harmless today (nothing creates a differently-labeled
+pending rect yet) but would have silently broken hit-testing/undo the
+moment the "accept an AI suggestion" step starts doing exactly that.
+Fixed alongside three consistency gaps (gui.py's re-export shim,
+gui_helpers.py's Polish label lookup, and report.py's text-report
+color legend all missing the new label).
+
+Verified: 8 new tests (default-label backward compatibility, custom-
+label round-trip through the JSON sidecar, an old-format sidecar
+defaulting correctly, an unknown/garbage label falling back rather
+than being trusted, `compute_visible_redaction_rects` exposing the
+custom label, an actual PDF regeneration burning in an AI_SUGGESTION-
+labeled rect with its own counter key, and pending-removal correctly
+identifying an AI-suggestion rect). 788 tests passing, lint at 73.
+
+Not yet done: the sentence→page/rect resolution function itself, the
+sidecar that will let the comparison window learn about a document's
+suggestions without re-running the LLM on every open, and the actual
+GUI wiring (dashed-outline rendering, "Sprawdź sugestię AI"
+navigation, the accept/reject/manual-edit side panel, the gate before
+finalizing).
+
 ## Warning
 
 This repository is still an early-stage portfolio MVP. Do not use it to
