@@ -165,14 +165,14 @@ def check_llm_environment() -> EnvironmentCheckItem:
     status, _models = list_installed_models()
     if status != LLM_STATUS_OLLAMA_NOT_FOUND:
         return EnvironmentCheckItem(
-            ENV_ITEM_LLM, True, "Dodatkowa weryfikacja AI (LLM)", "Dostępne (opcjonalne)."
+            ENV_ITEM_LLM, True, "Lokalny model AI (Ollama)", "Dostępne (opcjonalne)."
         )
     return EnvironmentCheckItem(
         ENV_ITEM_LLM,
         False,
-        "Dodatkowa weryfikacja AI (LLM)",
-        "Ollama nie jest zainstalowana - to funkcja opcjonalna (domyślnie wyłączona) "
-        "do dodatkowej weryfikacji po anonimizacji.",
+        "Lokalny model AI (Ollama)",
+        "Ollama nie jest zainstalowana - potrzebna tylko do opcjonalnych "
+        "sugestii AI (porównanie oryginał/wynik, czytanie kontekstowe).",
         install_action=INSTALL_ACTION_OPEN_URL,
         install_target=OLLAMA_DOWNLOAD_URL,
     )

@@ -142,7 +142,6 @@ class SettingsDialog:
         _bring_window_to_front(self.window)
 
         self.ner_var = tk.BooleanVar(value=app.use_ner)
-        self.llm_var = tk.BooleanVar(value=app.use_llm_review)
         self.llm_model_var = tk.StringVar(value=app.llm_model_name)
         self.llm_comparison_var = tk.BooleanVar(value=app.use_llm_comparison_review)
         self.llm_narrative_var = tk.BooleanVar(value=app.use_llm_narrative_review)
@@ -259,20 +258,6 @@ class SettingsDialog:
             self.ner_var,
             status_ok=self.environment_status.get(ENV_ITEM_NER),
         )
-        self._build_toggle_section(
-            tab,
-            "Dodatkowa weryfikacja AI (LLM)",
-            "Opcjonalne, wymaga lokalnego Ollama",
-            self.llm_var,
-            status_ok=self.environment_status.get(ENV_ITEM_LLM),
-            disabled=True,
-            disabled_note="Jeszcze niedostępne w tej wersji rozwojowej - w przygotowaniu",
-        )
-        # Unlike the whole-document check above, these two are live from
-        # day one (2026-09-23 decision): they only ever produce
-        # suggestions the human reviews in the comparison window before
-        # anything is actually redacted, so there is no "silently applied"
-        # risk to gate behind "wkrótce".
         self._build_toggle_section(
             tab,
             "AI: porównanie oryginał / wynik",
@@ -611,15 +596,7 @@ class SettingsDialog:
         variable: tk.BooleanVar,
         *,
         status_ok: bool | None = None,
-        disabled: bool = False,
-        disabled_note: str | None = None,
     ) -> None:
-        """``disabled`` locks the switch off (the variable already holds
-        ``False`` for anything built this way) for a feature that exists
-        in the code but has not been tested enough to offer yet - e.g.
-        the alpha build's local-LLM review. ``disabled_note`` replaces
-        the subtitle with a short explanation instead of the normal
-        description, so it reads as "not yet" rather than "broken"."""
         frame = self._section_frame(parent)
         row = ctk.CTkFrame(frame, fg_color="transparent")
         row.pack(fill="x", padx=14, pady=12)
@@ -632,20 +609,12 @@ class SettingsDialog:
             title_row,
             text=title,
             font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
-            text_color=COLOR_TEXT_MUTED if disabled else COLOR_TEXT,
+            text_color=COLOR_TEXT,
             anchor="w",
         ).pack(side="left", fill="x")
-        if disabled:
-            ctk.CTkLabel(
-                title_row,
-                text="wkrótce",
-                font=ctk.CTkFont(family=FONT_FAMILY, size=10, weight="bold"),
-                text_color=COLOR_ACCENT,
-                anchor="w",
-            ).pack(side="left", padx=(8, 0))
         ctk.CTkLabel(
             text_col,
-            text=disabled_note if disabled and disabled_note else subtitle,
+            text=subtitle,
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
             text_color=COLOR_TEXT_MUTED,
             anchor="w",
@@ -655,7 +624,6 @@ class SettingsDialog:
             text="",
             variable=variable,
             progress_color=COLOR_ACCENT,
-            state="disabled" if disabled else "normal",
         ).pack(side="right")
 
     def _build_status_row(
@@ -893,10 +861,6 @@ class SettingsDialog:
 
     def _save_and_close(self) -> None:
         self.app.use_ner = self.ner_var.get()
-        # LLM review is disabled in this alpha build (untested) - forced
-        # off regardless of the switch state as a second guarantee on top
-        # of the disabled control itself.
-        self.app.use_llm_review = False
         self.app.use_llm_comparison_review = self.llm_comparison_var.get()
         self.app.use_llm_narrative_review = self.llm_narrative_var.get()
         self.app.pdf_output_label = self.pdf_mode_var.get()
@@ -917,9 +881,7 @@ class SettingsDialog:
             # read-only home folder.
             pass
         needs_llm_model = (
-            self.app.use_llm_review
-            or self.app.use_llm_comparison_review
-            or self.app.use_llm_narrative_review
+            self.app.use_llm_comparison_review or self.app.use_llm_narrative_review
         )
         if needs_llm_model and not self.app.llm_model_name:
             status, models = list_installed_models()

@@ -216,7 +216,6 @@ class BatchProcessingTests(unittest.TestCase):
                 audit_result={"status": "ok", "risk_level": "ok", "findings": {}},
                 ocr_result={"used": False, "status": "not_used"},
                 ner_result={"used": False, "status": "disabled", "counters": {}},
-                llm_review_result={"status": "disabled"},
                 pdf_redaction_result={},
             )
 

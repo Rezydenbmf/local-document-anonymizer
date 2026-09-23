@@ -319,7 +319,6 @@ class ReportTests(unittest.TestCase):
             audit_result={"status": "ok", "risk_level": "ok", "findings": {}},
             ocr_result={"used": False, "status": "not_used"},
             ner_result={"used": False, "status": "disabled"},
-            llm_review_result={"used": False, "status": "disabled"},
             anonymized_text=anonymized_text,
             # How the PDF path calls it: one section per source page, so a
             # line number inside the section genuinely locates a finding.
@@ -345,7 +344,6 @@ class ReportTests(unittest.TestCase):
             audit_result={"status": "ok", "risk_level": "ok", "findings": {}},
             ocr_result={"used": False, "status": "not_used"},
             ner_result={"used": False, "status": "disabled"},
-            llm_review_result={"used": False, "status": "disabled"},
             anonymized_text="Pracownik: ktos\nPESEL: [PESEL]\n",
         )
 
