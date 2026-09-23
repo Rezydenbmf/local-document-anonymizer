@@ -5207,6 +5207,80 @@ GUI wiring (dashed-outline rendering, "Sprawdź sugestię AI"
 navigation, the accept/reject/manual-edit side panel, the gate before
 finalizing).
 
+## LLM suggestion review, phase 1d: findings resolved to real PDF locations (2026-09-23)
+
+New `llm_suggestions.py` closes the gap phase 1c's PROJECT_STATE entry
+left open: given a document's `llm_comparison_result`/
+`llm_narrative_result` (raw `sentence_index`-based output from
+`llm_review.py`) and its `word_pages` (already cached whenever the
+comparison window is open), `build_ai_suggestions()` produces a
+reviewable `AiSuggestion` list, each resolved as far as possible to a
+real page number and - for a comparison "missed_redaction" finding
+specifically - an auto-proposed rectangle.
+
+The resolution is **word-level, not character-offset**, and this
+matters: the original text `llm_review.py` numbers into sentences is
+pypdf-extracted (`file_readers.read_pdf_file_pages`, same as
+`anonymizer.py`'s existing PDF pipeline), while every redaction rect
+in this app - including this new one - is resolved against PyMuPDF
+word coordinates (`pdf_redaction.extract_pdf_word_pages`). The two
+libraries can disagree on whitespace/line-joining for identical
+visible content, so a character-offset span computed against one
+would not reliably land on the other. Matching a sentence's
+whitespace-split words as a contiguous run in a page's PyMuPDF word
+list sidesteps that mismatch (verified with a real test that builds
+`original_text` via genuine pypdf extraction, not a hand-typed
+stand-in) and reuses `pdf_redaction.merge_rects_by_line` - the exact
+line-grouping every auto-detected rect already goes through - rather
+than parallel geometry logic.
+
+Two real design limits, deliberately accepted rather than engineered
+around this round (documented in the module's own docstring): a
+sentence that legitimately repeats verbatim elsewhere in the document
+resolves to whichever occurrence is found first (no page-position hint
+exists in the LLM's output to disambiguate, by design - it only ever
+gets a bare sentence number); and a sentence hyphen-split exactly at a
+PDF line wrap can tokenize differently between the two libraries and
+fail to resolve at all - the same bug class `anonymizer.py`'s
+auto-detection already had to special-case for regex/NER spans
+(`_padding_is_safe`), not yet ported to this new path. Both fail
+closed (no rect, not a wrong one) rather than silently misplacing a
+box; the suggestion still surfaces with its justification either way.
+
+A focused 3-angle review (this file isn't on CLAUDE.md's mandatory-
+review list, but it directly computes where an AI-suggested redaction
+lands, so it got one anyway) found and fixed three real gaps: a crash
+on a malformed non-dict LLM result, a boolean `sentence_index` able to
+leak past validation in one of the two code paths (Python's `bool` is
+an `int` subclass), and a missing BOM-normalization step that would
+have silently misaligned sentence numbering whenever the original text
+carried a leading BOM. It also flagged - and this became a small,
+useful fix in its own right - that `llm_suggestions.py` was the first
+module in this codebase to import another module's underscore-
+prefixed "private" helper across a file boundary; promoted
+`pdf_redaction._merge_rects_by_line` and `llm_review._normalize_
+review_text` to public names (`merge_rects_by_line`,
+`normalize_review_text`) rather than leave that undocumented
+dependency in place.
+
+Verified: 20 tests, including a sentence wrapping across two PDF lines
+(proving `merge_rects_by_line` emits one rect per line), a genuinely
+duplicate sentence (pinning down "first occurrence wins" as an
+intentional, visible behavior rather than an accident), empty
+`word_pages`, and the cross-library pypdf→PyMuPDF match itself. 808
+tests passing, lint at 73.
+
+Still not done: the sidecar that will let the comparison window learn
+about a document's suggestions without re-running the LLM on every
+open, and the GUI wiring itself (dashed-outline rendering on the
+existing magic-pen canvas, "Sprawdź sugestię AI" navigation extending
+`_scroll_frame_to_widget`, the accept/reject/manual-edit side panel,
+and the gate before finalizing). This is also the point where the
+`ManualRect(label=AI_SUGGESTION_LABEL)` groundwork from phase 1c
+actually gets used for the first time - accepting a "missed_redaction"
+suggestion means staging one of `resolve_sentence_rects`'s returned
+rect dicts as exactly that.
+
 ## Warning
 
 This repository is still an early-stage portfolio MVP. Do not use it to
