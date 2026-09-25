@@ -77,7 +77,6 @@ from gui import (
     format_page_list,
     format_pending_edit_confirmation_title,
     format_pending_edit_summary_lines,
-    format_processing_animation_frame,
     format_processing_status,
     format_readiness_pl,
     format_recent_folder_timestamp,
@@ -487,36 +486,6 @@ class GuiWorkflowTests(unittest.TestCase):
         self.assertEqual(format_anonymize_button_text(1), "Anonimizuj 1 plik")
         self.assertEqual(format_anonymize_button_text(3), "Anonimizuj 3 pliki")
         self.assertEqual(format_anonymize_button_text(5), "Anonimizuj 5 plików")
-
-    def test_processing_animation_frame_starts_and_ends_with_a_page(self) -> None:
-        frame = format_processing_animation_frame(0)
-        self.assertTrue(frame.startswith("\U0001f4c4"))
-        self.assertTrue(frame.endswith("\U0001f4c4"))
-        self.assertIn("✏", frame)
-
-    def test_processing_animation_frame_ping_pongs_the_pencil(self) -> None:
-        width = 5
-        cycle_length = width * 2 - 2
-
-        def dot_count_before_pencil(step: int) -> int:
-            frame = format_processing_animation_frame(step, width=width)
-            before, _, _after = frame.partition("✏")
-            return before.count("·")
-
-        positions = [dot_count_before_pencil(step) for step in range(cycle_length)]
-        self.assertEqual(positions, [0, 1, 2, 3, 4, 3, 2, 1])
-
-    def test_processing_animation_frame_repeats_after_one_full_cycle(self) -> None:
-        width = 5
-        cycle_length = width * 2 - 2
-        self.assertEqual(
-            format_processing_animation_frame(0, width=width),
-            format_processing_animation_frame(cycle_length, width=width),
-        )
-        self.assertEqual(
-            format_processing_animation_frame(3, width=width),
-            format_processing_animation_frame(3 + cycle_length, width=width),
-        )
 
     def test_detect_filename_pii_labels_flags_identifiers_in_the_name(self) -> None:
         self.assertEqual(

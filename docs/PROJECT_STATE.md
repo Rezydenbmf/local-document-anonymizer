@@ -5890,6 +5890,53 @@ Agreed with the user, in this order:
    checking", not recommended). AI marks as red dotted frames, critical
    data (PESEL etc.) orange instead of the current turquoise.
 
+## ASCII processing animation + "Anuluj" (2026-09-25)
+
+The user supplied a GUI-agnostic prototype (`docshield_ascii_animation.py`,
+from a ChatGPT/Codex session) and asked for it on the processing screen.
+Findings first: the GUI is customtkinter; `anonymize_batch` runs on a
+worker thread, `_tick_processing_screen` drains its queue on `root.after`;
+the backend reports only "file N of M is starting" (`progress_callback`
+before each file) plus batch done/failed - no in-file progress, no
+per-file "finished" event, no cancel.
+
+Done:
+- `src/docshield_ascii_animation.py`: the prototype, plus Polish
+  diacritics in its status lines and `request_cancel()` (status line only).
+  Still imports no GUI toolkit and renders only fixed fictional data.
+- Processing screen: the pencil, the progress bar (it never measured
+  progress, only the file index) and the **file-name line** are gone. A
+  Consolas `CTkLabel` in a card shows `render_frame()`; the tick is now
+  120 ms (was 400). Event mapping in `_update_processing`: first start ->
+  `start_document("doc-1")`, each next start -> `mark_current_completed()` +
+  `advance_to_next("doc-N")`; done -> complete + `stop_success()` (or
+  `stop_error()` when no file succeeded); failed -> `stop_error()`;
+  cancelled -> `cancel()`. The final frame is held 900 ms
+  (`PROCESSING_RESULT_HOLD_MS`) with no further ticks, then the old
+  done/failed handlers run. The worker's "progress" event no longer carries
+  the path at all.
+- Limitation, accepted: a file that fails inside the batch shows as
+  "completed" in the animation (the batch records it and carries on; the
+  review screen lists it).
+- Cancel: `report_progress` raises `_BatchCancelled` when the cancel event
+  is set. `anonymize_batch` calls the callback outside its per-file
+  try/except, so this stops the batch between files without touching
+  `anonymizer.py`. The running file always finishes first (minutes with
+  LLM). A test runs the real `anonymize_batch` to pin that the exception
+  propagates.
+- Window close: `WM_DELETE_WINDOW` -> `_on_close_request`. Mid-run it
+  asks first, then cancels the pending `after()` and destroys the window.
+  The daemon worker still dies with the process, as before.
+- Old `format_processing_animation_frame`/`PROCESSING_ANIMATION_WIDTH`
+  removed (helpers, `gui.py` shim, 3 tests).
+
+Verified: `tests/test_gui_app_ascii_animation.py` (15 new tests: module,
+one/three documents, failure, all-files-failed, cancel, cancel through the
+real batch, close mid-run yes/no, close when idle, no path/name in events or
+frames). A live script drove the real window (real `anonymize_batch` on
+synthetic TXT files, slowed) through all five scenarios, with screenshots.
+Lint 70. No anonymization-logic files touched, so no mandatory code-review.
+
 ## Warning
 
 This repository is still an early-stage portfolio MVP. Do not use it to

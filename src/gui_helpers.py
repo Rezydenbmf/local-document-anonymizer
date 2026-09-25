@@ -1179,30 +1179,16 @@ def format_review_heading_subtitle(count: int) -> str:
     return f"{count} dokumentów zostało przetworzonych."
 
 
-PROCESSING_ANIMATION_WIDTH = 10
-# How often the processing screen's animation and elapsed-time line
-# advance while anonymize_batch runs on its worker thread.
-PROCESSING_TICK_MS = 400
-
-
-def format_processing_animation_frame(step: int, width: int = PROCESSING_ANIMATION_WIDTH) -> str:
-    """Return one frame of a small "pencil copies a page" text animation
-    shown on the processing screen - per direct user feedback that a
-    plain progress bar felt bare and a small, simple, charming animation
-    would be nicer while a batch runs. A pencil "✏" ping-pongs between
-    two page emoji, one step per call; the caller drives ``step`` up by
-    one on a timer (see AnonymizerApp._tick_processing_animation) - this
-    function itself is a pure, stateless frame-position calculation so
-    it can be tested without a running Tk loop.
-    """
-    safe_width = max(width, 2)
-    cycle_length = safe_width * 2 - 2
-    position = step % cycle_length
-    if position >= safe_width:
-        position = cycle_length - position
-    dots_before = "·" * position
-    dots_after = "·" * (safe_width - 1 - position)
-    return f"\U0001f4c4 {dots_before}✏️{dots_after} \U0001f4c4"
+# How often the processing screen redraws its ASCII animation (see
+# docshield_ascii_animation) and drains the worker's event queue - the
+# module expects roughly 80-150 ms per frame.
+PROCESSING_TICK_MS = 120
+# How long the final success/error/cancel frame stays on screen before
+# the app moves on, so the outcome is actually seen, not just flashed.
+PROCESSING_RESULT_HOLD_MS = 900
+# The ASCII frame needs a fixed-width font to line up; Consolas ships
+# with every Windows install.
+MONO_FONT_FAMILY = "Consolas"
 
 
 def format_processing_elapsed(seconds: int) -> str:

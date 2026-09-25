@@ -56,15 +56,18 @@ class BackgroundProcessingTests(unittest.TestCase):
         app.active_categories = None
         app.strip_signatures = False
         app.active_screen = "start"
+        app.processing_animation = None
         app.processing_animation_label = None
+        app.processing_cancel_button = None
         app.progress_elapsed_label = None
-        app._processing_animation_step = 0
         app._processing_active = False
+        app._processing_after_id = None
+        app._processing_cancel = threading.Event()
         app._processing_started_at = 0.0
         app._processing_events = queue.Queue()
         app.status_label = None
 
-        def fake_show_processing_screen() -> None:
+        def fake_show_processing_screen(document_count: int = 1) -> None:
             app.active_screen = "processing"
 
         app.show_processing_screen = fake_show_processing_screen
@@ -121,7 +124,7 @@ class BackgroundProcessingTests(unittest.TestCase):
     def test_progress_callback_is_marshalled_to_the_gui_thread(self) -> None:
         app = self._app()
         seen_threads = []
-        app._update_processing = lambda i, t, p: seen_threads.append(
+        app._update_processing = lambda i, t: seen_threads.append(
             threading.current_thread()
         )
 

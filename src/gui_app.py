@@ -27,6 +27,7 @@ try:
         check_dependency_updates,
         install_package_update,
     )
+    from .docshield_ascii_animation import AnimationState, DocShieldAsciiAnimation
     from .environment_check import (
         ENV_ITEM_NER,
         ENV_ITEM_OCR,
@@ -83,7 +84,9 @@ try:
         HEADER_STACK_BREAKPOINT,
         LEGEND_ITEMS,
         MANUAL_REVIEW_WARNING,
+        MONO_FONT_FAMILY,
         PDF_OUTPUT_LABEL_VISUAL_REDACTION,
+        PROCESSING_RESULT_HOLD_MS,
         PROCESSING_TICK_MS,
         QUICK_SETTINGS_PANEL_WIDTH,
         RISK_STYLES,
@@ -108,7 +111,6 @@ try:
         format_drop_result,
         format_filename_pii_warning,
         format_llm_model_selector_state,
-        format_processing_animation_frame,
         format_processing_elapsed,
         format_readiness_pl,
         format_recent_folder_timestamp,
@@ -174,6 +176,7 @@ except ImportError:
         check_dependency_updates,
         install_package_update,
     )
+    from docshield_ascii_animation import AnimationState, DocShieldAsciiAnimation
     from environment_check import (
         ENV_ITEM_NER,
         ENV_ITEM_OCR,
@@ -230,7 +233,9 @@ except ImportError:
         HEADER_STACK_BREAKPOINT,
         LEGEND_ITEMS,
         MANUAL_REVIEW_WARNING,
+        MONO_FONT_FAMILY,
         PDF_OUTPUT_LABEL_VISUAL_REDACTION,
+        PROCESSING_RESULT_HOLD_MS,
         PROCESSING_TICK_MS,
         QUICK_SETTINGS_PANEL_WIDTH,
         RISK_STYLES,
@@ -255,7 +260,6 @@ except ImportError:
         format_drop_result,
         format_filename_pii_warning,
         format_llm_model_selector_state,
-        format_processing_animation_frame,
         format_processing_elapsed,
         format_readiness_pl,
         format_recent_folder_timestamp,
@@ -319,6 +323,15 @@ def _pl_pages_genitive_word(count: int) -> str:
     separate 2-4 form here: singular genitive ("strony") for exactly 1,
     plural genitive ("stron") for everything else."""
     return "strony" if count == 1 else "stron"
+
+
+class _BatchCancelled(Exception):
+    """Raised from the batch's progress callback to stop before the next
+    file once the user pressed "Anuluj"."""
+
+    def __init__(self, finished_count: int) -> None:
+        super().__init__(finished_count)
+        self.finished_count = finished_count
 
 
 class AnonymizerApp:
@@ -420,16 +433,25 @@ class AnonymizerApp:
         self.anonymize_button: ctk.CTkButton | None = None
         self.output_dir_value_label: ctk.CTkLabel | None = None
         self.status_label: ctk.CTkLabel | None = None
-        self.progress_bar: ctk.CTkProgressBar | None = None
-        self.progress_status_label: ctk.CTkLabel | None = None
-        self.progress_file_label: ctk.CTkLabel | None = None
+        # The processing screen's ASCII animation (docshield_ascii_animation):
+        # it only ever sees opaque "doc-N" ids and document counts - never a
+        # path, file name, or anything read from a document.
+        self.processing_animation: DocShieldAsciiAnimation | None = None
         self.processing_animation_label: ctk.CTkLabel | None = None
-        self._processing_animation_step = 0
         self.progress_elapsed_label: ctk.CTkLabel | None = None
-        # True while anonymize_batch runs on its worker thread - blocks
-        # navigation and a second start (see _processing_blocks_navigation).
+        self.processing_cancel_button: ctk.CTkButton | None = None
+        # True while anonymize_batch runs on its worker thread (and while
+        # its final frame is held on screen) - blocks navigation and a
+        # second start (see _processing_blocks_navigation).
         self._processing_active = False
         self._processing_started_at = 0.0
+        # The one pending root.after() of the processing screen (the next
+        # tick, or the final-frame hold), so it can be cancelled when the
+        # window closes mid-run.
+        self._processing_after_id: str | None = None
+        # Set by "Anuluj" (or closing the window); the worker's progress
+        # callback checks it before each next file.
+        self._processing_cancel = threading.Event()
         # Worker -> GUI thread hand-off: the worker only ever put()s here;
         # _tick_processing_screen drains it on the GUI thread. No Tk call
         # is ever made from the worker thread itself.
@@ -472,6 +494,7 @@ class AnonymizerApp:
         ctk.set_default_color_theme("blue")
 
         self._build_shell()
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close_request)
         # A real update() (not just update_idletasks()) so the window is
         # actually mapped/realized before the first show_start_screen()
         # measures widths - e.g. the quick-settings panel decides whether
@@ -712,6 +735,7 @@ class AnonymizerApp:
 
     def _clear_content(self) -> None:
         self.processing_animation_label = None
+        self.processing_cancel_button = None
         for widget in self.content.winfo_children():
             widget.destroy()
 
@@ -2590,52 +2614,39 @@ class AnonymizerApp:
     # Processing screen
     # ------------------------------------------------------------------
 
-    def show_processing_screen(self) -> None:
+    def show_processing_screen(self, document_count: int = 1) -> None:
         self.active_screen = "processing"
         self._update_sidebar_active_state()
         self._clear_content()
 
         wrapper = ctk.CTkFrame(self.content, fg_color="transparent")
-        wrapper.place(relx=0.5, rely=0.42, anchor="center")
+        wrapper.place(relx=0.5, rely=0.45, anchor="center")
 
-        # A small charming animation (a pencil "copying" between two
-        # pages) - per direct user feedback that the processing screen
-        # felt bare. Driven by its own after() timer
-        # (_tick_processing_screen): anonymize_batch now runs on a worker
-        # thread, so the Tk loop stays live. It used to run on the main
-        # thread, and with the local-LLM review a single file can take a
-        # minute or more - the screen froze and looked hung (2026-09-25
-        # user report).
-        self._processing_animation_step = 0
+        # ASCII animation (docshield_ascii_animation, 2026-09-25): a fixed,
+        # fictional demo document gets masked line by line. The animation
+        # logic lives in its own GUI-agnostic module; this screen only
+        # redraws render_frame() on its own after() timer
+        # (_tick_processing_screen) while anonymize_batch runs on a worker
+        # thread. No percentage and no file name on purpose: the backend
+        # only reports "file N of M started", nothing finer.
+        self.processing_animation = DocShieldAsciiAnimation(max(document_count, 1))
+        card = ctk.CTkFrame(
+            wrapper,
+            fg_color=COLOR_CARD,
+            border_color=COLOR_BORDER,
+            border_width=1,
+            corner_radius=12,
+        )
+        card.pack(pady=(0, 16))
         self.processing_animation_label = ctk.CTkLabel(
-            wrapper,
-            text=format_processing_animation_frame(0),
-            font=ctk.CTkFont(family=FONT_FAMILY, size=28),
-            text_color=COLOR_ACCENT,
-        )
-        self.processing_animation_label.pack(pady=(0, 24))
-
-        self.progress_bar = ctk.CTkProgressBar(
-            wrapper, width=320, height=10, corner_radius=5, progress_color=COLOR_ACCENT
-        )
-        self.progress_bar.set(0.0)
-        self.progress_bar.pack(pady=(0, 16))
-
-        self.progress_status_label = ctk.CTkLabel(
-            wrapper,
-            text="Przygotowuję...",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=15),
+            card,
+            text=self.processing_animation.render_frame(),
+            font=ctk.CTkFont(family=MONO_FONT_FAMILY, size=11),
             text_color=COLOR_TEXT,
+            justify="left",
+            anchor="w",
         )
-        self.progress_status_label.pack()
-
-        self.progress_file_label = ctk.CTkLabel(
-            wrapper,
-            text="",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-            text_color=COLOR_TEXT_MUTED,
-        )
-        self.progress_file_label.pack(pady=(4, 0))
+        self.processing_animation_label.pack(padx=18, pady=14)
 
         self.progress_elapsed_label = ctk.CTkLabel(
             wrapper,
@@ -2643,7 +2654,23 @@ class AnonymizerApp:
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
             text_color=COLOR_TEXT_MUTED,
         )
-        self.progress_elapsed_label.pack(pady=(4, 0))
+        self.progress_elapsed_label.pack()
+
+        self.processing_cancel_button = ctk.CTkButton(
+            wrapper,
+            text="Anuluj",
+            width=140,
+            height=32,
+            corner_radius=8,
+            fg_color="transparent",
+            border_color=COLOR_BORDER,
+            border_width=1,
+            hover_color=COLOR_ICON_IDLE,
+            text_color=COLOR_TEXT,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13),
+            command=self._request_processing_cancel,
+        )
+        self.processing_cancel_button.pack(pady=(12, 0))
 
         if self.use_llm_comparison_review or self.use_llm_narrative_review:
             ctk.CTkLabel(
@@ -2661,8 +2688,9 @@ class AnonymizerApp:
 
     def _tick_processing_screen(self) -> None:
         """Every PROCESSING_TICK_MS while the worker thread runs: apply
-        its queued progress/done/failed events, then advance the animation
-        and the elapsed-time line."""
+        its queued progress/done/failed/cancelled events, then redraw the
+        animation and the elapsed-time line."""
+        self._processing_after_id = None
         if not self._processing_active:
             return
         while True:
@@ -2670,26 +2698,95 @@ class AnonymizerApp:
                 event = self._processing_events.get_nowait()
             except queue.Empty:
                 break
-            kind = event[0]
-            if kind == "progress":
+            if event[0] == "progress":
                 self._update_processing(*event[1:])
-            elif kind == "done":
-                self._on_anonymize_done(*event[1:])
+            else:
+                self._on_processing_finished_event(event)
                 return
-            elif kind == "failed":
-                self._on_anonymize_failed()
-                return
-        if self.processing_animation_label is not None:
-            self._processing_animation_step += 1
-            self.processing_animation_label.configure(
-                text=format_processing_animation_frame(self._processing_animation_step)
-            )
+        self._render_processing_frame()
         if self.progress_elapsed_label is not None:
             elapsed = int(time.monotonic() - self._processing_started_at)
             self.progress_elapsed_label.configure(
                 text=format_processing_elapsed(elapsed)
             )
-        self.root.after(PROCESSING_TICK_MS, self._tick_processing_screen)
+        self._processing_after_id = self.root.after(
+            PROCESSING_TICK_MS, self._tick_processing_screen
+        )
+
+    def _on_processing_finished_event(self, event: tuple) -> None:
+        """The worker's last event: "done", "failed" or "cancelled"."""
+        kind = event[0]
+        if kind == "done":
+            batch_result, dated_output_dir = event[1:]
+            self._finish_processing(
+                lambda animation: self._stop_animation_for_batch(
+                    animation, batch_result
+                ),
+                lambda: self._on_anonymize_done(batch_result, dated_output_dir),
+            )
+        elif kind == "cancelled":
+            finished_count, total = event[1:]
+            self._finish_processing(
+                lambda animation: animation.cancel(),
+                lambda: self._on_anonymize_cancelled(finished_count, total),
+            )
+        else:
+            self._finish_processing(
+                lambda animation: animation.stop_error(),
+                self._on_anonymize_failed,
+            )
+
+    def _render_processing_frame(self) -> None:
+        animation = self.processing_animation
+        if animation is None or self.processing_animation_label is None:
+            return
+        color = {
+            AnimationState.SUCCESS: COLOR_OK,
+            AnimationState.ERROR: COLOR_HIGH_RISK,
+            AnimationState.CANCELLED: COLOR_TEXT_MUTED,
+        }.get(animation.snapshot().state, COLOR_TEXT)
+        self.processing_animation_label.configure(
+            text=animation.render_frame(), text_color=color
+        )
+
+    def _finish_processing(
+        self,
+        stop_animation: Callable[[DocShieldAsciiAnimation], None],
+        then: Callable[[], None],
+    ) -> None:
+        """Stop the animation, keep its final frame up for
+        PROCESSING_RESULT_HOLD_MS (no more ticks), then run ``then``."""
+        animation = self.processing_animation
+        if animation is not None:
+            try:
+                stop_animation(animation)
+            except Exception:  # noqa: BLE001, S110 - the animation is decorative; it must never block the result
+                pass
+        if self.processing_cancel_button is not None:
+            self.processing_cancel_button.configure(state="disabled")
+        self._render_processing_frame()
+
+        def after_hold() -> None:
+            self._processing_after_id = None
+            then()
+
+        self._processing_after_id = self.root.after(
+            PROCESSING_RESULT_HOLD_MS, after_hold
+        )
+
+    @staticmethod
+    def _stop_animation_for_batch(
+        animation: DocShieldAsciiAnimation, batch_result: BatchResult
+    ) -> None:
+        if animation.snapshot().state == AnimationState.RUNNING:
+            animation.mark_current_completed()
+        # anonymize_batch records a failing file and moves on; only a batch
+        # where nothing at all succeeded ends as an error frame. Partial
+        # failures are listed on the review screen that follows.
+        if batch_result.success_count == 0 and batch_result.error_count > 0:
+            animation.stop_error()
+        else:
+            animation.stop_success()
 
     def _processing_blocks_navigation(self) -> bool:
         """While a batch runs in the background, leaving the processing
@@ -2698,15 +2795,74 @@ class AnonymizerApp:
         task - or change settings under a running batch."""
         return self._processing_active
 
-    def _update_processing(self, index: int, total: int, path: Path) -> None:
-        if self.progress_bar is not None:
-            self.progress_bar.set(index / total if total else 0.0)
-        if self.progress_status_label is not None:
-            self.progress_status_label.configure(
-                text=f"Analizuję plik {index} z {total}..."
+    def _update_processing(self, index: int, total: int) -> None:
+        """File ``index`` of ``total`` is starting. anonymize_batch only
+        reports file starts, so the start of file N+1 is also the moment
+        file N ended (a file that failed is recorded by the batch, which
+        carries on - it shows as completed here and as an error on the
+        review screen)."""
+        animation = self.processing_animation
+        if animation is None:
+            return
+        # Opaque id only - never the path or name (see the module docstring).
+        source_id = f"doc-{index}"
+        try:
+            state = animation.snapshot().state
+            if state == AnimationState.IDLE:
+                animation.start_document(source_id)
+            else:
+                if state == AnimationState.RUNNING:
+                    animation.mark_current_completed()
+                animation.advance_to_next(source_id)
+        except RuntimeError:
+            pass
+
+    def _request_processing_cancel(self) -> None:
+        """"Anuluj": anonymize_batch can't be interrupted inside a file, so
+        the worker stops before the *next* file (see start_anonymize's
+        report_progress); the current one finishes first."""
+        if not self._processing_active or self._processing_cancel.is_set():
+            return
+        self._processing_cancel.set()
+        if self.processing_animation is not None:
+            self.processing_animation.request_cancel()
+            self._render_processing_frame()
+        if self.processing_cancel_button is not None:
+            self.processing_cancel_button.configure(
+                state="disabled", text="Anulowanie..."
             )
-        if self.progress_file_label is not None:
-            self.progress_file_label.configure(text=path.name)
+
+    def _stop_processing_timer(self) -> None:
+        self._processing_active = False
+        if self._processing_after_id is not None:
+            try:
+                self.root.after_cancel(self._processing_after_id)
+            except tk.TclError:
+                pass
+            self._processing_after_id = None
+
+    def _on_close_request(self) -> None:
+        """Window close (X). Mid-run, ask first: the worker is a daemon
+        thread, so closing kills the file currently being processed."""
+        animation = self.processing_animation
+        batch_running = self._processing_active and not (
+            animation is not None and animation.snapshot().is_terminal
+        )
+        if batch_running:
+            if not messagebox.askyesno(
+                "Anonimizacja trwa",
+                "Anonimizacja jeszcze trwa. Zamknięcie programu teraz "
+                "przerwie bieżący dokument - jego wynik może być niepełny. "
+                "Wyniki dokumentów już ukończonych zostaną w folderze.\n\n"
+                "Zamknąć mimo to?",
+                parent=self.root,
+            ):
+                return
+            self._processing_cancel.set()
+            if animation is not None:
+                animation.cancel()
+        self._stop_processing_timer()
+        self.root.destroy()
 
     # ------------------------------------------------------------------
     # Run batch
@@ -2788,11 +2944,14 @@ class AnonymizerApp:
             )
             return
 
-        self.show_processing_screen()
+        selected_paths = list(self.selected_paths)
+        self.show_processing_screen(len(selected_paths))
         self._processing_active = True
         self._processing_started_at = time.monotonic()
         self._processing_events = queue.Queue()
         events = self._processing_events
+        self._processing_cancel = threading.Event()
+        cancel_requested = self._processing_cancel
 
         # Everything the worker needs is captured here, on the GUI thread -
         # the worker never reads self.* settings mid-run.
@@ -2810,10 +2969,16 @@ class AnonymizerApp:
             "page_ranges": page_ranges,
             "strip_signatures": self.strip_signatures,
         }
-        selected_paths = list(self.selected_paths)
 
-        def report_progress(index: int, total: int, path: Path) -> None:
-            events.put(("progress", index, total, path))
+        def report_progress(index: int, total: int, _path: Path) -> None:
+            # anonymize_batch calls this before each file, outside its
+            # per-file error handling - raising here is the one clean
+            # point to stop a batch between files without touching the
+            # anonymization itself. The path deliberately stays on the
+            # worker: the processing screen shows only "Dokument N z M".
+            if cancel_requested.is_set():
+                raise _BatchCancelled(index - 1)
+            events.put(("progress", index, total))
 
         def worker() -> None:
             try:
@@ -2823,6 +2988,9 @@ class AnonymizerApp:
                     progress_callback=report_progress,
                     **batch_kwargs,
                 )
+            except _BatchCancelled as cancelled:
+                events.put(("cancelled", cancelled.finished_count, len(selected_paths)))
+                return
             except Exception:  # noqa: BLE001 - any failure must reach the GUI, not kill the thread silently
                 events.put(("failed",))
                 return
@@ -2837,6 +3005,17 @@ class AnonymizerApp:
         if self.status_label is not None:
             self.status_label.configure(
                 text="Błąd: przetwarzanie nie powiodło się. Sprawdź pliki i folder."
+            )
+
+    def _on_anonymize_cancelled(self, finished_count: int, total: int) -> None:
+        self._processing_active = False
+        self.show_start_screen()
+        if self.status_label is not None:
+            self.status_label.configure(
+                text=(
+                    f"Anulowano po {finished_count} z {total} dokumentów. "
+                    "Wyniki ukończonych dokumentów są w folderze wyników."
+                )
             )
 
     def _on_anonymize_done(
