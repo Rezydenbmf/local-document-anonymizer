@@ -75,7 +75,10 @@ MANUAL_REDACTION_LABEL = "RECZNE"
 # auto-detected category and a plain manual "RECZNE" box, so a reviewer
 # can tell at a glance which redactions came from where.
 AI_SUGGESTION_LABEL = "AI_SUGESTIA"
-_SAFE_WORD_PADDING = set(".,;:!?()[]{}<>\"'")
+# Typographic quotes and the ellipsis count too: Polish text wraps names in
+# „…” (live: NER tagged "Lipami" inside „Przychodnia pod Lipami”; the PDF
+# word "Lipami”" was rejected, so the span was never redacted in the PDF).
+_SAFE_WORD_PADDING = set(".,;:!?()[]{}<>\"'„”“‚‘’«»‹›…")
 _UPPER_LETTERS = "A-ZĄĆĘŁŃÓŚŹŻ"
 _LOWER_LETTERS = "A-Za-zĄĆĘŁŃÓŚŹŻąćęłńóśźż"
 _NAME_TOKEN = rf"[{_UPPER_LETTERS}][{_LOWER_LETTERS}]{{2,}}"
