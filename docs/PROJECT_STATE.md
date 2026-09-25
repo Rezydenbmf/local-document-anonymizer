@@ -5750,6 +5750,32 @@ across two lines, safety net forced by a useless trim), lint 70,
 sideways could trigger the fallback spuriously - fixed (centre test on
 both axes).
 
+## Detected spans glued to Polish quotes were never redacted in the PDF (2026-09-25)
+
+User asked what the results-screen warning "Some detected PDF spans could
+not be mapped to full word rectangles" on `llm_test_2` meant. Traced: NER
+tagged "Lipami" (NER_LOCATION) inside „Przychodnia pod Lipami”; the PDF
+word is "Lipami”" and `_span_maps_to_full_words` only widens a span to the
+whole word when the leftover characters are safe padding - the closing
+Polish quote wasn't in `_SAFE_WORD_PADDING`, so the span was dropped from
+the visual PDF (redacted in the TXT only) and merely counted as unmapped.
+"Lipami" itself is a NER false positive (part of a clinic name), but the
+same gap hits any real name in „…”, e.g. a nickname. That warning is
+therefore a real "something detected stayed visible" signal, not noise.
+
+Fix: `„ ” “ ‚ ‘ ’ « » ‹ › …` added to `_SAFE_WORD_PADDING` (padding is
+only ever characters inside the same PDF word, so this can't reach a
+neighbouring word; apostrophe-in-name cases like "D’Artagnan" still fail
+the all-safe check because the rest contains letters). Output of all 11
+test PDFs identical except `llm_test_2`, where "Lipami” " is now covered.
+Test: `test_visual_redaction_covers_a_span_glued_to_polish_quotes`
+(fails without the fix). 882 tests, lint 70, `code-review` (medium) no
+findings.
+
+Not investigated yet: the same run showed "Analiza AI nie powiodła się"
+(status other than completed/timeout) - needs the run's
+`_wewnetrzne/*_LLM_SUGGESTIONS.json` status/error fields from the user.
+
 ## Planned next: measurable test system; later a two-step review flow (2026-09-25)
 
 Agreed with the user, in this order:

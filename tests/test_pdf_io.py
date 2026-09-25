@@ -1117,6 +1117,34 @@ class PdfIoTests(unittest.TestCase):
             )
             self.assert_pdf_exposes_text(visual_pdf_path, ("Footer",))
 
+    def test_visual_redaction_covers_a_span_glued_to_polish_quotes(self) -> None:
+        """Live finding (llm_test_2): NER tagged "Lipami" inside
+        „Przychodnia pod Lipami”; the PDF word "Lipami”" was rejected
+        because the closing Polish quote wasn't safe padding, so the
+        span was never redacted in the visual PDF."""
+        with workspace_temp_dir() as temp_dir:
+            source_path = Path(temp_dir) / "visual_polish_quotes.pdf"
+            if not write_fitz_unicode_text_pdf(
+                source_path,
+                ["Opiekun: „Jan Kowalski” od kotów", "Footer visible"],
+            ):
+                self.skipTest("no Unicode test font available")
+            model = FakeNerModel([("Jan Kowalski", "persName")])
+
+            with patch("ner._spacy_module", return_value=FakeSpacy(model)):
+                anonymize_pdf_file(source_path, use_ner=True)
+
+            visual_pdf_path = Path(temp_dir) / "visual_polish_quotes_ANON_VISUAL.pdf"
+            report_text = (
+                Path(temp_dir) / "_wewnetrzne" / "visual_polish_quotes_RAPORT.txt"
+            ).read_text(encoding="utf-8")
+
+            self.assert_redacted_pdf_does_not_expose_text(
+                visual_pdf_path, ("Jan", "Kowalski")
+            )
+            self.assert_pdf_exposes_text(visual_pdf_path, ("Footer",))
+            self.assertNotIn("could not be mapped", report_text)
+
     def test_word_page_text_keeps_line_breaks_between_separate_pdf_lines(self) -> None:
         """extract_pdf_word_pages must not flatten separate PDF lines into
         one run-on line with plain spaces. Losing real line breaks removes
