@@ -107,6 +107,7 @@ try:
         format_batch_pdf_warning_items,
         format_drop_result,
         format_filename_pii_warning,
+        format_llm_model_selector_state,
         format_processing_animation_frame,
         format_processing_elapsed,
         format_readiness_pl,
@@ -137,6 +138,7 @@ try:
         truncate_filename_middle,
     )
     from .gui_settings_dialog import SettingsDialog
+    from .llm_review import list_installed_models
     from .llm_suggestions import count_unresolved_ai_suggestions
     from .ocr import list_installed_languages
     from .output_cleanup import (
@@ -252,6 +254,7 @@ except ImportError:
         format_batch_pdf_warning_items,
         format_drop_result,
         format_filename_pii_warning,
+        format_llm_model_selector_state,
         format_processing_animation_frame,
         format_processing_elapsed,
         format_readiness_pl,
@@ -282,6 +285,7 @@ except ImportError:
         truncate_filename_middle,
     )
     from gui_settings_dialog import SettingsDialog
+    from llm_review import list_installed_models
     from llm_suggestions import count_unresolved_ai_suggestions
     from ocr import list_installed_languages
     from output_cleanup import (
@@ -2708,6 +2712,33 @@ class AnonymizerApp:
     # Run batch
     # ------------------------------------------------------------------
 
+    def _ensure_llm_model_for_run(self) -> bool:
+        """Pick an Ollama model when AI review is on but none is chosen.
+
+        Real run (2026-09-25): the home-screen "AI: ..." checkboxes turn the
+        reviews on without choosing a model (only Settings > Zapisz did),
+        so the run silently went ahead as "no_model_configured". Falls back
+        to the first installed model, like Settings does. With no model at
+        all, asks whether to continue without AI. Returns False to cancel."""
+        if not (self.use_llm_comparison_review or self.use_llm_narrative_review):
+            return True
+        if self.llm_model_name:
+            return True
+        status, models = list_installed_models()
+        _values, selected_model, _hint = format_llm_model_selector_state(
+            status, models
+        )
+        if selected_model:
+            self.llm_model_name = selected_model
+            return True
+        return messagebox.askyesno(
+            "Model AI",
+            "Włączono sprawdzanie przez AI, ale nie znaleziono żadnego "
+            "modelu w Ollamie (albo Ollama nie jest uruchomiona).\n\n"
+            "Kontynuować anonimizację bez AI?",
+            parent=self.root,
+        )
+
     def start_anonymize(self) -> None:
         if self._processing_active:
             return
@@ -2735,6 +2766,9 @@ class AnonymizerApp:
                 )
                 return
             page_ranges[resolved_path_key(path)] = text
+
+        if not self._ensure_llm_model_for_run():
+            return
 
         # Every anonymization run lands in a dated subfolder of the
         # chosen output folder (e.g. "22.09.2026") - same day, same

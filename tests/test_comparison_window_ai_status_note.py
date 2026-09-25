@@ -40,9 +40,29 @@ class AiReviewStatusNoteTests(unittest.TestCase):
 
     def test_other_failure(self) -> None:
         sidecar = LlmSuggestionsSidecar(
-            comparison_result={"status": "service_unavailable", "findings": []},
+            comparison_result={"status": "invalid_response", "findings": []},
         )
         self.assertIn("nie powiodła się", ai_review_status_note(sidecar))
+
+    def test_no_model_configured_is_named_explicitly(self) -> None:
+        # The real 2026-09-25 sidecar: AI toggled on from the home screen,
+        # no model chosen - it used to read as a generic failure.
+        sidecar = LlmSuggestionsSidecar(
+            comparison_result={"status": "no_model_configured", "findings": []},
+            narrative_result={"status": "no_model_configured", "suggestions": []},
+        )
+        self.assertIn("nie wybrano modelu", ai_review_status_note(sidecar))
+
+    def test_missing_model_and_unreachable_ollama(self) -> None:
+        missing = LlmSuggestionsSidecar(
+            comparison_result={"status": "model_missing", "findings": []},
+        )
+        self.assertIn("nie ma", ai_review_status_note(missing))
+        for status in ("ollama_not_found", "service_unavailable", "unavailable"):
+            sidecar = LlmSuggestionsSidecar(
+                comparison_result={"status": status, "findings": []},
+            )
+            self.assertIn("Ollama nie odpowiada", ai_review_status_note(sidecar))
 
     def test_completed_with_nothing_found(self) -> None:
         sidecar = LlmSuggestionsSidecar(
