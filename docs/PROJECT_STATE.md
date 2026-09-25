@@ -6008,6 +6008,62 @@ same time (ASCII animation). Its commit 72e8249 picked up this work's
 DO_ZWERYFIKOWANIA entry, which is harmless and stays there. Parallel
 sessions should each get their own worktree.
 
+## Detection gaps closed with the benchmark (stage 3 of the plan, 2026-09-25)
+
+Branch `fix/benchmark-leaks`. One gap at a time: `score --bez-ai --check`
+before and after each fix (no regression), then `--update-baseline`. Result
+without AI: **79.4% -> 89.7%** of must spans fully hidden (full leaks
+31 -> 16), keep spans redacted 7 -> 1 ("Grunwaldem", NER), over-redaction
+unchanged at 31 rects. All changes are deterministic regex passes in
+`src/anonymizer.py`; the simple pattern edits are mirrored in
+`pdf_redaction.py`'s duplicated `PDF_REDACTION_PATTERNS` (the
+original-redaction mode).
+1. **IBAN** accepts "O" for a digit: OCR read "PL07" as "PLO7" on the good
+   scanned invoice.
+2. **Towns: document-local gazetteer** (`known_place_names` /
+   `known_place_spans`). Towns MIEJSCOWOSC already finds after a postal
+   code are searched for again across the whole document by stem, case-
+   insensitively, capitalised words only: "Borowcu Dolnym", "BOROWCU
+   DOLNYM", "Miejsce wystawienia: Borowiec Dolny", plus first word +
+   adjective ("Borowiec Górny"). A stripped stem needs at least one ending
+   letter, so "Tych" (Tychy) is not the pronoun. Chosen over a generic
+   "w + two capitalised words" rule, which would hide "w Sądzie
+   Rejonowym". Limit: a town never given with a postal code in the
+   document is still NER's job (05's "Mirosławcu⏎Górnym" stays partial).
+   **ULICA** tolerates a line break right after "ul."/"al."/"ulica"/"aleja"
+   and includes a separate flat number ("14 m. 2", "3 lok. 7").
+3. **Phone**: context words "pod numerem", "z numeru", "komórk…"; the
+   context-gated 3-3-3 pattern also takes dots ("600.000.528").
+   **E-mail**: the domain may wrap to the next line right after its own
+   "-".
+4. **Companies**: "i"/"&" between capitalised words of a legal-form name
+   ("Kwiatek i Syn Sp. z o.o."); OCR's "Sp. Z.0.0."; new
+   `organisation_name_spans`: a quoted name after an organisation-kind
+   word (Wspólnota, Spółdzielnia, NZOZ, Laboratorium, kawiarnia, firma,
+   …; the kind words are included only when on the same line as the
+   quote) and a patron-named facility ("Szpital Powiatowy im. Anny
+   Leśniewskiej"). Runs before `_PATTERNS` so a word inside the name
+   cannot claim it first.
+5. **Dates kept by policy** (`pdf_redaction.is_kept_reference_date`,
+   shared by both redaction paths and by `audit.py`): a date after "z
+   dnia" with a legal-act word (ustawa, rozporządzenie, dyrektywa,
+   kodeks, …) earlier in the same sentence; and, user decision
+   2026-09-25, a date with the month in words at least 100 years old,
+   unless birth/death wording or a form's "Data" precedes it within 60
+   characters.
+
+"Aleja Róż" turned out not to leak in the fast run (ULICA catches it),
+so the planned "kawiarnia + name" rule was dropped.
+
+Code-review (skill, high) on the branch diff: 2 low findings. Fixed: the
+audit counted a kept numeric statute date as a leftover DATA (warning
+status). Accepted as a known risk: the gazetteer trusts every MIEJSCOWOSC
+match, so a capitalised word after a non-postal "dd-ddd" number ("Nr
+zlecenia 26-091 Morfologia") would be hidden document-wide - errs toward
+over-redaction, not a leak.
+
+Verified: 940 tests (16 new), lint 70.
+
 ## Warning
 
 This repository is still an early-stage portfolio MVP. Do not use it to
