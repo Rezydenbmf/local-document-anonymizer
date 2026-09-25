@@ -32,7 +32,6 @@ DELETE_VERBS = {
     "remove-item", "ri", "rni", "move-item", "mi", "mv", "move",
 }
 PROJECTS_ROOT = "c:\\ai"
-_SEGMENT_SPLIT = re.compile(r"&&|\|\||[;|\n]")
 _ASSIGNMENT = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=(.*)$")
 _VAR = re.compile(r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|env:([A-Za-z_][A-Za-z0-9_]*)|([A-Za-z_][A-Za-z0-9_]*))")
 _VERB_WORD = re.compile(
@@ -42,6 +41,46 @@ _VERB_WORD = re.compile(
 _PS_VALUE_PARAMS = {"-filter", "-include", "-exclude", "-credential", "-stream"}
 
 
+def split_segments(command: str) -> list[tuple[str, str]]:
+    """Split a command line into (delimiter_before, segment) pairs on
+    ; | & && || outside quotes, and on every newline. Quote-aware so a
+    nested bash -c "cd X; ..." string stays one token for the recursive
+    pass, which then sees the cd."""
+    segments: list[tuple[str, str]] = []
+    current: list[str] = []
+    quote = ""
+    before = ""
+    index = 0
+    while index < len(command):
+        char = command[index]
+        if quote:
+            if char == "\n":
+                # Unbalanced quote (e.g. an apostrophe in a heredoc): reset.
+                quote = ""
+                segments.append((before, "".join(current)))
+                current, before = [], "\n"
+                index += 1
+                continue
+            if char == quote:
+                quote = ""
+            current.append(char)
+        elif char in "'\"":
+            quote = char
+            current.append(char)
+        elif char in ";|&\n":
+            pair = command[index:index + 2]
+            delimiter = pair if pair in ("&&", "||") else char
+            segments.append((before, "".join(current)))
+            current, before = [], delimiter
+            index += len(delimiter)
+            continue
+        else:
+            current.append(char)
+        index += 1
+    segments.append((before, "".join(current)))
+    return segments
+
+
 def temp_root() -> str:
     base = os.environ.get("LOCALAPPDATA") or ntpath.join(
         os.environ.get("USERPROFILE", "C:\\Users\\Default"), "AppData", "Local"
@@ -49,7 +88,7 @@ def temp_root() -> str:
     return ntpath.normcase(ntpath.normpath(ntpath.join(base, "Temp")))
 
 
-def to_windows_path(path: str, cwd: str, variables: dict[str, str]) -> str | None:
+def to_windows_path(path: str, cwd: str | None, variables: dict[str, str]) -> str | None:
     """Resolve a shell path argument to a normalized Windows path, or None
     when it depends on something we can't know."""
     unresolved = False
@@ -68,6 +107,16 @@ def to_windows_path(path: str, cwd: str, variables: dict[str, str]) -> str | Non
         return ""
 
     path = _VAR.sub(expand, path)
+
+    def expand_cmd(match: re.Match) -> str:
+        nonlocal unresolved
+        value = os.environ.get(match.group(1))
+        if value is None:
+            unresolved = True
+            return ""
+        return value
+
+    path = re.sub(r"%([A-Za-z_][A-Za-z0-9_]*)%", expand_cmd, path)
     if unresolved or "$(" in path or "`" in path:
         return None
     if path.startswith("~"):
@@ -113,11 +162,11 @@ def _tokens(segment: str, powershell: bool) -> list[str]:
         return segment.split()
 
 
-def problems_in(command: str, cwd: str, powershell: bool, depth: int = 0) -> list[str]:
+def problems_in(command: str, cwd: str | None, powershell: bool, depth: int = 0) -> list[str]:
     """Return a human-readable reason for every blocked target."""
     problems: list[str] = []
     variables: dict[str, str] = {}
-    for segment in _SEGMENT_SPLIT.split(command):
+    for delimiter, segment in split_segments(command):
         tokens = _tokens(segment, powershell)
         # Simple VAR=value assignments earlier in the same command line.
         while tokens and _ASSIGNMENT.match(tokens[0]):
@@ -126,9 +175,11 @@ def problems_in(command: str, cwd: str, powershell: bool, depth: int = 0) -> lis
             tokens = tokens[1:]
         if not tokens:
             continue
-        if tokens[0].lower() in ("cd", "set-location", "sl", "pushd") and len(tokens) > 1:
-            resolved = to_windows_path(tokens[1], cwd, variables)
-            cwd = resolved or cwd
+        if tokens[0].lower() in ("cd", "chdir", "set-location", "sl", "pushd"):
+            target = tokens[1] if len(tokens) > 1 else "~"
+            # "cd -" or an unresolvable target: cwd unknown from here on, so
+            # every later relative path is blocked (fail closed).
+            cwd = None if target == "-" else to_windows_path(target, cwd, variables)
             continue
         for index, token in enumerate(tokens):
             # Nested command strings: bash -c "...", powershell -Command "..."
@@ -149,8 +200,8 @@ def problems_in(command: str, cwd: str, powershell: bool, depth: int = 0) -> lis
                         skip_next = True
                     continue
                 args.append(arg)
-            if not args and "xargs" in (t.lower() for t in tokens[:index]):
-                problems.append(f"'{verb}' fed by xargs - targets unknown")
+            if not args and ("xargs" in (t.lower() for t in tokens[:index]) or delimiter == "|"):
+                problems.append(f"'{verb}' takes its targets from a pipe - targets unknown")
             for arg in args:
                 resolved = to_windows_path(arg, cwd, variables)
                 if resolved is None:

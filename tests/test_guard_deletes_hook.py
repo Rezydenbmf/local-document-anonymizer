@@ -41,6 +41,8 @@ class BashCommandTests(unittest.TestCase):
             "rm -rf $LOCALAPPDATA/Temp/claude/scratch",
             "git status && ls -la",
             "ollama list",
+            'bash -c "cd /c/ai/anonimizer/tests; rm -f tmp.txt"',
+            "git commit -m 'Use rm helper; keep files'",
         ):
             with self.subTest(command=command):
                 self.assertFalse(blocked(command))
@@ -61,6 +63,11 @@ class BashCommandTests(unittest.TestCase):
             "ls /c/Users | xargs rm",
             'bash -c "rm -rf /c/Users/tester/Documents"',
             "rm -f /c/Users/tester/Documents/*.pdf",
+            # code-review findings (2026-09-25): each of these got through.
+            'bash -c "cd /c/Users/tester/Documents; rm -rf *"',
+            "cd && rm -rf Documents",
+            "cd - && rm -rf x",
+            "cmd /c del %USERPROFILE%\\Desktop\\x",
         ):
             with self.subTest(command=command):
                 self.assertTrue(blocked(command))
@@ -83,6 +90,7 @@ class PowerShellCommandTests(unittest.TestCase):
             "ri \"$env:USERPROFILE\\Desktop\\x\" -Recurse",
             "Move-Item .\\a.txt C:\\Users\\tester\\a.txt",
             "del C:\\Users\\tester\\a.txt",
+            "Get-ChildItem C:\\Users\\tester\\Documents | Remove-Item -Recurse",
         ):
             with self.subTest(command=command):
                 self.assertTrue(blocked(command, powershell=True))

@@ -75,3 +75,10 @@ dokumentacja, dobór modelu) obowiązuje bez zmian.
   rośnie organicznie: gdy któreś z nas zauważy podczas pracy realny
   fuckup albo bliskie zagrożenie, dopisujemy regułę wtedy, a nie z góry
   na zapas.
+- **Strażnik usuwania (2026-09-25).** Reguły uprawnień nie obejmują
+  komend terminala, a sandbox Claude Code nie działa na natywnym
+  Windowsie — dlatego `.claude/hooks/guard_deletes.py` (hook
+  PreToolUse) blokuje usuwanie/przenoszenie plików poza projektami
+  w `C:\ai` i folderem tymczasowym. Gdy blokuje coś, co naprawdę jest
+  potrzebne: nie obchodzić go, tylko poprosić użytkownika, żeby zrobił
+  to sam.
