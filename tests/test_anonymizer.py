@@ -428,6 +428,72 @@ class AnonymizerEngineTests(unittest.TestCase):
         self.assertEqual(anonymized, text)
         self.assertEqual(report, {})
 
+    def test_street_prefix_may_be_followed_by_a_line_break(self) -> None:
+        """Benchmark (2026-09-25): "przy ul.⏎Kasztanowej 12" leaked in
+        full because the PDF line wrapped right after the prefix."""
+        text = "lokal przy ul.\nKasztanowej 12 w centrum"
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(anonymized, "lokal przy [ULICA] w centrum")
+        self.assertEqual(report, {"ULICA": 1})
+
+    def test_street_match_includes_separate_flat_number(self) -> None:
+        text = "Adres: ul. Wiśniowa 14 m. 2, lok. obok: ul. Polna 3 lok. 7."
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(anonymized, "Adres: [ULICA], lok. obok: [ULICA].")
+        self.assertEqual(report, {"ULICA": 2})
+
+    def test_known_town_is_found_again_inflected_and_capitalised(self) -> None:
+        """Benchmark (2026-09-25): NER missed "w Borowcu Dolnym" and
+        "W BOROWCU DOLNYM" although the same town was already caught in
+        its nominative form after the postal code."""
+        text = (
+            "ul. Lipowa 7, 34-512 Borowiec Dolny.\n"
+            "OŚRODEK W BOROWCU DOLNYM. Bank w Borowcu\nDolnym. "
+            "Działka w obrębie Borowiec Górny. Miejsce: Borowiec Dolny"
+        )
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(
+            anonymized,
+            "[ULICA], [POSTAL_CODE] [MIEJSCOWOSC].\n"
+            "OŚRODEK W [MIEJSCOWOSC]. Bank w [MIEJSCOWOSC]. "
+            "Działka w obrębie [MIEJSCOWOSC]. Miejsce: [MIEJSCOWOSC]",
+        )
+        self.assertEqual(
+            report, {"ULICA": 1, "POSTAL_CODE": 1, "MIEJSCOWOSC": 5}
+        )
+
+    def test_known_town_stem_does_not_catch_ordinary_words(self) -> None:
+        """The stem "Tych" (Tychy) must not hit the pronoun "tych"/"Tych",
+        and nothing is searched for when no postal-code town exists."""
+        text = "43-100 Tychy. Mieszka w Tychach. Tych dokumentów, tych ludzi."
+
+        anonymized, _ = anonymize_text(text)
+
+        self.assertEqual(
+            anonymized,
+            "[POSTAL_CODE] [MIEJSCOWOSC]. Mieszka w [MIEJSCOWOSC]. "
+            "Tych dokumentów, tych ludzi.",
+        )
+        self.assertEqual(
+            anonymize_text("Mieszka w Borowcu Dolnym.")[0],
+            "Mieszka w Borowcu Dolnym.",
+        )
+
+    def test_known_town_respects_category_selection(self) -> None:
+        text = "34-512 Borowiec Dolny, w Borowcu Dolnym"
+
+        anonymized, _, _ = _apply_dictionary_and_regex(
+            text, active_labels=frozenset({"POSTAL_CODE"})
+        )
+
+        self.assertEqual(anonymized, "[POSTAL_CODE] Borowiec Dolny, w Borowcu Dolnym")
+
     def test_replaces_compound_city_name_after_postal_code(self) -> None:
         text = "62-800 Ostrów Wielkopolski. 43-300 Bielsko-Biała."
 

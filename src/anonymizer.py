@@ -842,6 +842,13 @@ _SURNAME_LIKE_TOKEN = (
     rf"[{_UPPER_LETTERS}][{_LOWER_LETTERS}]{{2,}}"
     r"(?:ski|ska|cki|cka|dzki|dzka|ak|ek|ik|yk|uk|cz|icz|wicz|owicz|ewicz)"
 )
+# House number, optionally "/flat" or a separate "m. 2" / "lok. 2" flat
+# number - "ul. Wiśniowa 14 m. 2" used to leave "m. 2" visible
+# (benchmark 2026-09-25).
+_HOUSE_NUMBER = (
+    rf"\d+[A-Za-z]?(?:/\d+)?"
+    rf"(?:{_INLINE_WS}+(?i:m\.|lok\.){_INLINE_WS}*\d+[A-Za-z]?)?"
+)
 # A Polish company's own legal-form suffix (Sp. z o.o., S.A., ...) is the
 # one reliable marker spaCy's small NER model kept missing or truncating
 # live on a real invoice fixture: it tagged only "z o.o." out of "Usługi
@@ -1055,11 +1062,21 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
             rf"""
             (?<!\w)
             (?:
-                (?i:ul\.?|al\.?|pl\.?|ulic[ayę]|aleja|alei|aleję|plac(?:u)?)
-                {_INLINE_WS}+
+                # A line break is tolerated only right after an
+                # unambiguous street prefix ("przy ul.⏎Kasztanowej 12",
+                # benchmark 2026-09-25) - the prefix alone already says
+                # a street name follows. Everywhere else the match stays
+                # on one line (see _INLINE_WS).
+                (?:
+                    (?i:ul\.|al\.|ulic[ayę]|aleja|alei|aleję)
+                    {_INLINE_WS}*\n{_INLINE_WS}*
+                    |
+                    (?i:ul\.?|al\.?|pl\.?|ulic[ayę]|aleja|alei|aleję|plac(?:u)?)
+                    {_INLINE_WS}+
+                )
                 {_NAME_TOKEN}
                 (?:{_INLINE_WS}+{_NAME_TOKEN}){{0,2}}
-                (?:{_INLINE_WS}+\d+[A-Za-z]?(?:/\d+)?)?
+                (?:{_INLINE_WS}+{_HOUSE_NUMBER})?
                 |
                 # A bare "Adres"/"Adres:" label with no "ul./al./pl."
                 # prefix at all (common in scanned table/form layouts -
@@ -1076,7 +1093,7 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
                 {_INLINE_WS}+
                 {_NAME_TOKEN}
                 (?:{_INLINE_WS}+{_NAME_TOKEN}){{0,2}}
-                {_INLINE_WS}+\d+[A-Za-z]?(?:/\d+)?
+                {_INLINE_WS}+{_HOUSE_NUMBER}
             )
             (?!\w)
             """,
@@ -1108,6 +1125,7 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
         PERSON_NAME_TYPO_PATTERN,
     ),
 )
+MIEJSCOWOSC_PATTERN = dict(_PATTERNS)["MIEJSCOWOSC"]
 
 
 def anonymize_text(
@@ -1178,6 +1196,9 @@ def _apply_dictionary_and_regex(
     """
     anonymized, counters = apply_sensitive_terms(text, sensitive_terms)
     dictionary_counters = dict(counters)
+    # Read before the loop below replaces the postal-code towns it is
+    # built from.
+    place_names = known_place_names([anonymized])
 
     for label, pattern in _PATTERNS:
         if active_labels is None or label in active_labels:
@@ -1214,6 +1235,10 @@ def _apply_dictionary_and_regex(
             )
             for table_label, table_count in table_counts.items():
                 counters[table_label] = counters.get(table_label, 0) + table_count
+    if active_labels is None or "MIEJSCOWOSC" in active_labels:
+        anonymized, place_count = _replace_known_places(anonymized, place_names)
+        if place_count:
+            counters["MIEJSCOWOSC"] = counters.get("MIEJSCOWOSC", 0) + place_count
     if active_labels is None or "TELEFON" in active_labels:
         anonymized, weak_phone_count = _replace_contextual_weak_phone_numbers(
             anonymized
@@ -1252,6 +1277,103 @@ def _weak_phone_like_without_context_count(text: str) -> int:
         for match in WEAK_GROUPED_PHONE_PATTERN.finditer(text)
         if not _has_phone_context(text, match.start())
     )
+
+
+# Document-local place gazetteer (benchmark 2026-09-25). MIEJSCOWOSC only
+# fires right after a postal code ("34-512 Borowiec Dolny"), and spaCy's
+# small model misses the same town elsewhere in the document once it is
+# inflected or capitalised ("w Borowcu Dolnym", "W BOROWCU DOLNYM",
+# "Miejsce wystawienia: Borowiec Dolny"). A generic "w + two capitalised
+# words" rule would also swallow "w Sądzie Rejonowym", so instead every
+# town the postal-code pattern already found is searched for again, by
+# stem, in the rest of the same document.
+_PLACE_STEM_ENDING = re.compile(r"(?:iec|ec|ie|e|y|i|a|o)$", re.IGNORECASE)
+_PLACE_MIN_STEM_LENGTH = 4
+# Polish case endings on a town name are at most three letters
+# (Tych-ach, Borow-cu, Star-ym, Doln-ego).
+_PLACE_MAX_INFLECTION = 3
+# Between two words of one town name: spaces, or a single line break
+# ("w Mirosławcu⏎Górnym" wraps in running text).
+_PLACE_WORD_GAP = rf"(?:{_INLINE_WS}+|{_INLINE_WS}*\n{_INLINE_WS}*)"
+# The second word of a two-word town in a sibling name ("Borowiec
+# Górny" next to a known "Borowiec Dolny") - an adjective-shaped word.
+_PLACE_ADJECTIVE_WORD = (
+    rf"[{_UPPER_LETTERS}][{_LOWER_LETTERS}]*"
+    r"(?:y|i|a|e|ym|im|ej|ego|iego|emu|ą|ie)"
+)
+
+
+def _place_word_pattern(word: str) -> str:
+    stem = _PLACE_STEM_ENDING.sub("", word)
+    if len(stem) < _PLACE_MIN_STEM_LENGTH:
+        return re.escape(word)
+    if stem == word:
+        return rf"{re.escape(word)}[{_LOWER_LETTERS}]{{0,{_PLACE_MAX_INFLECTION}}}"
+    # At least one ending letter: the bare stem is never a real form of
+    # the town, but can be another word ("Tych" from Tychy).
+    return rf"{re.escape(stem)}[{_LOWER_LETTERS}]{{1,{_PLACE_MAX_INFLECTION}}}"
+
+
+def known_place_names(texts: Iterable[str]) -> tuple[str, ...]:
+    """Town names the postal-code pattern finds in ``texts``, deduplicated."""
+    names: dict[str, None] = {}
+    for text in texts:
+        for match in MIEJSCOWOSC_PATTERN.finditer(text):
+            names[" ".join(match.group(0).split())] = None
+    return tuple(names)
+
+
+def _known_place_pattern(place_names: Iterable[str]) -> re.Pattern[str] | None:
+    alternatives: list[str] = []
+    for name in place_names:
+        words = name.split()
+        if not words:
+            continue
+        word_patterns = [_place_word_pattern(word) for word in words]
+        alternatives.append(_PLACE_WORD_GAP.join(word_patterns))
+        if len(words) > 1:
+            alternatives.append(
+                f"{word_patterns[0]}{_PLACE_WORD_GAP}{_PLACE_ADJECTIVE_WORD}"
+            )
+    if not alternatives:
+        return None
+    # Longest alternative first, so a full "Borowiec Dolny" wins over
+    # its own one-word prefix.
+    alternatives.sort(key=len, reverse=True)
+    return re.compile(
+        rf"(?<![\w@.-])(?:{'|'.join(alternatives)})(?![\w@-])",
+        re.IGNORECASE,
+    )
+
+
+def known_place_spans(
+    text: str, place_names: Iterable[str]
+) -> list[tuple[int, int]]:
+    """Spans of ``place_names`` in any inflection or letter case. Only
+    words starting with a capital count, so the stem "Tych" (Tychy)
+    never catches the pronoun "tych"."""
+    pattern = _known_place_pattern(place_names)
+    if pattern is None:
+        return []
+    return [
+        (match.start(), match.end())
+        for match in pattern.finditer(text)
+        if match.group(0)[0].isupper()
+    ]
+
+
+def _replace_known_places(text: str, place_names: Iterable[str]) -> tuple[str, int]:
+    spans = known_place_spans(text, place_names)
+    if not spans:
+        return text, 0
+    parts: list[str] = []
+    cursor = 0
+    for start, end in spans:
+        parts.append(text[cursor:start])
+        parts.append("[MIEJSCOWOSC]")
+        cursor = end
+    parts.append(text[cursor:])
+    return "".join(parts), len(spans)
 
 
 def _pdf_ner_redaction_terms(
@@ -1414,8 +1536,13 @@ def _regex_pdf_spans_for_page(
     occupied_ranges: list[tuple[int, int]],
     *,
     active_labels: frozenset[str] | None = None,
+    place_names: Iterable[str] = (),
 ) -> list[PdfRedactionSpan]:
-    """``active_labels`` must be applied *before* a span is added, not
+    """``place_names`` (see known_place_names) is gathered from the whole
+    document by the caller, so a town given with its postal code on page
+    1 is still found in inflected form on page 3.
+
+    ``active_labels`` must be applied *before* a span is added, not
     filtered out of the result afterward - _add_pdf_span reserves
     ``occupied_ranges`` as a side effect, and NER (source="ner") runs
     after this in _pdf_detection_spans_for_word_pages. A category
@@ -1467,6 +1594,17 @@ def _regex_pdf_spans_for_page(
                     end=end,
                     source="regex",
                 )
+    if active_labels is None or "MIEJSCOWOSC" in active_labels:
+        for start, end in known_place_spans(page_text, place_names):
+            _add_pdf_span(
+                spans,
+                occupied_ranges,
+                label="MIEJSCOWOSC",
+                page_number=page_number,
+                start=start,
+                end=end,
+                source="regex",
+            )
     if active_labels is None or "TELEFON" in active_labels:
         for match in WEAK_GROUPED_PHONE_PATTERN.finditer(page_text):
             if not _has_phone_context(page_text, match.start()):
@@ -1565,6 +1703,8 @@ def _pdf_detection_spans_for_word_pages(
     at all", not "don't touch this page except for my dictionary terms".
     """
     spans: list[PdfRedactionSpan] = []
+    word_pages = list(word_pages)
+    place_names = known_place_names(page.text for page in word_pages)
     for page in word_pages:
         if active_pages is not None and page.page_number not in active_pages:
             continue
@@ -1583,6 +1723,7 @@ def _pdf_detection_spans_for_word_pages(
                 page.page_number,
                 occupied_ranges,
                 active_labels=active_labels,
+                place_names=place_names,
             )
         )
         spans.extend(

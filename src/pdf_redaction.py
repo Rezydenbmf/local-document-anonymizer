@@ -102,6 +102,11 @@ _NAME_HYPHEN_CHARS = frozenset(_NAME_HYPHEN_CHAR_LIST)
 # file's own docstring/the surrounding duplicated pattern set below,
 # which predates this constant and has the same constraint.
 _INLINE_WS = r"[^\S\n]"
+# Kept in sync with anonymizer.py's identical _HOUSE_NUMBER.
+_HOUSE_NUMBER = (
+    rf"\d+[A-Za-z]?(?:/\d+)?"
+    rf"(?:{_INLINE_WS}+(?i:m\.|lok\.){_INLINE_WS}*\d+[A-Za-z]?)?"
+)
 _SURNAME_LIKE_TOKEN = (
     rf"[{_UPPER_LETTERS}][{_LOWER_LETTERS}]{{2,}}"
     r"(?:ski|ska|cki|cka|dzki|dzka|ak|ek|ik|yk|uk|cz|icz|wicz|owicz|ewicz)"
@@ -301,11 +306,18 @@ PDF_REDACTION_PATTERNS: tuple[PdfRedactionPattern, ...] = (
             rf"""
             (?<!\w)
             (?:
-                (?i:ul\.?|al\.?|pl\.?|ulic[ayę]|aleja|alei|aleję|plac(?:u)?)
-                {_INLINE_WS}+
+                # Line break only right after an unambiguous prefix, and
+                # the "m. 2" flat number - same as anonymizer.py's copy.
+                (?:
+                    (?i:ul\.|al\.|ulic[ayę]|aleja|alei|aleję)
+                    {_INLINE_WS}*\n{_INLINE_WS}*
+                    |
+                    (?i:ul\.?|al\.?|pl\.?|ulic[ayę]|aleja|alei|aleję|plac(?:u)?)
+                    {_INLINE_WS}+
+                )
                 {_NAME_TOKEN}
                 (?:{_INLINE_WS}+{_NAME_TOKEN}){{0,2}}
-                (?:{_INLINE_WS}+\d+[A-Za-z]?(?:/\d+)?)?
+                (?:{_INLINE_WS}+{_HOUSE_NUMBER})?
                 |
                 # Bare "Adres"/"Adres:" label, mandatory trailing house
                 # number - identical fix and rationale as anonymizer.py's
@@ -314,7 +326,7 @@ PDF_REDACTION_PATTERNS: tuple[PdfRedactionPattern, ...] = (
                 {_INLINE_WS}+
                 {_NAME_TOKEN}
                 (?:{_INLINE_WS}+{_NAME_TOKEN}){{0,2}}
-                {_INLINE_WS}+\d+[A-Za-z]?(?:/\d+)?
+                {_INLINE_WS}+{_HOUSE_NUMBER}
             )
             (?!\w)
             """,

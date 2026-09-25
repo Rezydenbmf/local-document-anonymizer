@@ -1,15 +1,13 @@
 {
  "schema": "docshield-benchmark-baseline/1",
- "created": "2026-09-25 19:55",
+ "created": "2026-09-25 20:04",
  "generator": "8d08320cce151918",
  "policy_version": 1,
  "docs": {
   "01_karta_informacyjna": {
    "must": 15,
-   "covered": 13,
-   "partial": [
-    "s08"
-   ],
+   "covered": 14,
+   "partial": [],
    "full": [
     "s01"
    ],
@@ -17,54 +15,46 @@
    "residue": [],
    "over_rects": 2,
    "layers": {
-    "ner": 6,
-    "regex": 7
+    "ner": 5,
+    "regex": 9
    }
   },
   "02_faktura_vat_tabela": {
    "must": 17,
-   "covered": 14,
+   "covered": 16,
    "partial": [
     "s04"
    ],
-   "full": [
-    "s03",
-    "s17"
-   ],
+   "full": [],
    "keep_redacted": [],
    "residue": [],
    "over_rects": 0,
    "layers": {
     "ner": 2,
-    "regex": 12
+    "regex": 14
    }
   },
   "03_umowa_najmu_2str": {
    "must": 20,
-   "covered": 17,
+   "covered": 20,
    "partial": [],
-   "full": [
-    "s02",
-    "s14",
-    "s15"
-   ],
+   "full": [],
    "keep_redacted": [],
    "residue": [],
    "over_rects": 3,
    "layers": {
     "ner": 4,
-    "regex": 13
+    "regex": 16
    }
   },
   "04_cv_dwie_kolumny": {
    "must": 14,
-   "covered": 11,
+   "covered": 12,
    "partial": [
     "s08"
    ],
    "full": [
-    "s03",
-    "s09"
+    "s03"
    ],
    "keep_redacted": [
     "s15"
@@ -73,7 +63,7 @@
    "over_rects": 8,
    "layers": {
     "ner": 5,
-    "regex": 6
+    "regex": 7
    }
   },
   "05_wydruk_email": {
@@ -102,24 +92,21 @@
    "residue": [],
    "over_rects": 0,
    "layers": {
-    "ner": 6,
-    "regex": 6
+    "ner": 4,
+    "regex": 8
    }
   },
   "07_decyzja_skan_dobry": {
    "must": 11,
-   "covered": 9,
+   "covered": 11,
    "partial": [],
-   "full": [
-    "s03",
-    "s12"
-   ],
+   "full": [],
    "keep_redacted": [],
    "residue": [],
    "over_rects": 2,
    "layers": {
-    "ner": 4,
-    "regex": 5
+    "ner": 3,
+    "regex": 8
    }
   },
   "08_faktura_skan_dobry": {
@@ -169,12 +156,11 @@
   },
   "llm_test_1_notatka_wizyta_3str": {
    "must": 27,
-   "covered": 15,
+   "covered": 16,
    "partial": [
     "s18"
    ],
    "full": [
-    "s01",
     "s13",
     "s14",
     "s15",
@@ -193,8 +179,8 @@
    "residue": [],
    "over_rects": 2,
    "layers": {
-    "ner": 7,
-    "regex": 8
+    "ner": 6,
+    "regex": 10
    }
   },
   "llm_test_2_opinia_lekarska_2str": {
@@ -237,8 +223,8 @@
    "residue": [],
    "over_rects": 2,
    "layers": {
-    "ner": 5,
-    "regex": 5
+    "ner": 4,
+    "regex": 6
    }
   }
  },
