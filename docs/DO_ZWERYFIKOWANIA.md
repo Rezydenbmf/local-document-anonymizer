@@ -157,6 +157,16 @@ przenoszę ją do „Potwierdzone" albo usuwam. Jeśli lista urośnie powyżej
       wcześniej, a raport `_RAPORT.txt` nie ma już sekcji „Local LLM
       review”.
 
+- [ ] **Ustawienia: checkboxy AI synchronizują się z ekranem głównym +
+      wybór modelu AI (2026-09-25, Twoje zgłoszenie z testu)** — (1)
+      włącz oba „AI: …” w Ustawieniach, zapisz — na ekranie głównym oba
+      checkboxy mają być zaznaczone (i odwrotnie przy wyłączeniu); (2)
+      w Ustawieniach → wykrywanie, pod dwoma opcjami „AI: …”, jest nowa
+      sekcja „Model AI (Ollama)” z listą zainstalowanych modeli — wybierz
+      Bielika, zapisz, otwórz Ustawienia ponownie: wybór ma zostać.
+      Uwaga: ustawienia nadal obowiązują tylko do zamknięcia apki (tak
+      było zawsze) — po ponownym uruchomieniu AI jest wyłączone.
+
 ## Znane, jeszcze NIE naprawione (odłożone na Twoją prośbę — wracamy do
    wdrożenia LLM)
 
