@@ -682,10 +682,16 @@ PDF_STRICT_NER_REDACTION_LABELS = (
 PDF_NER_REDACTION_MIN_TEXT_LENGTH = 4
 PDF_NER_PERSON_MIN_WORDS = 2
 WEAK_PHONE_LIKE_SKIPPED_LABEL = "WEAK_PHONE_LIKE_SKIPPED"
+# "pod numerem" / "z numeru" and dots as separators: benchmark findings
+# of 2026-09-25 ("dostępna pod numerem 600 000 903", "dzwonił z numeru
+# 600.000.528"). A 3-3-3 group still needs one of these contexts.
 PHONE_CONTEXT_PATTERN = re.compile(
-    r"(?i)(?:tel\.?|telefon|kom\.?|mobile|fax|kontakt|numer telefonu|phone)\s*[:\-]?\s*$"
+    r"(?i)(?:tel\.?|telefon|kom\.?|mobile|fax|kontakt|numer telefonu|phone"
+    r"|pod\s+numerem|z\s+numeru|komórk\w*)\s*[:\-]?\s*$"
 )
-WEAK_GROUPED_PHONE_PATTERN = re.compile(r"(?<![\w+])\d{3}[-\s]\d{3}[-\s]\d{3}(?!\w)")
+WEAK_GROUPED_PHONE_PATTERN = re.compile(
+    r"(?<![\w+])(?<!\d\.)\d{3}[-\s.]\d{3}[-\s.]\d{3}(?!\.\d)(?!\w)"
+)
 # The direct "NIP"/"REGON" patterns in _PATTERNS require the label and
 # its digits to sit on the same line - confirmed live on a real invoice
 # fixture, a common table layout defeats that entirely: every field
@@ -961,9 +967,12 @@ class BatchResult:
 
 _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
+        # The domain may wrap to the next line right after one of its
+        # own hyphens ("ola.wilczynska@poczta-⏎testowa.test", a CV
+        # column in the benchmark, 2026-09-25).
         "EMAIL",
         re.compile(
-            r"(?<![\w.+-])[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"
+            r"(?<![\w.+-])[A-Za-z0-9._%+-]+@(?:[A-Za-z0-9.-]|-\n)+\.[A-Za-z]{2,}\b"
         ),
     ),
     ("PESEL", re.compile(r"(?<!\w)\d{11}(?!\w)")),

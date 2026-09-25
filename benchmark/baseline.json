@@ -1,6 +1,6 @@
 {
  "schema": "docshield-benchmark-baseline/1",
- "created": "2026-09-25 20:04",
+ "created": "2026-09-25 20:06",
  "generator": "8d08320cce151918",
  "policy_version": 1,
  "docs": {
@@ -49,13 +49,11 @@
   },
   "04_cv_dwie_kolumny": {
    "must": 14,
-   "covered": 12,
+   "covered": 13,
    "partial": [
     "s08"
    ],
-   "full": [
-    "s03"
-   ],
+   "full": [],
    "keep_redacted": [
     "s15"
    ],
@@ -63,24 +61,22 @@
    "over_rects": 8,
    "layers": {
     "ner": 5,
-    "regex": 7
+    "regex": 8
    }
   },
   "05_wydruk_email": {
    "must": 17,
-   "covered": 15,
+   "covered": 16,
    "partial": [
     "s16"
    ],
-   "full": [
-    "s10"
-   ],
+   "full": [],
    "keep_redacted": [],
    "residue": [],
    "over_rects": 2,
    "layers": {
     "ner": 7,
-    "regex": 8
+    "regex": 9
    }
   },
   "06_pelnomocnictwo": {
@@ -206,12 +202,11 @@
   },
   "llm_test_3_skan_protokol_2str": {
    "must": 16,
-   "covered": 10,
+   "covered": 11,
    "partial": [],
    "full": [
     "s11",
     "s12",
-    "s13",
     "s14",
     "s18",
     "s23"
@@ -224,7 +219,7 @@
    "over_rects": 2,
    "layers": {
     "ner": 4,
-    "regex": 6
+    "regex": 7
    }
   }
  },

@@ -211,7 +211,8 @@ PDF_REDACTION_PATTERNS: tuple[PdfRedactionPattern, ...] = (
     PdfRedactionPattern(
         "EMAIL",
         re.compile(
-            r"(?<![\w.+-])[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"
+            # Kept in sync with anonymizer.py: domain may wrap after "-".
+            r"(?<![\w.+-])[A-Za-z0-9._%+-]+@(?:[A-Za-z0-9.-]|-\n)+\.[A-Za-z]{2,}\b"
         ),
     ),
     PdfRedactionPattern("PESEL", re.compile(r"(?<!\w)\d{11}(?!\w)")),

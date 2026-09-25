@@ -290,6 +290,39 @@ class AnonymizerEngineTests(unittest.TestCase):
         self.assertEqual(anonymized, "Kontakt tel. [TELEFON].")
         self.assertEqual(report, {"TELEFON": 1})
 
+    def test_replaces_grouped_phone_after_pod_numerem_and_with_dots(self) -> None:
+        """Benchmark (2026-09-25): "pod numerem 600 000 903" and
+        "z numeru 600.000.528" both stayed visible."""
+        text = (
+            "Jestem dostępna pod numerem 600 000 903 po 17:00. "
+            "Dzwonił z numeru 600.000.528, tel.600 000 111."
+        )
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(
+            anonymized,
+            "Jestem dostępna pod numerem [TELEFON] po 17:00. "
+            "Dzwonił z numeru [TELEFON], tel.[TELEFON].",
+        )
+        self.assertEqual(report, {"TELEFON": 3})
+
+    def test_dotted_number_without_phone_context_is_left_alone(self) -> None:
+        text = "Kwota 600.000.528 zł, wersja 1.600.000.528.2 pod numerem 12.600.000.528"
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(anonymized, text)
+        self.assertEqual(report, {})
+
+    def test_replaces_email_wrapped_after_a_hyphen_in_the_domain(self) -> None:
+        text = "tel. 600 000 815\nola.wilczynska@poczta-\ntestowa.test\nul. Brzozowa 3"
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(anonymized, "tel. [TELEFON]\n[EMAIL]\n[ULICA]")
+        self.assertEqual(report, {"TELEFON": 1, "EMAIL": 1, "ULICA": 1})
+
     def test_does_not_replace_weak_table_like_phone_number(self) -> None:
         text = "Tabela: populacja 123 456 789 oraz warto\u015b\u0107 43 595."
 
