@@ -184,32 +184,6 @@ przenoszę ją do „Potwierdzone" albo usuwam. Jeśli lista urośnie powyżej
       Sprawdź, czy bez uzasadnienia wiesz, o co chodzi w sugestii — jeśli
       nie, wymyślimy bezpieczny sposób, żeby to doprecyzować.
 
-- [ ] **Redakcja nie zjada już tekstu z sąsiedniej linii (2026-09-25,
-      Twój zrzut ekranu)** — w ciasno złożonych liniach pasek zamazania
-      zahaczał o linię poniżej/powyżej i usuwał z niej zwykły tekst, bez
-      żadnego widocznego paska. Sprawdź na żywo: zanonimizuj
-      `llm_test_2_opinia_lekarska_2str.pdf` i otwórz porównanie — w bloku
-      „Podstawa… / PESEL… / Opinię…” na stronie 1 cały zwykły tekst ma
-      być widoczny, zamazane tylko data, PESEL i „ZUS”. Paski w środkowej
-      linii są teraz cieńsze (to celowe — nie mogą wchodzić na sąsiednie
-      linie; tekst pod nimi jest naprawdę usunięty). **Uwaga**: sygnatury
-      akt („sygn. OL/2026/00417”, w `llm_test_1` „III RC 418/25”) są teraz
-      widoczne — wcześniej znikały tylko przez ten błąd, program ich nie
-      wykrywa. Czy sygnatura akt ma być zamazywana? Zdecydujemy przy
-      kluczu odpowiedzi do testów. **Dopisane tego samego dnia**:
-      ostrzeżenie „Some detected PDF spans could not be mapped…” na
-      ekranie wyników dla tego pliku powinno zniknąć — to słowo w polskim
-      cudzysłowie („…Lipami”), które NER wykrył, a PDF zostawiał odkryte.
-
-- [ ] **AI włączone z ekranu głównego samo dobiera model (2026-09-25,
-      Twój przebieg na `llm_test_2`)** — wcześniej zaznaczenie „AI: …”
-      na ekranie głównym (bez wchodzenia w Ustawienia) uruchamiało AI bez
-      modelu i okno pokazywało mylące „nie powiodła się”. Sprawdź: (1)
-      uruchom apkę od nowa, zaznacz „AI: …” tylko na ekranie głównym,
-      anonimizuj — AI ma faktycznie ruszyć (długi czas, sugestie albo
-      komunikat „nie zgłosiło uwag”); (2) opcjonalnie: wyłącz Ollamę i
-      spróbuj ponownie — apka ma zapytać, czy kontynuować bez AI.
-
 ## Znane, jeszcze NIE naprawione (odłożone na Twoją prośbę — wracamy do
    wdrożenia LLM)
 
@@ -228,6 +202,22 @@ pamiętaj że teraz duże wdrożenie tego LLM mamy dokończyć") — nie
 naprawiane teraz, tylko odnotowane do zaplanowania później.
 
 ## Potwierdzone
+
+- [x] **Redakcja nie zjada już tekstu z sąsiedniej linii + słowo
+      w polskim cudzysłowie zamazane** (potwierdzone 2026-09-25, zrzutem
+      z żywego okna porównania na `llm_test_2`) — Twój feedback: „tym
+      razem nie zanonimizowało tego ciasnego fragmentu, czyli poprawka
+      działa". Na zrzucie też „Lipami” w „Przychodnia pod Lipami”
+      zamazane. Otwarte do klucza testów: sygnatury akt i „PWZ 1234567”
+      widoczne; „Zagórze Wąskie” zamazane tylko w połowie („Wąskie”
+      widoczne).
+- [x] **AI włączone z ekranu głównego samo dobiera model** (potwierdzone
+      2026-09-25, ten sam przebieg) — plik wyniku AI: gemma3:4b, obie
+      analizy „completed”, 7 pominiętych danych + 4 kombinacje = 11
+      sugestii. Twoje pytanie „11 u góry, a Zastosuj wszystkie (7)”:
+      kombinacje wymagają ręcznego zaznaczenia, więc „Zastosuj wszystkie”
+      ich nie obejmuje — do poprawienia opisu przycisku w nowym
+      przepływie recenzji.
 
 - [x] **Skany: akapity nie sklejają się już w jedną linię** (potwierdzone
       2026-09-25, zrzutem ekranu z żywego okna porównania na
