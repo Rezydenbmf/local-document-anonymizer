@@ -12,36 +12,6 @@ przenoszę ją do „Potwierdzone" albo usuwam. Jeśli lista urośnie powyżej
 
 ## Do sprawdzenia
 
-- [ ] **Zakres stron per plik — przebudowane po Twoim live feedbacku
-      (2026-09-22, gotowe do ponownego sprawdzenia)** — zgłosiłeś, że
-      dymek podpowiedzi się ucinał (nieczytelny) i że pole w ogóle nie
-      pokazywało żadnej podpowiedzi liczby stron. Drugie okazało się
-      prawdziwym błędem, nie tylko brakiem: biblioteka GUI (customtkinter)
-      ma błąd, przez który wbudowana „szara podpowiedź" pola tekstowego
-      nigdy się nie aktywuje, gdy pole jest jednocześnie powiązane
-      z żywą walidacją (a takie jest to pole od początku) — więc ta
-      podpowiedź nigdy realnie nie działała, nawet zanim to przebudowałem.
-      Naprawione własną, ręczną implementacją tego mechanizmu. Przy okazji,
-      zgodnie z Twoimi uwagami: (a) dymek podpowiedzi łamie się teraz na
-      kilka linii zamiast urywać; (b) pole samo w sobie od razu pokazuje
-      szarym tekstem efektywny zakres, np. „3 z 3 stron” albo „1 z 1
-      strony” (nie przykład, tylko prawdziwą wartość dla tego pliku);
-      (c) pole jest domyślnie zablokowane (szare), aktywuje się dopiero
-      po zaznaczeniu małego checkboxa obok (bez podpisu przy nim — najedź
-      myszką, żeby zobaczyć „Ręczne oznaczenie stron do anonimizacji”);
-      (d) pole zwężone, a cały układ przesunięty bliżej prawej krawędzi,
-      żeby było więcej miejsca na nazwę pliku. Sprawdź na żywo: (1)
-      wrzuć kilka PDF-ów o różnej liczbie stron — każdy pokazuje od razu
-      poprawną szarą podpowiedź „X z X stron”, pole jest zablokowane;
-      (2) zaznacz checkbox przy jednym pliku — pole się odblokowuje,
-      podpowiedź nadal widoczna, aż zaczniesz pisać; (3) wpisz zakres
-      spoza dokumentu (np. „99” na 3-stronicowym pliku) — obramowanie
-      od razu robi się czerwone; (4) odznacz checkbox — pole wraca
-      zablokowane z podpowiedzią „cały dokument”, żaden wpisany wcześniej
-      zakres nie zostaje; (5) uruchom anonimizację z ręcznym zakresem na
-      jednym pliku, a drugi zostaw bez zaznaczenia — pierwszy ma zamazane
-      tylko wybrane strony, drugi cały dokument.
-
 - [ ] **Okno samej aplikacji miga raz przy starcie (zgłoszone
       2026-09-22, niski priorytet — Twoja własna ocena)** — Twój
       feedback: „nie migaja terminale okno samej aplikacji raz miga -
@@ -50,60 +20,6 @@ przenoszę ją do „Potwierdzone" albo usuwam. Jeśli lista urośnie powyżej
       potwierdzone. To nowe, osobne zjawisko (samo okno GUI, nie
       terminal) zostaje odnotowane, ale świadomie odłożone na Twoją
       prośbę — nie coś, czym zajmuję się teraz.
-
-- [ ] **Usuwanie podpisu elektronicznego z poziomu okna podglądu
-      (magic pen) — zbudowane 2026-09-22, gotowe do sprawdzenia** —
-      punkt 2 z Twojej decyzji „to robimy 1 i 2 a potem na ten tydzien
-      zaczynamy z llm-em". W panelu bocznym „Korekta anonimizacji"
-      (obok kategorii danych) pojawia się teraz osobny, żółty checkbox
-      „Usuń podpisy elektroniczne" — ale **tylko** dla dokumentów,
-      których oryginał faktycznie ma pole podpisu elektronicznego w
-      zasięgu wybranego wcześniej zakresu stron (dla reszty checkbox
-      się w ogóle nie pojawia, żeby nie zaśmiecać panelu). Zmiana tego
-      wyboru sama w sobie liczy się jako „niezapisana zmiana" — przycisk
-      „Zaakceptuj edycję" aktywuje się nawet bez żadnego ręcznego
-      zaznaczenia. Sprawdź na żywo: (1) otwórz w oknie porównania
-      dokument z prawdziwym podpisem elektronicznym — checkbox powinien
-      się pojawić, odznaczony lub zaznaczony zgodnie z tym, co wybrałeś
-      przed anonimizacją; (2) otwórz dokument bez podpisu — checkboxa
-      nie powinno być w ogóle; (3) zaznacz/odznacz checkbox bez żadnej
-      innej edycji i kliknij „Zaakceptuj edycję" — PDF powinien się
-      przebudować z (lub bez) polem podpisu, zgodnie z nowym wyborem;
-      (4) zamknij i otwórz okno ponownie dla tego samego pliku —
-      checkbox ma pokazywać już zapisany wybór, nie domyślny; (5)
-      zaznacz checkbox i kliknij „Anuluj" zamiast zapisywać — wybór ma
-      wrócić do poprzedniego stanu.
-
-- [ ] **Foldery wynikowe wg daty + rozdzielenie PDF/TXT — zbudowane
-      2026-09-22, gotowe do sprawdzenia** — Twoje zgłoszenie: folder
-      „approved" (nigdy nie czyszczony, bo traktujesz go jak własną bazę)
-      zbierał bałagan — PDF plus dwa pliki TXT (wynik i raport) na
-      dokument, bez porządku. Teraz: **w obu miejscach** (folder wyników
-      i „approved") każdy dzień anonimizacji dostaje własny podfolder w
-      formacie `DD.MM.RRRR`, a wewnątrz niego podfolder `txt` — PDF-y
-      zostają bezpośrednio w folderze daty, wszystkie pliki TXT
-      (wynikowe i raporty) trafiają do `txt`. Kilka osobnych anonimizacji
-      tego samego dnia trafia do jednego folderu daty. „Wyczyść
-      historię" w folderze wyników nadal kasuje wszystko, łącznie z tymi
-      podfolderami; „approved" zostaje nietykalny jak dziś. Stare,
-      istniejące już wyniki w płaskiej strukturze **zostają nietknięte**
-      — apka rozpoznaje oba układy naraz, bez żadnej migracji. Przy
-      okazji poprawiony też prawdziwy błąd, który złapałaby dopiero Twoja
-      własna próba: otwarcie starszego folderu z historii pokazywało
-      pusty ekran „Brak plików", mimo że wyniki tam realnie są — teraz
-      apka sama trafia do najnowszego podfolderu daty. Sprawdź na żywo:
-      (1) uruchom dwie osobne anonimizacje tego samego dnia — oba
-      trafiają do jednego `DD.MM.RRRR`, PDF-y bezpośrednio w nim, pliki
-      TXT w `txt/`; (2) ekran recenzji po anonimizacji pokazuje wszystkie
-      pliki normalnie (i PDF-owe, i czysto tekstowe źródła); (3) zamknij
-      apkę i otwórz ją ponownie, potem w Historii kliknij folder, w
-      którym coś anonimizowałeś wcześniej — ekran recenzji ma pokazać
-      wyniki, nie „Brak plików"; (4) zatwierdź plik i wyeksportuj do
-      folderu „approved" (nowego albo tego, którego już używasz) —
-      sprawdź, że tam też powstaje podfolder `DD.MM.RRRR` z PDF-em w
-      środku i `txt/` z plikiem wynikowym i raportem; (5) „Wyczyść
-      historię" na folderze wyników z nowymi podfolderami dat — ma
-      usunąć wszystko tak jak dotychczas na starym, płaskim folderze.
 
 - [ ] **Sugestie AI — tryb recenzji w oknie porównania (tylko PDF) —
       zbudowane 2026-09-23, gotowe do sprawdzenia NA ŻYWO** — to jest ten
@@ -156,16 +72,6 @@ przenoszę ją do „Potwierdzone" albo usuwam. Jeśli lista urośnie powyżej
       weryfikacja AI (LLM)”; (4) zwykła anonimizacja PDF-a działa jak
       wcześniej, a raport `_RAPORT.txt` nie ma już sekcji „Local LLM
       review”.
-
-- [ ] **Ustawienia: checkboxy AI synchronizują się z ekranem głównym +
-      wybór modelu AI (2026-09-25, Twoje zgłoszenie z testu)** — (1)
-      włącz oba „AI: …” w Ustawieniach, zapisz — na ekranie głównym oba
-      checkboxy mają być zaznaczone (i odwrotnie przy wyłączeniu); (2)
-      w Ustawieniach → wykrywanie, pod dwoma opcjami „AI: …”, jest nowa
-      sekcja „Model AI (Ollama)” z listą zainstalowanych modeli — wybierz
-      Bielika, zapisz, otwórz Ustawienia ponownie: wybór ma zostać.
-      Uwaga: ustawienia nadal obowiązują tylko do zamknięcia apki (tak
-      było zawsze) — po ponownym uruchomieniu AI jest wyłączone.
 
 - [ ] **Anonimizacja w tle + licznik czasu + komunikat o AI (2026-09-25,
       Twoje zgłoszenie z testu)** — (1) uruchom anonimizację z włączonym
@@ -228,6 +134,15 @@ naprawiane teraz, tylko odnotowane do zaplanowania później.
 
 ## Potwierdzone
 
+- [x] **Zakres stron per plik (checkbox + szara podpowiedź „X z X
+      stron”)** (potwierdzone 2026-09-25) — Twój feedback: „ad 7 działa”.
+- [x] **Usuwanie podpisu elektronicznego z okna podglądu** (potwierdzone
+      2026-09-25) — Twój feedback: „ad 8 działa”.
+- [x] **Foldery wynikowe wg daty + podfolder `txt`** (potwierdzone
+      2026-09-25) — Twój feedback: „ad 9 działa”.
+- [x] **Ustawienia: checkboxy AI synchronizują się z ekranem głównym +
+      wybór modelu AI** (potwierdzone 2026-09-25) — Twój feedback:
+      „ad 2 działa”.
 - [x] **System testów: wzorce i klucz odpowiedzi** (potwierdzone
       2026-09-25) — Twój feedback: „reszta wydaje się ok”; zasady oceny
       (daty dokumentów, numery faktur/umów, opisowe adresy, nazwy urzędów
