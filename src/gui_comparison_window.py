@@ -480,9 +480,36 @@ class AiReviewData(NamedTuple):
     location_rects: dict[str, list[dict[str, object]]]
     sentence_texts: dict[str, list[str]]
     text_matched: bool
+    # Shown instead of the review panel when there is nothing to review
+    # but the AI did run - see ai_review_status_note.
+    status_note: str = ""
 
 
 EMPTY_AI_REVIEW = AiReviewData([], {}, {}, True)
+
+
+def ai_review_status_note(sidecar) -> str:
+    """Why there are no AI suggestions to review, in Polish, or "" when
+    the AI wasn't used for this file at all. Real user report
+    (2026-09-25): both reviews had timed out, and the window looked
+    exactly the same as "the AI found nothing" - the user couldn't tell
+    whether the model had run."""
+    statuses = [
+        str(result.get("status", ""))
+        for result in (sidecar.comparison_result, sidecar.narrative_result)
+        if isinstance(result, dict)
+    ]
+    ran = [status for status in statuses if status and status != "disabled"]
+    if not ran:
+        return ""
+    if "timeout" in ran:
+        return (
+            "Analiza AI nie zdążyła się zakończyć (przekroczony limit czasu) "
+            "- brak sugestii do przejrzenia."
+        )
+    if any(status != "completed" for status in ran):
+        return "Analiza AI nie powiodła się - brak sugestii do przejrzenia."
+    return "AI przeanalizowało dokument i nie zgłosiło żadnych uwag."
 
 
 def _ai_reading_order_key(
@@ -511,7 +538,11 @@ def prepare_ai_review(
     """
     sidecar = load_llm_suggestions_sidecar(llm_suggestions_path(result_path))
     if not sidecar.unresolved_ids():
-        return EMPTY_AI_REVIEW
+        if sidecar.resolved:
+            # Everything was already decided in an earlier session - not
+            # "the AI found nothing".
+            return EMPTY_AI_REVIEW
+        return EMPTY_AI_REVIEW._replace(status_note=ai_review_status_note(sidecar))
     try:
         candidates = candidate_llm_review_texts(source_path, word_pages)
     except Exception:  # noqa: BLE001 - pypdf's own errors aren't OSError/ValueError;
@@ -2212,6 +2243,21 @@ class ComparisonWindow:
 
         if not self.locked and self.ai_review.suggestions:
             self._build_ai_review_section(inner)
+        elif not self.locked and self.ai_review.status_note:
+            note_frame = ctk.CTkFrame(
+                inner,
+                corner_radius=8,
+                fg_color=COLOR_BG,
+                border_width=1,
+                border_color=AI_SUGGESTION_OUTLINE_COLOR,
+            )
+            note_frame.pack(fill="x", pady=(0, 10))
+            note_inner = ctk.CTkFrame(note_frame, fg_color="transparent")
+            note_inner.pack(fill="x", padx=10, pady=8)
+            self._ai_label(note_inner, "Sugestie AI", size=12, bold=True)
+            self._ai_label(
+                note_inner, self.ai_review.status_note, color=COLOR_TEXT_MUTED
+            )
 
         if self.locked:
             # Approved files render read-only: no tool chips, no drag/
