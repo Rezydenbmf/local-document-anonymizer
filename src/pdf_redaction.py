@@ -874,6 +874,117 @@ def _add_redaction(page, rect, label: str) -> None:
     page.add_redact_annot(rect, fill=fill)
 
 
+# A trimmed rect must still overlap every glyph it covers by at least this
+# share of the glyph's bbox height; otherwise the trim is skipped. MuPDF
+# removes a glyph on ~1pt of overlap (measured: 10pt Arial, bbox 13.7pt).
+# The middle line of a tight block keeps ~38% after trimming on both
+# sides. Not the safety guarantee - _apply_page_redactions verifies the
+# result and falls back to the untrimmed rects.
+_MIN_COVERED_GLYPH_SHARE = 0.25
+
+
+def trim_rect_to_covered_lines(rect, char_boxes):
+    """Shrink ``rect`` vertically so it no longer grazes glyphs of a
+    neighbouring line.
+
+    PyMuPDF's ``apply_redactions`` removes every glyph a redaction rect
+    overlaps by more than about a point - including glyphs of the line
+    above/below when lines are set tighter than their own glyph height.
+    That deleted non-sensitive text with no visible fill over it.
+
+    A glyph counts as *covered* when its vertical centre lies inside the
+    rect; a glyph the rect touches without covering its centre is
+    *grazed*. The rect's edges are pulled back to the grazed glyphs'
+    edges. Fails closed: if nothing is covered, or the trim would leave a
+    covered glyph overlapped by less than ``_MIN_COVERED_GLYPH_SHARE`` of
+    its height, the rect is returned unchanged (over-redaction rather
+    than a leak). A rect deliberately drawn across two lines covers both
+    lines' centres, so it is never trimmed.
+
+    ``rect`` and each char box are ``(x0, y0, x1, y1)`` tuples."""
+    x0, y0, x1, y1 = rect
+    hits = [
+        box
+        for box in char_boxes
+        if min(box[2], x1) > max(box[0], x0) and min(box[3], y1) > max(box[1], y0)
+    ]
+    covered = [box for box in hits if y0 <= (box[1] + box[3]) / 2 <= y1]
+    if not covered:
+        return rect
+    new_y0, new_y1 = y0, y1
+    for box in hits:
+        if box in covered:
+            continue
+        if (box[1] + box[3]) / 2 > y1:
+            new_y1 = min(new_y1, box[1])
+        else:
+            new_y0 = max(new_y0, box[3])
+    if (new_y0, new_y1) == (y0, y1):
+        return rect
+    for box in covered:
+        overlap = min(box[3], new_y1) - max(box[1], new_y0)
+        if overlap < _MIN_COVERED_GLYPH_SHARE * (box[3] - box[1]):
+            return rect
+    return (x0, new_y0, x1, new_y1)
+
+
+def _page_chars(page) -> list[tuple[str, tuple[float, float, float, float]]]:
+    """Non-blank characters with PyMuPDF's char bbox. That bbox is taller
+    than the box MuPDF's own redaction tests a glyph against (measured on
+    Arial), so staying clear of it keeps a neighbouring line intact."""
+    chars = []
+    for block in page.get_text("rawdict").get("blocks", []):
+        for line in block.get("lines", []):
+            for span in line.get("spans", []):
+                for char in span.get("chars", []):
+                    if char.get("c", "").strip():
+                        chars.append((char["c"], tuple(char["bbox"])))
+    return chars
+
+
+def _char_key(char: tuple[str, tuple[float, float, float, float]]):
+    text, (x0, y0, _, _) = char
+    return text, round(x0, 1), round(y0, 1)
+
+
+def _apply_page_redactions(fitz, page) -> None:
+    """``page.apply_redactions()``, after trimming every pending redaction
+    rect off neighbouring lines (see ``trim_rect_to_covered_lines``).
+
+    Safety net: if any character the untrimmed rects covered is still on
+    the page afterwards, the untrimmed rects are applied again - the old
+    behaviour, which may cut into a neighbouring line but never leaks."""
+    annots = list(page.annots(types=[fitz.PDF_ANNOT_REDACT]))
+    chars = _page_chars(page) if annots else []
+    trimmed_originals = []
+    boxes = [box for _, box in chars]
+    for annot in annots if chars else []:
+        rect = tuple(annot.rect)
+        trimmed = trim_rect_to_covered_lines(rect, boxes)
+        if trimmed != rect:
+            trimmed_originals.append((rect, annot.colors.get("fill")))
+            annot.set_rect(fitz.Rect(trimmed))
+    page.apply_redactions()
+    if not trimmed_originals:
+        return
+
+    must_go = {
+        _char_key(char)
+        for char in chars
+        for rect, _ in trimmed_originals
+        # Centre inside on both axes: a same-line char the rect only
+        # grazes sideways survives either rect alike and must not trigger
+        # the fallback.
+        if rect[0] <= (char[1][0] + char[1][2]) / 2 <= rect[2]
+        and rect[1] <= (char[1][1] + char[1][3]) / 2 <= rect[3]
+    }
+    if must_go.isdisjoint(_char_key(char) for char in _page_chars(page)):
+        return
+    for rect, fill in trimmed_originals:
+        page.add_redact_annot(fitz.Rect(rect), fill=tuple(fill) if fill else None)
+    page.apply_redactions()
+
+
 def merge_rects_by_line(words: Sequence[PdfWord]):
     """Group consecutive words on the same PDF line into one bounding
     rect each. Public: llm_suggestions.py reuses this directly to turn a
@@ -1215,7 +1326,7 @@ def save_word_coordinate_redacted_pdf_copy(
             counters[label] = counters.get(label, 0) + 1
 
         for page in document:
-            page.apply_redactions()
+            _apply_page_redactions(fitz, page)
         document.save(resolved_output_path, garbage=4, deflate=True, clean=True)
 
     metadata = build_pdf_visual_redaction_metadata(
@@ -1468,7 +1579,7 @@ def save_redacted_pdf_copy(
             )
             _merge_counters(counters, _redact_dictionary_matches(page, sensitive_terms))
             _merge_counters(counters, _redact_exact_text_matches(page, extra_redaction_terms))
-            page.apply_redactions()
+            _apply_page_redactions(fitz, page)
 
         document.save(output_path, garbage=4, deflate=True, clean=True)
 

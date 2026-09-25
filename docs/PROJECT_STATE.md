@@ -5708,6 +5708,73 @@ instruction did not derail Gemma's structured output.
 
 Verified: 869 tests, lint 70, `code-review` (medium) no findings.
 
+## Redaction deleted text of a tightly-set neighbouring line (2026-09-25)
+
+User's screenshot of `llm_test_2_opinia_lekarska_2str.pdf` (the
+deliberately tight `tight_block`, line-height 0.95): the anonymized PDF
+lost "nie do wniosku" under the date bar of the line above and
+"ygn. OL/2026/00417" under the ZUS/PESEL bars - with no fill over them.
+Cause: PyMuPDF char/word boxes of those lines overlap by ~4pt; a
+redaction rect built from one line's boxes reaches into the next, and
+MuPDF's `apply_redactions` removes any glyph the rect overlaps by more
+than ~1pt (probed: 10pt Arial, a 0.9pt sliver at the top/bottom of the
+bbox removes nothing, 1pt inside does).
+
+Fix (`pdf_redaction.py`, both `apply_redactions` sites now go through
+`_apply_page_redactions`): before applying, every redaction annot is
+trimmed by `trim_rect_to_covered_lines` - a glyph whose vertical centre
+is inside the rect is *covered*, one it only touches is *grazed*, and the
+rect's top/bottom is pulled back to the grazed glyphs' bbox edge. It fails
+closed (rect unchanged) when nothing is covered or a covered glyph would
+keep < 25% of its bbox height (the middle line of the tight block keeps
+~38%). A rect drawn across two lines covers both centres, so it is never
+trimmed. **Safety net**: after applying, if any char whose centre was
+inside an untrimmed rect is still on the page, the untrimmed rects are
+applied again (old behaviour: may cut into a neighbour, never leaks).
+The first attempt used font-size-tall boxes instead of PyMuPDF's bbox -
+MuPDF's own glyph box is taller than that, so the neighbour still lost
+text; PyMuPDF's bbox (taller than MuPDF's) is the one to stay clear of.
+Scans are unaffected (no text chars -> no trim).
+
+Checked on all 11 PDFs in `_manual_test/pliki do testow`, main vs branch:
+identical output except the two tight blocks (llm_test_1 and llm_test_2),
+where only previously-eaten text came back. **Side finding**: two court /
+case file numbers ("sygn. akt III RC 418/25", "sygn. OL/2026/00417") were
+hidden *only* by this bug - no detector covers case signatures. Now
+visible; to be decided when the test answer key is built (see below).
+
+Verified: 881 tests (12 new, `tests/test_redaction_line_bleed.py`: trim
+unit cases, tight 3-line PDF top/middle line, normal spacing, a rect
+across two lines, safety net forced by a useless trim), lint 70,
+`code-review` (medium): one plausible finding - same-line chars grazed
+sideways could trigger the fallback spuriously - fixed (centre test on
+both axes).
+
+## Planned next: measurable test system; later a two-step review flow (2026-09-25)
+
+Agreed with the user, in this order:
+1. Generator emitting, per synthetic document, the PDF + a JSON answer
+   key (every PII span, category, page, must/optional/trap) + a
+   reference PDF redacted from the key for the user to compare by eye.
+   Two corpora: A ~30-50 ordinary documents (medical, invoices, leases,
+   official letters, CVs, protocols, printed e-mails; text layer / good
+   scan / bad scan / tables / two columns; valid-checksum PESEL, NIP,
+   REGON, IBAN; fixed seed) and B ~10 traps (the current llm_test_*).
+2. Headless scorer: leaks (full/partial), over-redaction, per-layer
+   credit (regex / NER / LLM), LLM false positives on already-redacted
+   lines and duplicates, time per document; a committed baseline that a
+   change may not worsen. LLM scored on a ~10-document subset.
+3. LLM levers to measure: `num_ctx` (not set by llm_review.py today -
+   check `prompt_eval_count` for silent truncation), sending only the
+   anonymized text with `[PESEL]`-style placeholders, per-page chunks,
+   code-side filter of suggestions on fully redacted spans + merging
+   duplicates, few-shot examples, model choice (ask before any pull).
+4. User's review-flow idea: step 1 = large anonymized view + wide AI
+   comments panel, accept/reject suggestions; step 2 = original vs
+   anonymized side by side for a final manual pass (or "approve without
+   checking", not recommended). AI marks as red dotted frames, critical
+   data (PESEL etc.) orange instead of the current turquoise.
+
 ## Warning
 
 This repository is still an early-stage portfolio MVP. Do not use it to

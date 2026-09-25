@@ -184,6 +184,20 @@ przenoszę ją do „Potwierdzone" albo usuwam. Jeśli lista urośnie powyżej
       Sprawdź, czy bez uzasadnienia wiesz, o co chodzi w sugestii — jeśli
       nie, wymyślimy bezpieczny sposób, żeby to doprecyzować.
 
+- [ ] **Redakcja nie zjada już tekstu z sąsiedniej linii (2026-09-25,
+      Twój zrzut ekranu)** — w ciasno złożonych liniach pasek zamazania
+      zahaczał o linię poniżej/powyżej i usuwał z niej zwykły tekst, bez
+      żadnego widocznego paska. Sprawdź na żywo: zanonimizuj
+      `llm_test_2_opinia_lekarska_2str.pdf` i otwórz porównanie — w bloku
+      „Podstawa… / PESEL… / Opinię…” na stronie 1 cały zwykły tekst ma
+      być widoczny, zamazane tylko data, PESEL i „ZUS”. Paski w środkowej
+      linii są teraz cieńsze (to celowe — nie mogą wchodzić na sąsiednie
+      linie; tekst pod nimi jest naprawdę usunięty). **Uwaga**: sygnatury
+      akt („sygn. OL/2026/00417”, w `llm_test_1` „III RC 418/25”) są teraz
+      widoczne — wcześniej znikały tylko przez ten błąd, program ich nie
+      wykrywa. Czy sygnatura akt ma być zamazywana? Zdecydujemy przy
+      kluczu odpowiedzi do testów.
+
 ## Znane, jeszcze NIE naprawione (odłożone na Twoją prośbę — wracamy do
    wdrożenia LLM)
 
