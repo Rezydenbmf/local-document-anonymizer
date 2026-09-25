@@ -69,6 +69,7 @@ try:
         build_pdf_redaction_metadata,
         build_pdf_redaction_skipped_ocr_metadata,
         extract_pdf_word_pages,
+        is_kept_reference_date,
         save_rebuilt_review_pdf_from_text,
         save_redacted_pdf_copy,
         save_word_coordinate_redacted_image_copy,
@@ -158,6 +159,7 @@ except ImportError:
         build_pdf_redaction_metadata,
         build_pdf_redaction_skipped_ocr_metadata,
         extract_pdf_word_pages,
+        is_kept_reference_date,
         save_rebuilt_review_pdf_from_text,
         save_redacted_pdf_copy,
         save_word_coordinate_redacted_image_copy,
@@ -1225,7 +1227,9 @@ def _apply_dictionary_and_regex(
 
     for label, pattern in _PATTERNS:
         if active_labels is None or label in active_labels:
-            anonymized, count = pattern.subn(f"[{label}]", anonymized)
+            anonymized, count = _replace_spans(
+                anonymized, _pattern_spans(label, pattern, anonymized), label
+            )
             if count:
                 counters[label] = counters.get(label, 0) + count
         # Right after REGON's own direct (same-line) pattern gets its
@@ -1399,6 +1403,19 @@ def _replace_spans(
         cursor = end
     parts.append(text[cursor:])
     return "".join(parts), len(spans)
+
+
+def _pattern_spans(
+    label: str, pattern: re.Pattern[str], text: str
+) -> list[tuple[int, int]]:
+    """Match spans of one _PATTERNS entry. DATA leaves out the dates the
+    policy keeps visible (see pdf_redaction.is_kept_reference_date)."""
+    return [
+        (match.start(), match.end())
+        for match in pattern.finditer(text)
+        if label != "DATA"
+        or not is_kept_reference_date(text, match.start(), match.end())
+    ]
 
 
 def _replace_known_places(text: str, place_names: Iterable[str]) -> tuple[str, int]:
@@ -1660,14 +1677,14 @@ def _regex_pdf_spans_for_page(
             )
     for label, pattern in _PATTERNS:
         if active_labels is None or label in active_labels:
-            for match in pattern.finditer(page_text):
+            for start, end in _pattern_spans(label, pattern, page_text):
                 _add_pdf_span(
                     spans,
                     occupied_ranges,
                     label=label,
                     page_number=page_number,
-                    start=match.start(),
-                    end=match.end(),
+                    start=start,
+                    end=end,
                     source="regex",
                 )
         # Right after REGON's own direct (same-line) pattern above, and

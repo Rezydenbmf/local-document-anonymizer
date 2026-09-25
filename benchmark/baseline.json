@@ -1,6 +1,6 @@
 {
  "schema": "docshield-benchmark-baseline/1",
- "created": "2026-09-25 20:10",
+ "created": "2026-09-25 20:15",
  "generator": "8d08320cce151918",
  "policy_version": 1,
  "docs": {
@@ -48,9 +48,7 @@
    "covered": 14,
    "partial": [],
    "full": [],
-   "keep_redacted": [
-    "s15"
-   ],
+   "keep_redacted": [],
    "residue": [],
    "over_rects": 8,
    "layers": {
@@ -158,10 +156,7 @@
     "s35",
     "s36"
    ],
-   "keep_redacted": [
-    "s21",
-    "s29"
-   ],
+   "keep_redacted": [],
    "residue": [],
    "over_rects": 2,
    "layers": {
@@ -178,10 +173,7 @@
    "full": [
     "s23"
    ],
-   "keep_redacted": [
-    "s12",
-    "s16"
-   ],
+   "keep_redacted": [],
    "residue": [],
    "over_rects": 6,
    "layers": {
@@ -201,8 +193,7 @@
     "s23"
    ],
    "keep_redacted": [
-    "s19",
-    "s20"
+    "s19"
    ],
    "residue": [],
    "over_rects": 2,

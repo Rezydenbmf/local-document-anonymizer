@@ -404,6 +404,47 @@ class AnonymizerEngineTests(unittest.TestCase):
         )
         self.assertEqual(report, {"DATA": 4})
 
+    def test_legal_act_date_stays_visible(self) -> None:
+        """Policy "keep" (2026-09-25): the date of a statute is not
+        personal data. An unrelated "z dnia" after a finished sentence
+        about a statute is still redacted."""
+        text = (
+            "Ustawa z dnia 12 marca 2004 r. o pomocy społecznej. "
+            "Zgodnie z rozporządzeniem Parlamentu\nEuropejskiego i Rady (UE) "
+            "2016/679 z dnia 27 kwietnia 2016 r. (RODO). "
+            "Na podstawie ustawy. Umowa z dnia 01.09.2026 r."
+        )
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(
+            anonymized,
+            "Ustawa z dnia 12 marca 2004 r. o pomocy społecznej. "
+            "Zgodnie z rozporządzeniem Parlamentu\nEuropejskiego i Rady (UE) "
+            "2016/679 z dnia 27 kwietnia 2016 r. (RODO). "
+            "Na podstawie ustawy. Umowa z dnia [DATA] r.",
+        )
+        self.assertEqual(report, {"DATA": 1})
+
+    def test_old_historical_date_in_words_stays_visible(self) -> None:
+        """Written-out dates 100+ years old are history, unless birth or
+        death wording (or a form's "Data") precedes them."""
+        text = (
+            "Wrócił do domu 11 listopada 1918 r. Bitwa 15 lipca 1410 r.\n"
+            "Zmarła 3 marca 1915 r. Data urodzenia: 4 maja 1919. "
+            "Liczbowo 11.11.1918. Spotkanie 5 maja 2026."
+        )
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(
+            anonymized,
+            "Wrócił do domu 11 listopada 1918 r. Bitwa 15 lipca 1410 r.\n"
+            "Zmarła [DATA] r. Data urodzenia: [DATA]. "
+            "Liczbowo [DATA]. Spotkanie [DATA].",
+        )
+        self.assertEqual(report, {"DATA": 4})
+
     def test_replaces_written_month_date_without_polish_diacritics(self) -> None:
         text = (
             "Spotkanie 15 wrzesnia 2026 roku. Kolejne 3 pazdziernika 2026 roku."

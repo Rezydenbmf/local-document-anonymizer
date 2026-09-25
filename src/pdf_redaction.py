@@ -8,6 +8,7 @@ import tempfile
 import textwrap
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 
 try:
@@ -355,6 +356,59 @@ PDF_REDACTION_PATTERNS: tuple[PdfRedactionPattern, ...] = (
         PERSON_NAME_TYPO_PATTERN,
     ),
 )
+
+
+# Dates that identify nobody and stay visible (user decision, 2026-09-25):
+# the date of a legal act ("ustawa z dnia 12 marca 2004 r.", RODO's
+# "rozporządzeniem ... z dnia 27 kwietnia 2016 r.") and a historical date
+# written out in words ("11 listopada 1918 r."). Lives here rather than in
+# anonymizer.py so both redaction paths share it (anonymizer.py imports
+# from this module, never the other way round).
+_LEGAL_ACT_WORD = re.compile(
+    r"(?i)(?<!\w)(?:ustaw\w*|rozporządz\w*|dyrektyw\w*|kodeks\w*"
+    r"|obwieszcz\w*|konwencj\w*|traktat\w*)"
+)
+_Z_DNIA_BEFORE = re.compile(r"(?i)(?<!\w)z\s+dnia\s*$")
+_SENTENCE_BREAK = re.compile(r"[.!?;]\s+[A-ZĄĆĘŁŃÓŚŹŻ]")
+_LEGAL_ACT_LOOKBACK = 150
+# A legal act's title can run long ("rozporządzeniem Parlamentu
+# Europejskiego i Rady (UE) 2016/679 z dnia ..."), but never across a
+# sentence.
+_HISTORICAL_DATE_MIN_AGE_YEARS = 100
+# Birth/death wording or a form field ("Data urodzenia:", "Data zgonu:")
+# right before an old date means a person's own date - redact it anyway.
+_PERSONAL_DATE_CONTEXT = re.compile(
+    r"(?i)(?:(?<!\w)ur\.|urodz\w*|(?<!\w)zm\.|zmar\w*|zgon\w*|śmier\w*"
+    r"|(?<!\w)data(?!\w))"
+)
+_PERSONAL_DATE_LOOKBACK = 60
+
+
+def is_kept_reference_date(
+    text: str, start: int, end: int, *, current_year: int | None = None
+) -> bool:
+    """True when the DATA match ``text[start:end]`` is a legal act's date
+    or an old historical date written with the month in words - both
+    policy "keep", never personal data."""
+    before = text[max(0, start - _LEGAL_ACT_LOOKBACK):start]
+    z_dnia = _Z_DNIA_BEFORE.search(before)
+    if z_dnia is not None:
+        acts = list(_LEGAL_ACT_WORD.finditer(before, 0, z_dnia.start()))
+        if acts and not _SENTENCE_BREAK.search(before, acts[-1].end(), z_dnia.start()):
+            return True
+
+    value = text[start:end]
+    if not any(character.isalpha() for character in value):
+        return False
+    year_match = re.search(r"(\d{4})$", value)
+    if year_match is None:
+        return False
+    if current_year is None:
+        current_year = date.today().year
+    if int(year_match.group(1)) > current_year - _HISTORICAL_DATE_MIN_AGE_YEARS:
+        return False
+    context = text[max(0, start - _PERSONAL_DATE_LOOKBACK):start]
+    return _PERSONAL_DATE_CONTEXT.search(context) is None
 
 # Same fix, same reason, as anonymizer.py's identical fallback (this
 # module can't import anonymizer.py's copy - the import direction
@@ -1454,6 +1508,10 @@ def _redact_pattern_matches(
     for item in PDF_REDACTION_PATTERNS:
         if active_labels is None or item.label in active_labels:
             for match in item.pattern.finditer(page_text):
+                if item.label == "DATA" and is_kept_reference_date(
+                    page_text, match.start(), match.end()
+                ):
+                    continue
                 _redact_offset_match(
                     item.label, match.start(), match.end(), match.group(0)
                 )
