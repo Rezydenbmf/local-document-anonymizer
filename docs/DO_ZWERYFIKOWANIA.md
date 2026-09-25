@@ -185,22 +185,6 @@ przenoszę ją do „Potwierdzone" albo usuwam. Jeśli lista urośnie powyżej
       Sprawdź, czy bez uzasadnienia wiesz, o co chodzi w sugestii — jeśli
       nie, wymyślimy bezpieczny sposób, żeby to doprecyzować.
 
-- [ ] **System testów: wzorce i klucz odpowiedzi (2026-09-25, etap 2
-      planu)** — wygeneruj korpus (`.venv\Scripts\python.exe -m
-      benchmark.generate`) i otwórz kilka plików `*_WZORZEC.pdf`
-      w `benchmark\corpus\` (tylko u Ciebie na dysku, nigdy na GitHubie).
-      Czarne = musi być zamazane, szare = obojętne, zielona ramka = ma
-      zostać widoczne. Sprawdź, czy **tak chcesz** oceniać: szczególnie
-      (1) daty dokumentów (data wizyty, wystawienia faktury) jako
-      „obojętne”; (2) numery umów/faktur/próbek jako „obojętne”;
-      (3) opisowe adresy („żółty dom obok apteki”) i cechy typu „jedyna
-      sokolniczka w powiecie” jako „obojętne” — łapać je ma dopiero AI;
-      (4) nazwy urzędów/sądów („Sądem Rejonowym”, „Urzędem Skarbowym”)
-      jako „obojętne”, ale miejscowość w ich nazwie — „musi”; (5) znak
-      sprawy urzędowej („GK.6220.14.2026”) potraktowany jak sygnatura
-      akt (czyli opcjonalna kategoria). Każdą z tych decyzji zmieniam
-      jedną linią w `benchmark\policy.json`, bez generowania od nowa.
-
 - [ ] **Animacja ASCII na ekranie przetwarzania + przycisk „Anuluj”
       (2026-09-25, Twój prototyp)** — ekran „w trakcie” pokazuje teraz
       ramkę z fikcyjnym dokumentem (JAN KOWALSKI, PESEL…), który zamazuje
@@ -243,6 +227,15 @@ pamiętaj że teraz duże wdrożenie tego LLM mamy dokończyć") — nie
 naprawiane teraz, tylko odnotowane do zaplanowania później.
 
 ## Potwierdzone
+
+- [x] **System testów: wzorce i klucz odpowiedzi** (potwierdzone
+      2026-09-25) — Twój feedback: „reszta wydaje się ok”; zasady oceny
+      (daty dokumentów, numery faktur/umów, opisowe adresy, nazwy urzędów
+      jako „obojętne”, znak sprawy jak sygnatura) zostają. Jedyna uwaga:
+      w ciasnym bloku (opinia lekarska, notatka z wizyty) czarny
+      prostokąt na wzorcu nachodzi na szare pola linii obok — to tylko
+      rysunek wzorca (linie są celowo ciaśniej niż wysokość liter);
+      ocena liczy środek każdej litery osobno, więc wynik jest poprawny.
 
 - [x] **Redakcja nie zjada już tekstu z sąsiedniej linii + słowo
       w polskim cudzysłowie zamazane** (potwierdzone 2026-09-25, zrzutem
