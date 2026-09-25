@@ -75,3 +75,8 @@ AGENTS.md
 /pomysly/
 /diagnostyka_skanu.py
 /sprawdz_tesseract.ps1
+
+# Benchmark corpus and scorer runs - synthetic but PII-shaped, reproducible
+# from the fixed seed. NEVER committed (user decision 2026-09-25).
+benchmark/corpus/
+benchmark/results/
