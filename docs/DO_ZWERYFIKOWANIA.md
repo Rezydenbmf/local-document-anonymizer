@@ -169,7 +169,8 @@ przenoszę ją do „Potwierdzone" albo usuwam. Jeśli lista urośnie powyżej
 
 - [ ] **Anonimizacja w tle + licznik czasu + komunikat o AI (2026-09-25,
       Twoje zgłoszenie z testu)** — (1) uruchom anonimizację z włączonym
-      AI: ołówek ma się ruszać cały czas, pod paskiem „Trwa już: N s”,
+      AI: animacja ma się ruszać cały czas (ołówek zastąpiony animacją
+      ASCII — osobna pozycja niżej), pod nią „Trwa już: N s”,
       niżej informacja, że analiza AI może potrwać kilka minut; okno nie
       może „zamarzać”; (2) w trakcie kliknij Historia / Ustawienia — nic
       nie powinno się stać, dopóki przetwarzanie trwa; (3) po zakończeniu
@@ -183,6 +184,46 @@ przenoszę ją do „Potwierdzone" albo usuwam. Jeśli lista urośnie powyżej
       „Możliwa pominięta dana: osoba”) i cytat zdania z dokumentu.
       Sprawdź, czy bez uzasadnienia wiesz, o co chodzi w sugestii — jeśli
       nie, wymyślimy bezpieczny sposób, żeby to doprecyzować.
+
+- [ ] **System testów: wzorce i klucz odpowiedzi (2026-09-25, etap 2
+      planu)** — wygeneruj korpus (`.venv\Scripts\python.exe -m
+      benchmark.generate`) i otwórz kilka plików `*_WZORZEC.pdf`
+      w `benchmark\corpus\` (tylko u Ciebie na dysku, nigdy na GitHubie).
+      Czarne = musi być zamazane, szare = obojętne, zielona ramka = ma
+      zostać widoczne. Sprawdź, czy **tak chcesz** oceniać: szczególnie
+      (1) daty dokumentów (data wizyty, wystawienia faktury) jako
+      „obojętne”; (2) numery umów/faktur/próbek jako „obojętne”;
+      (3) opisowe adresy („żółty dom obok apteki”) i cechy typu „jedyna
+      sokolniczka w powiecie” jako „obojętne” — łapać je ma dopiero AI;
+      (4) nazwy urzędów/sądów („Sądem Rejonowym”, „Urzędem Skarbowym”)
+      jako „obojętne”, ale miejscowość w ich nazwie — „musi”; (5) znak
+      sprawy urzędowej („GK.6220.14.2026”) potraktowany jak sygnatura
+      akt (czyli opcjonalna kategoria). Każdą z tych decyzji zmieniam
+      jedną linią w `benchmark\policy.json`, bez generowania od nowa.
+
+- [ ] **Animacja ASCII na ekranie przetwarzania + przycisk „Anuluj”
+      (2026-09-25, Twój prototyp)** — ekran „w trakcie” pokazuje teraz
+      ramkę z fikcyjnym dokumentem (JAN KOWALSKI, PESEL…), który zamazuje
+      się linijka po linijce, i napis „Dokument 1 z 3”. Świadome zmiany
+      wobec starego ekranu — oceń, czy tak chcesz: (a) **zniknął pasek
+      postępu** — i tak nie mierzył postępu, tylko numer pliku; (b)
+      **zniknęła nazwa pliku** pod paskiem — animacja nie pokazuje nazw
+      ani ścieżek, zgodnie z Twoim wymaganiem; (c) wynik końcowy zostaje
+      na ekranie ok. 1 s (zielony = sukces, czerwony = błąd, szary =
+      anulowano), potem apka przechodzi dalej; (d) przy błędzie
+      i anulowaniu fikcyjne dane w ramce zostają **niezamazane** — tak
+      zachowuje się Twój prototyp („nie zanonimizowano”); jeśli wolisz
+      inaczej, to jedna linijka. Sprawdź na żywo: (1) jeden plik; (2)
+      trzy pliki — numer rośnie 1→2→3; (3) „Anuluj” w trakcie pierwszego
+      z kilku plików — przycisk zmienia się na „Anulowanie...”, **bieżący
+      plik kończy się normalnie** (przy AI może to trwać minuty — nie da
+      się przerwać pliku w połowie bez ruszania silnika), potem powrót na
+      ekran główny z napisem „Anulowano po 1 z 3 dokumentów”; (4)
+      zamknięcie okna krzyżykiem w trakcie — pyta „Anonimizacja trwa…
+      Zamknąć mimo to?”, „Nie” = nic się nie dzieje, „Tak” = zamyka.
+      Przy zamknięciu bieżący plik jest przerywany w połowie — jego wynik
+      w folderze może być niepełny (tak było też wcześniej, tylko bez
+      pytania).
 
 ## Znane, jeszcze NIE naprawione (odłożone na Twoją prośbę — wracamy do
    wdrożenia LLM)
