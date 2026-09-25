@@ -6008,6 +6008,89 @@ same time (ASCII animation). Its commit 72e8249 picked up this work's
 DO_ZWERYFIKOWANIA entry, which is harmless and stays there. Parallel
 sessions should each get their own worktree.
 
+## Mascot animation replaces the ASCII processing animation (2026-09-25)
+
+Same session as the benchmark work above (user kept it going instead of
+starting a new thread) turned into building a replacement for the ASCII
+processing animation merged earlier the same day (commit 8875abc): the
+user found ASCII too plain and wanted a cartoon character instead. Built
+almost entirely in chat with the user reacting to previews, iterating on
+a shared checkout that another session (`fix/benchmark-leaks`, this
+project's stage-3 leak fixes) was actively using at the same time - this
+work used a separate `git worktree` (`feat/mascot-animation` off `main`)
+from the start, per the "each session gets its own worktree" lesson from
+the same day's benchmark entry above.
+
+**Art pipeline (chat + ChatGPT's image generation, iterated live):**
+1. First sheet: 9-pose reference (character design + a magnifying-glass
+   search cycle + a marker-marking cycle) - user picked a navy/orange
+   cartoon detective to match the app's palette.
+2. Second sheet: 5 explicit transition poses (putting the glass down /
+   picking the marker up, and back) - the raw swap between the two
+   objects looked instant otherwise.
+3. Third sheet: 10 more in-between frames for the main sweep motions,
+   after the user judged the loop still choppy.
+Every sheet came back at a different internal scale and, in the last
+one, packed 6-9 poses per row tightly enough that neighbouring drawings
+physically touch at the paper's height with no clean gap. Extraction
+(scratch scripts, not committed) had to: exclude a labelled badge below
+each frame (a first pass leaked stray badge fragments into the crop);
+scale every sheet to a common size using the *hat's* width as the
+reference, not the frame's overall bounding box (the box includes the
+held tool, whose extent depends on the pose, not the character's actual
+size - using it first made the character visibly "fly" between frames);
+and, for the tightly-packed third sheet, cut each pair of neighbours at
+the *local minimum* of shared ink between their hat positions rather
+than the naive midpoint, since no cut point there is perfectly clean.
+A final "keep only the largest connected shape per frame" pass caught
+leftover fragments a straight rectangular crop couldn't. The user caught
+one further sequencing bug directly from the assembled GIF preview: two
+old frames (originally drawn, before the transition sheets existed, to
+already be mid-swap back to the glass) had been kept inside what was
+by then a dedicated marker-only stretch, so the glass flashed into the
+middle of the marking motion - dropped from the final sequence once
+spotted. Final result: 20 seamlessly looping frames (`assets/mascot/
+mascot_01.png`..`mascot_20.png`) plus one distinct end pose
+(`mascot_success.png`), all transparent-background PNGs, 368x453 native
+canvas, ~2.3 MB total, listed in `DocShield.spec`'s `datas` for
+packaging.
+
+**Code**: `docshield_ascii_animation.DocShieldAsciiAnimation` (the state
+machine: running/completed/success/error/cancelled, document counting,
+cancel-pending) is unchanged and still fully covered by its own tests -
+only *what renders it* changed. Two small additions to that class,
+`elapsed_seconds()` and `current_message()`, let a renderer other than
+its own `render_frame()` (the original ASCII text box, still present and
+tested) drive itself off the same clock and status text without parsing
+them out of that ASCII output. New `mascot_animation.frame_name_for(state,
+elapsed_seconds)` is pure logic (no Tk, no file I/O) mapping state +
+elapsed time to one of those PNG filenames - loops during "running",
+holds the success frame after success, holds frame 1 (idle/neutral)
+for every other state. `gui_helpers.get_mascot_frame_image` caches
+`CTkImage`s per (filename, height), same pattern as the existing
+`get_file_type_icon`. `gui_app.py`'s processing screen now has three
+widgets where the ASCII version had one label doing everything: an image
+label (the mascot), and two small text labels split out of what used to
+be one combined string - a "Dokument N z M" counter above it and the
+status message below it (own new `_document_counter_text()` helper).
+
+Verified: 935 tests (6 new state-machine-accessor tests in
+`test_gui_app_ascii_animation.py`, its existing GUI-integration tests
+adapted to the three-widget layout rather than the old single label -
+same behaviors checked, just read from the right widget now; 10 new in
+`test_mascot_animation.py`, including two asset-integrity tests that
+fail if a referenced PNG goes missing or a file in `assets/mascot/`
+becomes unreferenced), lint 70. A scripted smoke test drove the real
+`show_processing_screen`/`_render_processing_frame` (real Tk widgets,
+no visible window - this sandbox's display is locked, see
+[[feedback-workflow-conventions]]) through start -> running -> advance ->
+cancel-pending -> cancelled, confirming the image and both text labels
+update correctly; the actual on-screen look (mascot size/spacing in the
+card, animation smoothness) was judged from GIF previews sent to the
+user in chat, not from the running app, so still wants a live look once
+merged - see DO_ZWERYFIKOWANIA.md. No anonymization-logic files touched,
+so no mandatory code-review.
+
 ## Warning
 
 This repository is still an early-stage portfolio MVP. Do not use it to

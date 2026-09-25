@@ -84,7 +84,6 @@ try:
         HEADER_STACK_BREAKPOINT,
         LEGEND_ITEMS,
         MANUAL_REVIEW_WARNING,
-        MONO_FONT_FAMILY,
         PDF_OUTPUT_LABEL_VISUAL_REDACTION,
         PROCESSING_RESULT_HOLD_MS,
         PROCESSING_TICK_MS,
@@ -118,6 +117,7 @@ try:
         format_review_summary_line,
         format_short_path,
         get_file_type_icon,
+        get_mascot_frame_image,
         hint_is_dismissed,
         history_config_path,
         load_cleanup_reminder_config,
@@ -142,6 +142,7 @@ try:
     from .gui_settings_dialog import SettingsDialog
     from .llm_review import list_installed_models
     from .llm_suggestions import count_unresolved_ai_suggestions
+    from .mascot_animation import frame_name_for
     from .ocr import list_installed_languages
     from .output_cleanup import (
         apply_output_cleanup_plan,
@@ -233,7 +234,6 @@ except ImportError:
         HEADER_STACK_BREAKPOINT,
         LEGEND_ITEMS,
         MANUAL_REVIEW_WARNING,
-        MONO_FONT_FAMILY,
         PDF_OUTPUT_LABEL_VISUAL_REDACTION,
         PROCESSING_RESULT_HOLD_MS,
         PROCESSING_TICK_MS,
@@ -267,6 +267,7 @@ except ImportError:
         format_review_summary_line,
         format_short_path,
         get_file_type_icon,
+        get_mascot_frame_image,
         hint_is_dismissed,
         history_config_path,
         load_cleanup_reminder_config,
@@ -291,6 +292,7 @@ except ImportError:
     from gui_settings_dialog import SettingsDialog
     from llm_review import list_installed_models
     from llm_suggestions import count_unresolved_ai_suggestions
+    from mascot_animation import frame_name_for
     from ocr import list_installed_languages
     from output_cleanup import (
         apply_output_cleanup_plan,
@@ -433,11 +435,17 @@ class AnonymizerApp:
         self.anonymize_button: ctk.CTkButton | None = None
         self.output_dir_value_label: ctk.CTkLabel | None = None
         self.status_label: ctk.CTkLabel | None = None
-        # The processing screen's ASCII animation (docshield_ascii_animation):
-        # it only ever sees opaque "doc-N" ids and document counts - never a
-        # path, file name, or anything read from a document.
+        # The processing screen's animation state machine
+        # (docshield_ascii_animation): it only ever sees opaque "doc-N" ids
+        # and document counts - never a path, file name, or anything read
+        # from a document. mascot_animation.frame_name_for turns its state
+        # into which mascot PNG to show; the screen itself has one label for
+        # that image and a separate one for the state machine's status text
+        # (the old single ASCII-art label carried both at once).
         self.processing_animation: DocShieldAsciiAnimation | None = None
-        self.processing_animation_label: ctk.CTkLabel | None = None
+        self.processing_document_label: ctk.CTkLabel | None = None
+        self.processing_mascot_label: ctk.CTkLabel | None = None
+        self.processing_status_label: ctk.CTkLabel | None = None
         self.progress_elapsed_label: ctk.CTkLabel | None = None
         self.processing_cancel_button: ctk.CTkButton | None = None
         # True while anonymize_batch runs on its worker thread (and while
@@ -734,7 +742,9 @@ class AnonymizerApp:
             )
 
     def _clear_content(self) -> None:
-        self.processing_animation_label = None
+        self.processing_document_label = None
+        self.processing_mascot_label = None
+        self.processing_status_label = None
         self.processing_cancel_button = None
         for widget in self.content.winfo_children():
             widget.destroy()
@@ -2622,13 +2632,15 @@ class AnonymizerApp:
         wrapper = ctk.CTkFrame(self.content, fg_color="transparent")
         wrapper.place(relx=0.5, rely=0.45, anchor="center")
 
-        # ASCII animation (docshield_ascii_animation, 2026-09-25): a fixed,
-        # fictional demo document gets masked line by line. The animation
-        # logic lives in its own GUI-agnostic module; this screen only
-        # redraws render_frame() on its own after() timer
-        # (_tick_processing_screen) while anonymize_batch runs on a worker
-        # thread. No percentage and no file name on purpose: the backend
-        # only reports "file N of M started", nothing finer.
+        # Mascot animation (2026-09-25, replacing the original ASCII-art
+        # animation with hand-drawn sprite frames - see mascot_animation.py):
+        # the state machine (docshield_ascii_animation) still drives what's
+        # shown, unchanged; only the rendering changed, from a monospaced
+        # text frame to an image. This screen only redraws on its own
+        # after() timer (_tick_processing_screen) while anonymize_batch runs
+        # on a worker thread. No percentage and no file name on purpose: the
+        # backend only reports "file N of M started", nothing finer, and
+        # mascot_animation never sees a path or a document's own text either.
         self.processing_animation = DocShieldAsciiAnimation(max(document_count, 1))
         card = ctk.CTkFrame(
             wrapper,
@@ -2638,15 +2650,26 @@ class AnonymizerApp:
             corner_radius=12,
         )
         card.pack(pady=(0, 16))
-        self.processing_animation_label = ctk.CTkLabel(
+        self.processing_document_label = ctk.CTkLabel(
             card,
-            text=self.processing_animation.render_frame(),
-            font=ctk.CTkFont(family=MONO_FONT_FAMILY, size=11),
-            text_color=COLOR_TEXT,
-            justify="left",
-            anchor="w",
+            text=self._document_counter_text(),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLOR_TEXT_MUTED,
         )
-        self.processing_animation_label.pack(padx=18, pady=14)
+        self.processing_document_label.pack(padx=18, pady=(14, 0))
+        self.processing_mascot_label = ctk.CTkLabel(
+            card,
+            image=get_mascot_frame_image(frame_name_for(AnimationState.IDLE, 0.0)),
+            text="",
+        )
+        self.processing_mascot_label.pack(padx=18, pady=(2, 4))
+        self.processing_status_label = ctk.CTkLabel(
+            card,
+            text=self.processing_animation.current_message(),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            text_color=COLOR_TEXT,
+        )
+        self.processing_status_label.pack(padx=18, pady=(0, 16))
 
         self.progress_elapsed_label = ctk.CTkLabel(
             wrapper,
@@ -2736,18 +2759,32 @@ class AnonymizerApp:
                 self._on_anonymize_failed,
             )
 
+    def _document_counter_text(self) -> str:
+        animation = self.processing_animation
+        if animation is None:
+            return ""
+        snapshot = animation.snapshot()
+        number = snapshot.document_number or 1
+        return f"Dokument {number} z {snapshot.document_count}"
+
     def _render_processing_frame(self) -> None:
         animation = self.processing_animation
-        if animation is None or self.processing_animation_label is None:
+        if animation is None or self.processing_mascot_label is None:
             return
+        state = animation.snapshot().state
         color = {
             AnimationState.SUCCESS: COLOR_OK,
             AnimationState.ERROR: COLOR_HIGH_RISK,
             AnimationState.CANCELLED: COLOR_TEXT_MUTED,
-        }.get(animation.snapshot().state, COLOR_TEXT)
-        self.processing_animation_label.configure(
-            text=animation.render_frame(), text_color=color
-        )
+        }.get(state, COLOR_TEXT)
+        frame_name = frame_name_for(state, animation.elapsed_seconds())
+        self.processing_mascot_label.configure(image=get_mascot_frame_image(frame_name))
+        if self.processing_document_label is not None:
+            self.processing_document_label.configure(text=self._document_counter_text())
+        if self.processing_status_label is not None:
+            self.processing_status_label.configure(
+                text=animation.current_message(), text_color=color
+            )
 
     def _finish_processing(
         self,

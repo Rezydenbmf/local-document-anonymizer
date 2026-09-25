@@ -54,6 +54,7 @@ a = Analysis(
     datas=[
         ("assets/icon.ico", "assets"),
         ("assets/icon.png", "assets"),
+        ("assets/mascot/*.png", "assets/mascot"),
     ]
     + spacy_model_datas,
     hiddenimports=spacy_model_hidden + DYNAMIC_OPTIONAL_IMPORTS,

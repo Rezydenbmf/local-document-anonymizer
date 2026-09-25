@@ -124,6 +124,7 @@ APP_ALPHA_DISCLAIMER_TEXT = (
 SCRIPT_FONT_FAMILY = "Segoe Script"
 APP_ICON_PATH = Path(__file__).resolve().parent.parent / "assets" / "icon.png"
 APP_ICON_ICO_PATH = Path(__file__).resolve().parent.parent / "assets" / "icon.ico"
+MASCOT_DIR = Path(__file__).resolve().parent.parent / "assets" / "mascot"
 # Identifies this app to Windows as distinct from the plain python.exe
 # process running it, so the taskbar shows our own icon instead of
 # python.exe's generic one (and groups repeated launches under it).
@@ -1782,6 +1783,30 @@ def get_file_type_icon(badge_text: str, size: int = 32) -> "ctk.CTkImage":
             light_image=pil_image, size=(size, size)
         )
     return _FILE_TYPE_ICON_CACHE[key]
+
+
+# Native canvas of every assets/mascot/*.png frame (see mascot_animation.py) -
+# all frames share it, so one constant covers the whole set.
+_MASCOT_NATIVE_SIZE = (368, 453)
+_MASCOT_IMAGE_CACHE: dict[tuple[str, int], "ctk.CTkImage"] = {}
+
+
+def get_mascot_frame_image(file_name: str, height: int = 260) -> "ctk.CTkImage":
+    """Return a cached CTkImage for one processing-screen mascot frame
+    (mascot_animation.frame_name_for's return value). Cached at module
+    level, like get_file_type_icon, since the processing screen redraws
+    at MASCOT_FRAME_INTERVAL and must not re-read the PNG from disk on
+    every tick. Width follows the source frames' fixed aspect ratio.
+    """
+    key = (file_name, height)
+    if key not in _MASCOT_IMAGE_CACHE:
+        pil_image = Image.open(MASCOT_DIR / file_name).convert("RGBA")
+        native_w, native_h = _MASCOT_NATIVE_SIZE
+        width = round(height * native_w / native_h)
+        _MASCOT_IMAGE_CACHE[key] = ctk.CTkImage(
+            light_image=pil_image, size=(width, height)
+        )
+    return _MASCOT_IMAGE_CACHE[key]
 
 
 RISK_STYLES = {
