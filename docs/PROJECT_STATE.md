@@ -5937,6 +5937,77 @@ frames). A live script drove the real window (real `anonymize_batch` on
 synthetic TXT files, slowed) through all five scenarios, with screenshots.
 Lint 70. No anonymization-logic files touched, so no mandatory code-review.
 
+## Measurable test system: benchmark/ (stage 2 of the plan, 2026-09-25)
+
+New tracked folder `benchmark/` (see its README for commands, schema and
+grading rules). Generated files (`benchmark/corpus/`, `benchmark/results/`)
+are gitignored: user decision, stated emphatically, that they never go to
+GitHub. Only code, `policy.json` and `baseline.json` (ids and counts, no
+text; `test_committed_baseline_holds_no_document_text` enforces it) are
+committed. User decisions taken while planning:
+- the AI review is **on by default** in the scorer (`--bez-ai` for a
+  fast run), on all 13 documents;
+- statute references and their dates ("ustawa z dnia 12 marca 2004 r.",
+  "art. 233 § 1 k.k.") and historical dates stay visible (`keep`);
+- document dates are `optional`.
+
+**Generator** (`python -m benchmark.generate`). 13 documents, seed
+20260925. The 3 traps are the former `_manual_test/.../llm_test_*`,
+rebuilt as spans. The text layer matches word for word and the scan
+matches pixel for pixel, checked against the old files. The 10 ordinary
+documents: 6 text-layer (hospital discharge card, VAT invoice with
+NIP/REGON in separate table cells, 2-page lease, two-column CV, printed
+e-mail, power of attorney with a deceased person), 2 good scans
+(decision, invoice) and 2 bad scans (150 dpi, 0.9°, blur, JPEG 55).
+There are 194 must spans. Each span records one box per character:
+from PyMuPDF rawdict for text PDFs, and from Pillow for scans, where we
+draw the text ourselves, rotated by the scan's tilt. Checked by eye on
+the `_WZORZEC.pdf` references, including the tilted bad scan.
+`_manual_test/generuj_llm_test.py` is left untouched, since it is local
+and gitignored.
+
+**Scorer** (`python -m benchmark.score`) calls
+`anonymizer._anonymize_pdf_file_result` with the app defaults: NER on,
+all categories, visual output. On text PDFs, a leak means the text is
+still in the output text layer. On scans, it means no new fill rect
+(`get_drawings`) covers the char centre. Layer credit comes from
+`applied_rects` labels. Both LLM passes are timed by wrapping
+`_run_optional_llm_*`. Suggestions come from `build_ai_suggestions`,
+matched to key spans by sentence: an upper bound for "caught only by
+AI". I checked the scorer's verdicts against rendered outputs: "Kwiatek
+i" visible, "Grunwaldem" redacted, and the scanned invoice's IBAN fully
+visible.
+
+**Baseline (gemma3:4b, all 13 documents, 1173 s total, ~60-155 s per
+document, almost all of it the LLM):** 154 of 194 must spans fully
+hidden (79.4%), 9 partial and 31 full leaks. 7 keep spans were
+redacted, all by the DATA regex eating statute and historical dates,
+plus "Grunwaldem" by NER. 31 over-redaction rects, e.g. "Kierownik
+Oddziału", "Specjalistka ds.", "angielski – B2", "ZUS", "PKP". Covered
+must spans are credited as regex 89, NER 65. AI: 107 suggestions, 20
+hits on a leaked span, **61 on already-redacted text**, 14 false
+positives, 12 duplicates, 6 "unnecessary redaction" (4 of them on must
+data). Worst new findings, all real on the rendered output:
+- scanned invoice (good scan): **IBAN fully visible**;
+- CV: an e-mail wrapped across two lines at "-" is not detected;
+- "600 000 903" after "pod numerem" is not detected;
+- place names in inflected form ("Borowcu Dolnym", "Zawadziu Starym")
+  and "BOROWCU DOLNYM" in capitals are missed by NER;
+- "ul. Kasztanowej 12" (inflected street) is missed;
+- a company name without a legal form ("Aleja Róż", "„Nad Stawem”") is
+  missed, and "Kwiatek i Syn Sp. z o.o." is only half covered;
+- the facility name "Szpital Powiatowy im. Anny Leśniewskiej" is missed.
+
+Verified: 924 tests (18 new in `test_benchmark_synth.py` and
+`test_benchmark_scoring.py`), lint 70. `score --bez-ai --check` against
+the fresh baseline reports "bez zmian" (exit 0). No anonymization-logic
+files touched, so no mandatory code-review.
+
+Process note: another Claude session worked in the same checkout at the
+same time (ASCII animation). Its commit 72e8249 picked up this work's
+DO_ZWERYFIKOWANIA entry, which is harmless and stays there. Parallel
+sessions should each get their own worktree.
+
 ## Warning
 
 This repository is still an early-stage portfolio MVP. Do not use it to
