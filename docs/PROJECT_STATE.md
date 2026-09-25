@@ -5772,9 +5772,33 @@ Test: `test_visual_redaction_covers_a_span_glued_to_polish_quotes`
 (fails without the fix). 882 tests, lint 70, `code-review` (medium) no
 findings.
 
-Not investigated yet: the same run showed "Analiza AI nie powiodła się"
-(status other than completed/timeout) - needs the run's
-`_wewnetrzne/*_LLM_SUGGESTIONS.json` status/error fields from the user.
+## AI toggled on from the home screen ran without a model (2026-09-25)
+
+The same run's comparison window said "Analiza AI nie powiodła się". The
+user's sidecar showed `"status": "no_model_configured"`, `model_name: ""`
+for both reviews: the home-screen "AI: ..." checkboxes set
+`use_llm_*_review` but only Settings > Zapisz ever picked a model, so a
+fresh session with AI switched on from the home screen sent nothing to
+Ollama. Fix: `AnonymizerApp._ensure_llm_model_for_run` (called in
+`start_anonymize` before any work) falls back to the first installed
+model like Settings does; with no model at all (or Ollama down) it asks
+"Kontynuować anonimizację bez AI?" and cancels on "Nie".
+`ai_review_status_note` now names the cause: no model chosen / model not
+in Ollama / Ollama not responding; the generic "nie powiodła się" stays
+for invalid responses and processing errors.
+
+Also checked from the same report: "NER categories not PDF-redacted by
+current PDF scope: NER_PERSON: 1" is not a leak - it counts a value the
+older exact-text NER plan (`_pdf_ner_redaction_plan`) refused to search
+for; the word-coordinate path redacted it (both person names on page 2
+are gone in the visual PDF). The line is misleading and a candidate for
+cleanup. Seen visible in the same file, for the test answer key to
+decide: "PWZ 1234567" (doctor's licence number) and the village name in
+the closing "Zagórze Wąskie, dnia …".
+
+Verified: 888 tests (6 new: 4 in `test_gui_app_llm_model_fallback.py`,
+2 in `test_comparison_window_ai_status_note.py`), lint 70. No
+anonymization-logic files touched, so no mandatory code-review.
 
 ## Planned next: measurable test system; later a two-step review flow (2026-09-25)
 

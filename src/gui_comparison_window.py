@@ -507,6 +507,25 @@ def ai_review_status_note(sidecar) -> str:
             "Analiza AI nie zdążyła się zakończyć (przekroczony limit czasu) "
             "- brak sugestii do przejrzenia."
         )
+    if "no_model_configured" in ran:
+        return (
+            "Analiza AI nie została uruchomiona - nie wybrano modelu AI "
+            "(Ustawienia > Model AI). Brak sugestii do przejrzenia."
+        )
+    if "model_missing" in ran:
+        return (
+            "Analiza AI nie została uruchomiona - wybranego modelu nie ma "
+            "w Ollamie. Brak sugestii do przejrzenia."
+        )
+    if any(
+        status in ("ollama_not_found", "service_unavailable", "unavailable")
+        for status in ran
+    ):
+        return (
+            "Analiza AI nie została uruchomiona - Ollama nie odpowiada "
+            "(nie jest zainstalowana albo uruchomiona). Brak sugestii do "
+            "przejrzenia."
+        )
     if any(status != "completed" for status in ran):
         return "Analiza AI nie powiodła się - brak sugestii do przejrzenia."
     return "AI przeanalizowało dokument i nie zgłosiło żadnych uwag."

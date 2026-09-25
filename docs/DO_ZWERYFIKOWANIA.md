@@ -201,6 +201,15 @@ przenoszę ją do „Potwierdzone" albo usuwam. Jeśli lista urośnie powyżej
       ekranie wyników dla tego pliku powinno zniknąć — to słowo w polskim
       cudzysłowie („…Lipami”), które NER wykrył, a PDF zostawiał odkryte.
 
+- [ ] **AI włączone z ekranu głównego samo dobiera model (2026-09-25,
+      Twój przebieg na `llm_test_2`)** — wcześniej zaznaczenie „AI: …”
+      na ekranie głównym (bez wchodzenia w Ustawienia) uruchamiało AI bez
+      modelu i okno pokazywało mylące „nie powiodła się”. Sprawdź: (1)
+      uruchom apkę od nowa, zaznacz „AI: …” tylko na ekranie głównym,
+      anonimizuj — AI ma faktycznie ruszyć (długi czas, sugestie albo
+      komunikat „nie zgłosiło uwag”); (2) opcjonalnie: wyłącz Ollamę i
+      spróbuj ponownie — apka ma zapytać, czy kontynuować bez AI.
+
 ## Znane, jeszcze NIE naprawione (odłożone na Twoją prośbę — wracamy do
    wdrożenia LLM)
 
