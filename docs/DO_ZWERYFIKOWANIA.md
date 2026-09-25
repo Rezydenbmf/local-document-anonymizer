@@ -157,32 +157,6 @@ przenoszę ją do „Potwierdzone" albo usuwam. Jeśli lista urośnie powyżej
       wcześniej, a raport `_RAPORT.txt` nie ma już sekcji „Local LLM
       review”.
 
-- [ ] **Skany: akapity nie sklejają się już w jedną linię (2026-09-23,
-      na Twoją zgodę „tak naprawiaj")** — błąd znaleziony na
-      syntetycznym skanie `llm_test_3_skan_protokol_2str.pdf`: OCR
-      mieszał pierwsze linie kilku akapitów w jedną („Pouczona
-      Feralnego Dzwonił o wieczoru…”), przez co numery telefonów, daty
-      czy adresy rozbite na kilka słów mogły zostać na skanie
-      niezamazane. Teraz tekst skanu czyta się linia po linii we
-      właściwej kolejności. Sprawdź na żywo: (1) zanonimizuj ten skan
-      jeszcze raz — telefony (np. „600 000 519”), data „15 lipca
-      1410” i adres „ul. Kasztanowa 12” mają być zamazane w całości;
-      (2) w oknie porównania ramki zamazań nie powinny obejmować kilku
-      linii naraz; (3) jeśli masz inne skany testowe (syntetyczne), zerknij,
-      czy wykrywanie nie pogorszyło się. Uwaga: sugestie AI zapisane dla
-      skanów PRZED tą poprawką pokażą „brak lokalizacji” — to celowe
-      (bezpieczne), wystarczy przetworzyć skan ponownie.
-
-- [ ] **Skan formularza: numer domu w tabeli nie zostaje już odkryty
-      (2026-09-25, zauważone przy weryfikacji poprzedniej poprawki)** —
-      na skanie `skan-do-testow-poz-4.pdf` wiersz „Adres Ogrodowa 22,
-      61-003 Poznań” (bez „ul.” przed nazwą ulicy — typowe w
-      tabelkowych formularzach) zostawiał ulicę i numer domu w pełni
-      widoczne. Teraz cała linia „Adres Ogrodowa 22” jest zamazana.
-      Sprawdź na żywo: zanonimizuj ten skan (albo podobny formularz z
-      tabelką „Adres” bez „ul.”) i sprawdź, czy cały wiersz adresowy —
-      ulica i numer domu — znika, nie tylko kod pocztowy i miasto.
-
 ## Znane, jeszcze NIE naprawione (odłożone na Twoją prośbę — wracamy do
    wdrożenia LLM)
 
@@ -190,8 +164,7 @@ przenoszę ją do „Potwierdzone" albo usuwam. Jeśli lista urośnie powyżej
       na skanie protokołu (`llm_test_3_skan_protokol_2str.pdf`) numer
       „600.000.528” zostaje w pełni widoczny; wzorzec TELEFON łapie
       spacje/myślniki, ale nie kropki.
-- [ ] **Nazwisko rozbite łamaniem wiersza w OCR (np. „Grze-
-gorz
+- [ ] **Nazwisko rozbite łamaniem wiersza w OCR (np. „Grze-gorz
       Pietrzak”) nie jest wykrywane** — w przeciwieństwie do nazwiska
       złamanego myślnikiem w jednej linii, które działa poprawnie.
       Widoczne na tym samym skanie protokołu, przy podpisie
@@ -203,6 +176,16 @@ naprawiane teraz, tylko odnotowane do zaplanowania później.
 
 ## Potwierdzone
 
+- [x] **Skany: akapity nie sklejają się już w jedną linię** (potwierdzone
+      2026-09-25, zrzutem ekranu z żywego okna porównania na
+      `llm_test_3_skan_protokol_2str.pdf`) — telefon „+48 600 000 519”
+      w pełni zamazany w jednym pasku, żadna ramka nie obejmuje już
+      kilku linii naraz.
+- [x] **Skan formularza: numer domu w tabeli nie zostaje już odkryty**
+      (potwierdzone 2026-09-25, zrzutem ekranu z żywego okna porównania
+      na `skan-do-testow-poz-4.pdf`) — cały wiersz „Adres Ogrodowa 22”
+      zamazany jednym paskiem, wiersz „NIP” też w pełni zamazany
+      (wcześniej widoczny bez żadnej redakcji).
 - [x] **Miganie okien terminala przy starcie — naprawione** (potwierdzone
       2026-09-22) — Twój feedback: „nie migaja terminale".
 - [x] **„Eksportuj zatwierdzone” kopiuje i otwiera właściwy PDF**
