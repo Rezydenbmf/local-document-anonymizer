@@ -120,7 +120,7 @@ _SURNAME_LIKE_TOKEN = (
 # Biurowe Testowski Sp. z o.o." and missed "Firma Wzorcowa S.A."
 # entirely.
 _COMPANY_LEGAL_FORM_SUFFIX = (
-    rf"(?i:sp\.{_INLINE_WS}*z{_INLINE_WS}*o\.{_INLINE_WS}*o\."
+    rf"(?i:sp\.{_INLINE_WS}*z\.?{_INLINE_WS}*[o0]\.{_INLINE_WS}*[o0]\."
     rf"|s\.a\."
     rf"|sp\.{_INLINE_WS}*[kj]\."
     rf"|s\.k\.a\."
@@ -136,7 +136,7 @@ NAZWA_FIRMY_PATTERN = re.compile(
     rf"""
     (?<!\w)
     {_COMPANY_NAME_WORD}
-    (?:{_INLINE_WS}+{_COMPANY_NAME_WORD}){{0,5}}
+    (?:{_INLINE_WS}+(?:[i&]{_INLINE_WS}+)?{_COMPANY_NAME_WORD}){{0,5}}
     {_INLINE_WS}+
     {_COMPANY_LEGAL_FORM_SUFFIX}
     (?!\w)

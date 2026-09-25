@@ -1,37 +1,33 @@
 {
  "schema": "docshield-benchmark-baseline/1",
- "created": "2026-09-25 20:06",
+ "created": "2026-09-25 20:10",
  "generator": "8d08320cce151918",
  "policy_version": 1,
  "docs": {
   "01_karta_informacyjna": {
    "must": 15,
-   "covered": 14,
+   "covered": 15,
    "partial": [],
-   "full": [
-    "s01"
-   ],
+   "full": [],
    "keep_redacted": [],
    "residue": [],
    "over_rects": 2,
    "layers": {
     "ner": 5,
-    "regex": 9
+    "regex": 10
    }
   },
   "02_faktura_vat_tabela": {
    "must": 17,
-   "covered": 16,
-   "partial": [
-    "s04"
-   ],
+   "covered": 17,
+   "partial": [],
    "full": [],
    "keep_redacted": [],
    "residue": [],
    "over_rects": 0,
    "layers": {
     "ner": 2,
-    "regex": 14
+    "regex": 15
    }
   },
   "03_umowa_najmu_2str": {
@@ -49,10 +45,8 @@
   },
   "04_cv_dwie_kolumny": {
    "must": 14,
-   "covered": 13,
-   "partial": [
-    "s08"
-   ],
+   "covered": 14,
+   "partial": [],
    "full": [],
    "keep_redacted": [
     "s15"
@@ -61,7 +55,7 @@
    "over_rects": 8,
    "layers": {
     "ner": 5,
-    "regex": 8
+    "regex": 9
    }
   },
   "05_wydruk_email": {
@@ -75,8 +69,8 @@
    "residue": [],
    "over_rects": 2,
    "layers": {
-    "ner": 7,
-    "regex": 9
+    "ner": 6,
+    "regex": 10
    }
   },
   "06_pelnomocnictwo": {
@@ -122,19 +116,15 @@
   },
   "09_protokol_wspolnoty_skan_zly": {
    "must": 15,
-   "covered": 13,
-   "partial": [
-    "s17"
-   ],
-   "full": [
-    "s01"
-   ],
+   "covered": 15,
+   "partial": [],
+   "full": [],
    "keep_redacted": [],
    "residue": [],
    "over_rects": 0,
    "layers": {
     "ner": 10,
-    "regex": 3
+    "regex": 5
    }
   },
   "10_wynik_badan_skan_zly": {
@@ -146,8 +136,8 @@
    "residue": [],
    "over_rects": 4,
    "layers": {
-    "ner": 4,
-    "regex": 6
+    "ner": 3,
+    "regex": 7
    }
   },
   "llm_test_1_notatka_wizyta_3str": {
@@ -181,9 +171,8 @@
   },
   "llm_test_2_opinia_lekarska_2str": {
    "must": 7,
-   "covered": 4,
+   "covered": 5,
    "partial": [
-    "s01",
     "s06"
    ],
    "full": [
@@ -197,7 +186,7 @@
    "over_rects": 6,
    "layers": {
     "ner": 3,
-    "regex": 1
+    "regex": 2
    }
   },
   "llm_test_3_skan_protokol_2str": {

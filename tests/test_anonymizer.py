@@ -221,6 +221,56 @@ class AnonymizerEngineTests(unittest.TestCase):
         self.assertEqual(anonymized, "Dostawca: [NAZWA_FIRMY]")
         self.assertEqual(report, {"NAZWA_FIRMY": 1})
 
+    def test_company_name_with_lowercase_connector_and_ocr_suffix(self) -> None:
+        """Benchmark (2026-09-25): "Kwiatek i Syn Sp. z o.o." left
+        "Kwiatek i" visible; OCR's "Sp. Z.0.0." was not a legal form."""
+        text = "Pracodawca: Kwiatek i Syn Sp. z o.o.\nZarządca, firma Admin-Dom Sp. Z.0.0., x"
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(
+            anonymized, "Pracodawca: [NAZWA_FIRMY]\nZarządca, firma [NAZWA_FIRMY], x"
+        )
+        self.assertEqual(report, {"NAZWA_FIRMY": 2})
+
+    def test_quoted_organisation_name_after_its_kind(self) -> None:
+        text = (
+            "Do: Spółdzielnia Mieszkaniowa „Zacisze” w sprawie.\n"
+            "NZOZ „Przychodnia pod Lipami” – poradnia.\n"
+            "ZEBRANIE WSPÓLNOTY MIESZKANIOWEJ\n„Nad Stawem”, zebranie."
+        )
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(
+            anonymized,
+            "Do: [NAZWA_FIRMY] w sprawie.\n"
+            "[NAZWA_FIRMY] – poradnia.\n"
+            "ZEBRANIE WSPÓLNOTY MIESZKANIOWEJ\n[NAZWA_FIRMY], zebranie.",
+        )
+        self.assertEqual(report, {"NAZWA_FIRMY": 3})
+
+    def test_quoted_title_without_organisation_kind_stays(self) -> None:
+        text = "W ramach programu „Posiłek w domu”. Nakręcono reportaż „Kowalka”."
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(anonymized, text)
+        self.assertEqual(report, {})
+
+    def test_facility_named_after_a_patron(self) -> None:
+        text = (
+            "Szpital Powiatowy im. Anny Leśniewskiej w Mirosławcu.\n"
+            "Szkoła Podstawowa nr 3 im. Jana Pawła II w Tychach."
+        )
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(
+            anonymized, "[NAZWA_FIRMY] w Mirosławcu.\n[NAZWA_FIRMY] w Tychach."
+        )
+        self.assertEqual(report, {"NAZWA_FIRMY": 2})
+
     def test_replaces_dowod_osobisty_number(self) -> None:
         text = "Numer dowodu: ABC123456."
 

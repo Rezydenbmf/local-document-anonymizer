@@ -872,8 +872,10 @@ _HOUSE_NUMBER = (
 # word directly before a stray "S.A."/"sp. z o.o." mention outside a
 # company-name context would also match - same false-positive tolerance
 # already accepted for ULICA/MIEJSCOWOSC.
+# "z.o.o." with zeros for the letter o is how OCR read "Sp. Z.0.0." on a
+# bad scan in the benchmark (2026-09-25).
 _COMPANY_LEGAL_FORM_SUFFIX = (
-    rf"(?i:sp\.{_INLINE_WS}*z{_INLINE_WS}*o\.{_INLINE_WS}*o\."
+    rf"(?i:sp\.{_INLINE_WS}*z\.?{_INLINE_WS}*[o0]\.{_INLINE_WS}*[o0]\."
     rf"|s\.a\."
     rf"|sp\.{_INLINE_WS}*[kj]\."
     rf"|s\.k\.a\."
@@ -896,11 +898,13 @@ _COMPANY_NAME_WORD = rf"[{_UPPER_LETTERS}\d][{_LOWER_LETTERS}\d-]*"
 # Młynarskie Sp. z o.o." (4 words) or a compound trade name plus a
 # descriptive phrase; ULICA/MIEJSCOWOSC stay tighter (2-3 tokens) because
 # a street or city name is never realistically that long.
+# A lowercase "i" or "&" may join two capitalised words ("Kwiatek i Syn
+# Sp. z o.o." used to leave "Kwiatek i" visible, benchmark 2026-09-25).
 NAZWA_FIRMY_PATTERN = re.compile(
     rf"""
     (?<!\w)
     {_COMPANY_NAME_WORD}
-    (?:{_INLINE_WS}+{_COMPANY_NAME_WORD}){{0,5}}
+    (?:{_INLINE_WS}+(?:[i&]{_INLINE_WS}+)?{_COMPANY_NAME_WORD}){{0,5}}
     {_INLINE_WS}+
     {_COMPANY_LEGAL_FORM_SUFFIX}
     (?!\w)
@@ -1208,6 +1212,16 @@ def _apply_dictionary_and_regex(
     # Read before the loop below replaces the postal-code towns it is
     # built from.
     place_names = known_place_names([anonymized])
+    # Before _PATTERNS, same as the PDF path: a quoted name can contain a
+    # word ULICA would otherwise claim first ("Kawiarnia „Aleja Róż”").
+    if active_labels is None or "NAZWA_FIRMY" in active_labels:
+        anonymized, organisation_count = _replace_spans(
+            anonymized, organisation_name_spans(anonymized), "NAZWA_FIRMY"
+        )
+        if organisation_count:
+            counters["NAZWA_FIRMY"] = (
+                counters.get("NAZWA_FIRMY", 0) + organisation_count
+            )
 
     for label, pattern in _PATTERNS:
         if active_labels is None or label in active_labels:
@@ -1371,18 +1385,87 @@ def known_place_spans(
     ]
 
 
-def _replace_known_places(text: str, place_names: Iterable[str]) -> tuple[str, int]:
-    spans = known_place_spans(text, place_names)
+def _replace_spans(
+    text: str, spans: list[tuple[int, int]], label: str
+) -> tuple[str, int]:
+    """Replace sorted, non-overlapping ``spans`` with ``[label]``."""
     if not spans:
         return text, 0
     parts: list[str] = []
     cursor = 0
     for start, end in spans:
         parts.append(text[cursor:start])
-        parts.append("[MIEJSCOWOSC]")
+        parts.append(f"[{label}]")
         cursor = end
     parts.append(text[cursor:])
     return "".join(parts), len(spans)
+
+
+def _replace_known_places(text: str, place_names: Iterable[str]) -> tuple[str, int]:
+    return _replace_spans(text, known_place_spans(text, place_names), "MIEJSCOWOSC")
+
+
+# Organisation names with no legal form (benchmark 2026-09-25): a name in
+# quotes right after a word saying what kind of organisation it is
+# ("Wspólnota Mieszkaniowa „Nad Stawem”", "NZOZ „Przychodnia pod
+# Lipami”"), and a facility named after a patron ("Szpital Powiatowy
+# im. Anny Leśniewskiej"). A quoted title after any other word
+# ("programu „Posiłek w domu”", "reportaż „…”") stays visible.
+_ORGANISATION_KIND = (
+    r"(?i:wspóln\w*|spółdziel\w*|nzoz|spzoz|przychodni\w*|poradni\w*"
+    r"|laborator\w*|stowarzysz\w*|fundacj\w*|hotel\w*|pensjonat\w*"
+    r"|restaurac\w*|kawiarni\w*|sklep\w*|firm[aąęy]|zakład\w*|ośrod\w*"
+    r"|klub\w*|aptek\w*|gabinet\w*|szkoł\w*|szkol\w*|przedszkol\w*)"
+)
+_QUOTED_ORGANISATION_PATTERN = re.compile(
+    rf"""
+    (?<!\w)
+    {_ORGANISATION_KIND}
+    (?:{_INLINE_WS}+[{_UPPER_LETTERS}][{_LOWER_LETTERS}-]*){{0,2}}
+    (?P<gap>{_INLINE_WS}+|{_INLINE_WS}*\n{_INLINE_WS}*)
+    (?P<quoted>(?:„|,,|"|“)[^„”"“\n]{{2,60}}(?:”|"|“))
+    """,
+    re.VERBOSE,
+)
+_PATRON_WORD = rf"[{_UPPER_LETTERS}][{_LOWER_LETTERS}.-]*"
+_PATRON_FACILITY_PATTERN = re.compile(
+    rf"""
+    (?<!\w)
+    [{_UPPER_LETTERS}][{_LOWER_LETTERS}-]+
+    (?:{_INLINE_WS}+(?:[{_UPPER_LETTERS}][{_LOWER_LETTERS}-]+|nr{_INLINE_WS}*\d+)){{0,3}}
+    {_INLINE_WS}+im\.{_INLINE_WS}+
+    (?:(?i:gen|św|ks|dr|prof|kard|bł)\.{_INLINE_WS}+)?
+    {_PATRON_WORD}
+    (?:{_INLINE_WS}+{_PATRON_WORD}){{0,2}}
+    """,
+    re.VERBOSE,
+)
+
+
+def organisation_name_spans(text: str) -> list[tuple[int, int]]:
+    """Sorted, non-overlapping spans of quoted and patron-named
+    organisations. The organisation-kind words are included only when
+    they sit on the same line as the quoted name, so a heading like
+    "PROTOKÓŁ Z ZEBRANIA WSPÓLNOTY MIESZKANIOWEJ⏎„Nad Stawem”" hides just
+    the name, not the heading line."""
+    spans: list[tuple[int, int]] = []
+    for match in _QUOTED_ORGANISATION_PATTERN.finditer(text):
+        if "\n" in text[match.start():match.start("quoted")]:
+            spans.append((match.start("quoted"), match.end()))
+        else:
+            spans.append((match.start(), match.end()))
+    spans.extend(
+        (match.start(), match.end())
+        for match in _PATRON_FACILITY_PATTERN.finditer(text)
+    )
+    spans.sort()
+    merged: list[tuple[int, int]] = []
+    for start, end in spans:
+        if merged and start < merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(end, merged[-1][1]))
+        else:
+            merged.append((start, end))
+    return merged
 
 
 def _pdf_ner_redaction_terms(
@@ -1561,6 +1644,20 @@ def _regex_pdf_spans_for_page(
     exactly the bug a post-hoc-only filter caused.
     """
     spans: list[PdfRedactionSpan] = []
+    # Ahead of _PATTERNS so the whole organisation name wins over a
+    # word inside it that another pattern would claim (and then block
+    # this wider span through occupied_ranges).
+    if active_labels is None or "NAZWA_FIRMY" in active_labels:
+        for start, end in organisation_name_spans(page_text):
+            _add_pdf_span(
+                spans,
+                occupied_ranges,
+                label="NAZWA_FIRMY",
+                page_number=page_number,
+                start=start,
+                end=end,
+                source="regex",
+            )
     for label, pattern in _PATTERNS:
         if active_labels is None or label in active_labels:
             for match in pattern.finditer(page_text):
