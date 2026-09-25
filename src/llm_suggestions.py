@@ -26,7 +26,7 @@ computes every auto-detected span against `PdfWordPage.text`) keeps
 this consistent with, not parallel to, the existing detection-to-rect
 pipeline. A sentence that can't be found this way resolves to no rect
 at all rather than a guessed, possibly-wrong one - the suggestion
-still surfaces (with its justification) for the user to locate and act
+still surfaces (with its category) for the user to locate and act
 on manually.
 
 Known limitations (fail closed, not silently wrong, but worth naming):

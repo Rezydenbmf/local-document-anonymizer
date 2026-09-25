@@ -177,6 +177,13 @@ przenoszę ją do „Potwierdzone" albo usuwam. Jeśli lista urośnie powyżej
       w panelu bocznym jest ramka „Sugestie AI” z wyjaśnieniem, co się
       stało. Limit czasu na zapytanie do AI podniesiony z 30 s do 15 min.
 
+- [ ] **Sugestie AI bez tekstu modelu + polskie polecenie (2026-09-25,
+      Twoja decyzja)** — w panelu „Sugestie AI” nie ma już linii „AI:
+      …” z uzasadnieniem modelu, tylko polski tytuł z kategorią (np.
+      „Możliwa pominięta dana: osoba”) i cytat zdania z dokumentu.
+      Sprawdź, czy bez uzasadnienia wiesz, o co chodzi w sugestii — jeśli
+      nie, wymyślimy bezpieczny sposób, żeby to doprecyzować.
+
 ## Znane, jeszcze NIE naprawione (odłożone na Twoją prośbę — wracamy do
    wdrożenia LLM)
 

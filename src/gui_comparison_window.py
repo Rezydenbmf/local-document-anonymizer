@@ -2420,7 +2420,7 @@ class ComparisonWindow:
     # Word-track-changes style: "Sprawdź sugestię AI" walks through the
     # suggestions one at a time, scrolling both panes to the spot, with a
     # dashed turquoise outline around what is pending and a panel in the
-    # sidebar with the AI's justification plus Zatwierdź / Odrzuć / Zmień
+    # sidebar with the suggestion's category plus Zatwierdź / Odrzuć / Zmień
     # ręcznie. Nothing here redacts anything by itself: accepting only
     # *stages* ordinary magic-pen edits (pending_add_rects /
     # pending_remove_keys), which still go through the same "Zapisz
@@ -2579,7 +2579,7 @@ class ComparisonWindow:
         else:
             # Narrative combinations (and a missed redaction whose sentence
             # could not be located) have no ready rect: accepting always
-            # means marking the area by hand, with the justification as
+            # means marking the area by hand, with the quoted sentence as
             # the hint.
             self._enter_ai_manual_mode(
                 suggestion.id,
@@ -2932,8 +2932,6 @@ class ComparisonWindow:
         ).pack(side="left", expand=True)
 
         self._ai_label(inner, ai_suggestion_title_pl(current), size=11, bold=True)
-        if current.justification:
-            self._ai_label(inner, f"AI: {current.justification}", color=COLOR_TEXT_MUTED)
         quote = ai_quote_text(self.ai_review.sentence_texts.get(current.id, []))
         if quote:
             self._ai_label(inner, f"„{quote}”")
