@@ -5832,6 +5832,39 @@ most likely saved by a "don't ask again" click during the 2026-09-08
   bypasses (pipe into Remove-Item, `cd` alone / `cd -`, `%VAR%`, cd
   inside a nested quoted command) - all fixed, each with a test.
 
+## Answer-key policy for the test system (user decisions, 2026-09-25)
+
+What the test answer key treats as "must be redacted". Items marked
+*changeable* are decisions for now - the key schema must let a policy
+flip re-score existing documents without regenerating them (e.g. a
+`policy_tag` per span, looked up in one policy table).
+
+1. **Case / file reference numbers** ("sygn. akt III RC 418/25",
+   "OL/2026/00417"): a **new opt-in category** ("Sygnatury / numery
+   akt"), **off by default**; the user chooses per task. Key: required
+   only when that category is enabled. Not implemented yet (no detector
+   today; the audit already counts CASE_REFERENCE).
+2. **Professional licence numbers** ("PWZ 1234567"): not required -
+   *changeable*.
+3. **Facility / institution names** ("NZOZ „Przychodnia pod Lipami”"):
+   the **whole name** must be redacted.
+4. **Place names**: always **in full**, small villages ("Zagórze
+   Wąskie" - today only "Zagórze" is caught) and big cities (Kraków,
+   Sandomierz) alike.
+5. **Historical / public figures** ("Piłsudski"): stay visible.
+   **Deceased private persons** in a document are still redacted - GDPR
+   itself doesn't cover the dead (recital 27), but medical secrecy
+   survives the patient (ustawa o prawach pacjenta), personal rights of
+   the deceased are protected by relatives, and details about a dead
+   person often identify living relatives. General analysis, not legal
+   advice - to confirm with a lawyer before release.
+6. **Drug / supplement names, EAN codes**: not required - *changeable*.
+
+Also raised by the user: **default category selection** should not be
+"everything on". Today all 8 categories (pesel, person, phone, email,
+iban, address, company, date) default on. Open: which stay on by
+default (see the chat of 2026-09-25 for the proposal).
+
 ## Planned next: measurable test system; later a two-step review flow (2026-09-25)
 
 Agreed with the user, in this order:
