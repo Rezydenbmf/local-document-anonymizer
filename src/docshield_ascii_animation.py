@@ -1,19 +1,28 @@
-"""Framework-agnostic ASCII animation for DocShield's processing screen.
+"""Framework-agnostic state machine for DocShield's processing screen.
 
 Integration API
 ---------------
-Create ``DocShieldAsciiAnimation(document_count)`` and let the GUI redraw a
-monospaced text widget from ``render_frame()`` on its own timer (roughly every
-80-150 ms). Backend events control the animation through ``start_document()``,
-``mark_current_completed()``, ``advance_to_next()``, and one of
-``stop_success()``, ``stop_error()`` or ``cancel()``. ``request_cancel()``
-only changes the status line while the current document is still finishing
-(DocShield can stop a batch between files, not inside one).
+Create ``DocShieldAsciiAnimation(document_count)``. Backend events control it
+through ``start_document()``, ``mark_current_completed()``,
+``advance_to_next()``, and one of ``stop_success()``, ``stop_error()`` or
+``cancel()``. ``request_cancel()`` only changes the status line while the
+current document is still finishing (DocShield can stop a batch between
+files, not inside one). ``elapsed_seconds()`` and ``current_message()`` give
+a renderer everything it needs without parsing ``render_frame()``'s text.
+
+The processing screen (2026-09-25) shows a hand-drawn mascot image instead of
+this module's own ASCII-art text box - see ``mascot_animation.frame_name_for``,
+which turns ``snapshot().state`` and ``elapsed_seconds()`` into which sprite
+PNG to display, and ``current_message()`` for the status line beside it.
+``render_frame()`` (the original monospaced ASCII box) is kept and still
+fully covered by tests below since it has no GUI-toolkit dependency either
+and needs no art assets - a renderer without image support could still use it.
 
 The animation deliberately has no percentage. ``source_id`` is an opaque value
 returned in snapshots for integration purposes and is never rendered. No text
-from a real document is accepted or displayed; all visible document contents
-below are fixed fictional constants.
+from a real document is accepted or displayed by ``render_frame()``; all
+visible document contents below are fixed fictional constants, and the mascot
+frames never contain any text at all.
 
 Origin: prototype ``docshield_ascii_animation.py`` (2026-09-25), integrated
 with the Polish status messages spelled with diacritics and the added
@@ -182,6 +191,21 @@ class DocShieldAsciiAnimation:
                 source_id=self._source_id,
                 is_terminal=self._state in TERMINAL_STATES,
             )
+
+    def elapsed_seconds(self, now: float | None = None) -> float:
+        """Seconds since the *current* document started animating - the
+        same clock render_frame() itself uses. Lets an alternative
+        renderer (mascot_animation.frame_name_for) pick its own frame
+        without duplicating this state machine's timing."""
+        with self._lock:
+            return max(0.0, (time.monotonic() if now is None else now) - self._started_at)
+
+    def current_message(self) -> str:
+        """The one-line status text ('Analiza lokalna w toku',
+        'Anulowanie - konczę bieżący dokument', ...) for a renderer that
+        doesn't use render_frame()'s own ASCII box."""
+        with self._lock:
+            return self._message
 
     def render_frame(self, now: float | None = None) -> str:
         """Return one frame. Call from the GUI's own timer/event loop."""

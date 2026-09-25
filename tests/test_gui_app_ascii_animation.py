@@ -72,6 +72,30 @@ class AsciiAnimationModuleTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             animation.advance_to_next()
 
+    def test_elapsed_seconds_resets_on_start_and_advance(self) -> None:
+        """mascot_animation.frame_name_for relies on this for its own
+        looping clock, instead of parsing render_frame()'s text."""
+        animation = DocShieldAsciiAnimation(2)
+        animation.start_document("doc-1")
+        self.assertAlmostEqual(
+            animation.elapsed_seconds(now=time.monotonic() + 5.0), 5.0, places=2
+        )
+        animation.mark_current_completed()
+        animation.advance_to_next("doc-2")
+        self.assertAlmostEqual(
+            animation.elapsed_seconds(now=time.monotonic() + 1.0), 1.0, places=2
+        )
+
+    def test_current_message_matches_render_frame_status_line(self) -> None:
+        animation = DocShieldAsciiAnimation(1)
+        self.assertEqual(animation.current_message(), DocShieldAsciiAnimation.MESSAGE_IDLE)
+        animation.start_document()
+        self.assertEqual(animation.current_message(), DocShieldAsciiAnimation.MESSAGE_RUNNING)
+        animation.request_cancel()
+        self.assertEqual(
+            animation.current_message(), DocShieldAsciiAnimation.MESSAGE_CANCEL_PENDING
+        )
+
 
 class ProcessingScreenAnimationTests(unittest.TestCase):
     _root = None
@@ -102,7 +126,9 @@ class ProcessingScreenAnimationTests(unittest.TestCase):
         app.strip_signatures = False
         app.active_screen = "start"
         app.processing_animation = None
-        app.processing_animation_label = None
+        app.processing_document_label = None
+        app.processing_mascot_label = None
+        app.processing_status_label = None
         app.processing_cancel_button = None
         app.progress_elapsed_label = None
         app._processing_active = False
@@ -113,17 +139,47 @@ class ProcessingScreenAnimationTests(unittest.TestCase):
         app.status_label = mock.Mock()
         app.rendered_frames = []
         app.document_counts = []
+        app._last_document_text = ""
+        app._last_status_text = ""
 
-        label = mock.Mock()
-        label.configure.side_effect = lambda **kw: app.rendered_frames.append(
-            kw.get("text", "")
-        )
+        def _record_combined() -> None:
+            # The mascot animation replaced one text widget (the ASCII box,
+            # which carried "Dokument N z M" and the status message in one
+            # string) with three: an image plus two small text labels. Tests
+            # below were written against that single combined string, so the
+            # fixture recombines the two text labels' latest values the same
+            # way, rather than rewriting every assertion for a UI-layout
+            # detail that isn't what they're actually checking.
+            app.rendered_frames.append(
+                f"{app._last_document_text} {app._last_status_text}".strip()
+            )
+
+        document_label = mock.Mock()
+
+        def _document_configure(**kw) -> None:
+            if "text" in kw:
+                app._last_document_text = kw["text"]
+            _record_combined()
+
+        document_label.configure.side_effect = _document_configure
+
+        status_label = mock.Mock()
+
+        def _status_configure(**kw) -> None:
+            if "text" in kw:
+                app._last_status_text = kw["text"]
+            _record_combined()
+
+        status_label.configure.side_effect = _status_configure
+        mascot_label = mock.Mock()
 
         def fake_show_processing_screen(document_count: int = 1) -> None:
             app.active_screen = "processing"
             app.document_counts.append(document_count)
             app.processing_animation = DocShieldAsciiAnimation(document_count)
-            app.processing_animation_label = label
+            app.processing_document_label = document_label
+            app.processing_mascot_label = mascot_label
+            app.processing_status_label = status_label
 
         app.show_processing_screen = fake_show_processing_screen
         app.show_start_screen = mock.Mock()
