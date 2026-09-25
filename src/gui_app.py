@@ -324,6 +324,12 @@ class AnonymizerApp:
         self.llm_model_name = ""
         self.use_llm_comparison_review = False
         self.use_llm_narrative_review = False
+        # The home screen's quick-settings checkboxes for the three
+        # toggles above - kept so Settings can push a saved change back
+        # into them (see _sync_quick_settings_from_state).
+        self._quick_ner_var: tk.BooleanVar | None = None
+        self._quick_llm_comparison_var: tk.BooleanVar | None = None
+        self._quick_llm_narrative_var: tk.BooleanVar | None = None
         self.pdf_output_label = PDF_OUTPUT_LABEL_VISUAL_REDACTION
         self.auto_open_on_approve = True
         self.show_usage_hints = True
@@ -1372,6 +1378,7 @@ class AnonymizerApp:
         ).pack(fill="x", pady=(0, 10))
 
         ner_var = tk.BooleanVar(value=self.use_ner)
+        self._quick_ner_var = ner_var
 
         def _on_ner_toggle() -> None:
             self.use_ner = ner_var.get()
@@ -1400,6 +1407,7 @@ class AnonymizerApp:
         # ever produce *suggestions* the human reviews in the comparison
         # window, never an automatic redaction.
         llm_comparison_var = tk.BooleanVar(value=self.use_llm_comparison_review)
+        self._quick_llm_comparison_var = llm_comparison_var
 
         def _on_llm_comparison_toggle() -> None:
             self.use_llm_comparison_review = llm_comparison_var.get()
@@ -1425,6 +1433,7 @@ class AnonymizerApp:
         ).pack(fill="x", padx=(24, 0), pady=(0, 10))
 
         llm_narrative_var = tk.BooleanVar(value=self.use_llm_narrative_review)
+        self._quick_llm_narrative_var = llm_narrative_var
 
         def _on_llm_narrative_toggle() -> None:
             self.use_llm_narrative_review = llm_narrative_var.get()
@@ -2528,7 +2537,26 @@ class AnonymizerApp:
         initial_tab: str | None = None,
         on_saved: Callable[[], None] | None = None,
     ) -> None:
-        SettingsDialog(self, initial_tab=initial_tab, on_saved=on_saved)
+        def _after_save() -> None:
+            self._sync_quick_settings_from_state()
+            if on_saved is not None:
+                on_saved()
+
+        SettingsDialog(self, initial_tab=initial_tab, on_saved=_after_save)
+
+    def _sync_quick_settings_from_state(self) -> None:
+        """Push the toggles Settings just saved into the home screen's
+        quick-settings checkboxes. Real user report (2026-09-25): turning
+        the AI switches on in Settings left the home checkboxes showing
+        them off - the checkboxes had their own BooleanVars seeded once
+        at build time and nothing ever updated them afterwards."""
+        for var, value in (
+            (self._quick_ner_var, self.use_ner),
+            (self._quick_llm_comparison_var, self.use_llm_comparison_review),
+            (self._quick_llm_narrative_var, self.use_llm_narrative_review),
+        ):
+            if var is not None:
+                var.set(value)
 
     def open_about(self) -> None:
         AboutDialog(self)

@@ -272,6 +272,7 @@ class SettingsDialog:
             self.llm_narrative_var,
             status_ok=self.environment_status.get(ENV_ITEM_LLM),
         )
+        self._build_llm_model_section(tab)
         self._build_ocr_language_section(tab)
 
     def _refresh_detection_tab(self) -> None:
@@ -668,6 +669,64 @@ class SettingsDialog:
         )
         return f"Aktualnie obsługiwane języki: {names}."
 
+    def _build_llm_model_section(self, parent: ctk.CTkFrame) -> None:
+        """Which installed Ollama model the two "AI: ..." reviews use.
+        Real user report (2026-09-25): there was no way to choose one -
+        the model was silently the first line of `ollama list`, i.e.
+        whichever was pulled most recently. Lists the models fresh on
+        each build, so one pulled while the app is open shows up the
+        next time Settings opens."""
+        status, models = list_installed_models()
+        values, default_model, _english_hint = format_llm_model_selector_state(
+            status, models
+        )
+        hint = (
+            "Zmiana modelu obowiązuje od następnej anonimizacji."
+            if values
+            else "Nie znaleziono zainstalowanych modeli - pobierz model "
+            "poleceniem „ollama pull ...” i otwórz Ustawienia ponownie."
+        )
+        current = self.llm_model_var.get()
+        self.llm_model_var.set(current if current in values else default_model)
+        self.llm_model_values = values
+
+        frame = self._section_frame(parent)
+        row = ctk.CTkFrame(frame, fg_color="transparent")
+        row.pack(fill="x", padx=14, pady=12)
+        text_col = ctk.CTkFrame(row, fg_color="transparent")
+        text_col.pack(side="left", fill="x", expand=True)
+        ctk.CTkLabel(
+            text_col,
+            text="Model AI (Ollama)",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+            text_color=COLOR_TEXT,
+            anchor="w",
+        ).pack(fill="x")
+        ctk.CTkLabel(
+            text_col,
+            text="Używany przez obie opcje „AI: …” powyżej. " + hint,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLOR_TEXT_MUTED,
+            anchor="w",
+            wraplength=300,
+            justify="left",
+        ).pack(fill="x")
+        ctk.CTkOptionMenu(
+            row,
+            values=values or ["brak modeli"],
+            variable=self.llm_model_var,
+            state="normal" if values else "disabled",
+            width=220,
+            height=28,
+            fg_color=COLOR_ICON_IDLE,
+            button_color=COLOR_BORDER,
+            button_hover_color=COLOR_BORDER,
+            text_color=COLOR_TEXT,
+            dropdown_fg_color=COLOR_CARD,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            dynamic_resizing=False,
+        ).pack(side="right")
+
     def _build_ocr_language_section(self, parent: ctk.CTkFrame) -> None:
         """OCR status plus language-pack management - polski is this
         app's baseline OCR language (see ocr.PRIMARY_OCR_LANGUAGE); this
@@ -880,6 +939,9 @@ class SettingsDialog:
             # elsewhere - never worth failing the whole save over a
             # read-only home folder.
             pass
+        selected_model = self.llm_model_var.get().strip()
+        if selected_model in getattr(self, "llm_model_values", []):
+            self.app.llm_model_name = selected_model
         needs_llm_model = (
             self.app.use_llm_comparison_review or self.app.use_llm_narrative_review
         )

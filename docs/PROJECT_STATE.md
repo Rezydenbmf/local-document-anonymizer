@@ -5585,6 +5585,44 @@ surname split across two OCR lines by a hyphenated line-wrap
 gorz Pietrzak") isn't redacted, unlike a first-line-only
 hyphenated surname. Both noted in `docs/DO_ZWERYFIKOWANIA.md`.
 
+## Settings: AI toggles didn't sync to the home screen; no model picker (2026-09-25)
+
+Two bugs the user hit on the first step of the live AI-review test:
+
+1. Turning the two "AI: ..." switches on in Settings and saving left the
+   home screen's quick-settings checkboxes unticked. The checkboxes had
+   their own `BooleanVar`s seeded once when the panel was built, and
+   nothing updated them afterwards (the NER checkbox had the same gap).
+   The app state itself *was* updated, so the run would have used AI -
+   the checkbox just lied. `AnonymizerApp.open_settings` now wraps the
+   `on_saved` callback with `_sync_quick_settings_from_state`, which
+   pushes `use_ner` / both LLM flags into the stored quick-panel vars.
+2. There was no way to choose the Ollama model at all. The old model
+   combobox disappeared in the CustomTkinter redesign (3142ad3); since
+   then `_save_and_close` silently took the first line of `ollama list`
+   (= the most recently pulled model). The detection tab now has a
+   "Model AI (Ollama)" dropdown built from `list_installed_models()` on
+   each open (~0.1s measured, so it doesn't reintroduce the old
+   slow-Settings complaint); the current choice is kept when still
+   installed, otherwise it falls back to the first installed model.
+
+Also fixed a latent test fragility: the toggle tests called the real
+`ollama list`, so they would break on any machine with models pulled -
+now mocked.
+
+Model decision recorded alongside: the default for live testing is
+`SpeakLeash/bielik-4.5b-v3.0-instruct:Q8_0` (official SpeakLeash Ollama
+tag; Polish-tuned; fits the user's ~15 GB RAM, CPU-only laptop), with
+`gemma3:4b` installed for comparison. JSON validity isn't a model
+differentiator here: `llm_review.py` passes a JSON Schema in Ollama's
+`format` field, so Ollama enforces schema-valid output for any model.
+
+Settings are still per-session (every launch starts with the AI toggles
+off and no model chosen) - unchanged, by the existing design.
+
+Verified: 854 tests (7 new), lint 71; the real Settings dialog against
+the real Ollama install listed both models and saved the picked one.
+
 ## Warning
 
 This repository is still an early-stage portfolio MVP. Do not use it to
