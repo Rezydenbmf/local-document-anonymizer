@@ -4,8 +4,10 @@ from collections.abc import Iterable
 import re
 
 try:
+    from .pdf_redaction import is_kept_reference_date
     from .sensitive_terms import SensitiveTerm, count_sensitive_term_matches
 except ImportError:
+    from pdf_redaction import is_kept_reference_date
     from sensitive_terms import SensitiveTerm, count_sensitive_term_matches
 
 
@@ -243,7 +245,14 @@ def audit_text(
         label: (
             0
             if label in excluded
-            else sum(1 for _ in pattern.finditer(text))
+            else sum(
+                1
+                for match in pattern.finditer(text)
+                # A statute's date stays visible by policy, so it is not
+                # a leftover (same rule the DATA redaction applies).
+                if label != "DATA"
+                or not is_kept_reference_date(text, match.start(), match.end())
+            )
         )
         for label, pattern in _AUDIT_PATTERNS
     }
