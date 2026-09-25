@@ -2932,8 +2932,6 @@ class ComparisonWindow:
         ).pack(side="left", expand=True)
 
         self._ai_label(inner, ai_suggestion_title_pl(current), size=11, bold=True)
-        if current.justification:
-            self._ai_label(inner, f"AI: {current.justification}", color=COLOR_TEXT_MUTED)
         quote = ai_quote_text(self.ai_review.sentence_texts.get(current.id, []))
         if quote:
             self._ai_label(inner, f"„{quote}”")
