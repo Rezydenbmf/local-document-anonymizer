@@ -42,7 +42,14 @@ LLM_RESIDUAL_CATEGORIES = (
     LLM_CATEGORY_OTHER,
 )
 
-DEFAULT_LLM_REVIEW_TIMEOUT_SECONDS = 30
+# Per request. Measured 2026-09-25 on the user's CPU-only laptop (~15 GB
+# RAM, no GPU) with Bielik 4.5B v3 Q8_0 on a 2.8k-character, 3-page test
+# PDF: comparison review 118 s, narrative review 62 s. The old 30 s made
+# both time out every time, silently. Prompt processing scales roughly
+# with input length, so the MAX_REVIEW_INPUT_CHARS ceiling (20k) needs
+# minutes; the processing screen shows elapsed time so a long wait
+# doesn't look like a hang.
+DEFAULT_LLM_REVIEW_TIMEOUT_SECONDS = 900
 OLLAMA_COMMAND = "ollama"
 OLLAMA_GENERATE_API_URL = "http://127.0.0.1:11434/api/generate"
 UTF8_BOM = "\ufeff"

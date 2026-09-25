@@ -1180,6 +1180,9 @@ def format_review_heading_subtitle(count: int) -> str:
 
 
 PROCESSING_ANIMATION_WIDTH = 10
+# How often the processing screen's animation and elapsed-time line
+# advance while anonymize_batch runs on its worker thread.
+PROCESSING_TICK_MS = 400
 
 
 def format_processing_animation_frame(step: int, width: int = PROCESSING_ANIMATION_WIDTH) -> str:
@@ -1200,6 +1203,17 @@ def format_processing_animation_frame(step: int, width: int = PROCESSING_ANIMATI
     dots_before = "·" * position
     dots_after = "·" * (safe_width - 1 - position)
     return f"\U0001f4c4 {dots_before}✏️{dots_after} \U0001f4c4"
+
+
+def format_processing_elapsed(seconds: int) -> str:
+    """The processing screen's "still working" line, e.g. "Trwa już: 42 s"
+    or "Trwa już: 2 min 05 s" - proof the app hasn't hung during a long
+    local-LLM review."""
+    safe = max(int(seconds), 0)
+    if safe < 60:
+        return f"Trwa już: {safe} s"
+    minutes, rest = divmod(safe, 60)
+    return f"Trwa już: {minutes} min {rest:02d} s"
 
 
 def format_anonymize_button_text(input_file_count: int) -> str:

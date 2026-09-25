@@ -32,6 +32,7 @@ class QuickSettingsSyncTests(unittest.TestCase):
         app.use_ner = True
         app.use_llm_comparison_review = False
         app.use_llm_narrative_review = False
+        app._processing_active = False
         app._quick_ner_var = tk.BooleanVar(master=self._root, value=True)
         app._quick_llm_comparison_var = tk.BooleanVar(master=self._root, value=False)
         app._quick_llm_narrative_var = tk.BooleanVar(master=self._root, value=False)

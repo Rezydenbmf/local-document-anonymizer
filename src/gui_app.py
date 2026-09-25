@@ -1,6 +1,7 @@
 """The main DocShield application window (AnonymizerApp): start,
 history, processing, and review screens."""
 
+import queue
 import threading
 import time
 import tkinter as tk
@@ -83,6 +84,7 @@ try:
         LEGEND_ITEMS,
         MANUAL_REVIEW_WARNING,
         PDF_OUTPUT_LABEL_VISUAL_REDACTION,
+        PROCESSING_TICK_MS,
         QUICK_SETTINGS_PANEL_WIDTH,
         RISK_STYLES,
         SCRIPT_FONT_FAMILY,
@@ -106,6 +108,7 @@ try:
         format_drop_result,
         format_filename_pii_warning,
         format_processing_animation_frame,
+        format_processing_elapsed,
         format_readiness_pl,
         format_recent_folder_timestamp,
         format_review_heading_subtitle,
@@ -226,6 +229,7 @@ except ImportError:
         LEGEND_ITEMS,
         MANUAL_REVIEW_WARNING,
         PDF_OUTPUT_LABEL_VISUAL_REDACTION,
+        PROCESSING_TICK_MS,
         QUICK_SETTINGS_PANEL_WIDTH,
         RISK_STYLES,
         SCRIPT_FONT_FAMILY,
@@ -249,6 +253,7 @@ except ImportError:
         format_drop_result,
         format_filename_pii_warning,
         format_processing_animation_frame,
+        format_processing_elapsed,
         format_readiness_pl,
         format_recent_folder_timestamp,
         format_review_heading_subtitle,
@@ -416,6 +421,15 @@ class AnonymizerApp:
         self.progress_file_label: ctk.CTkLabel | None = None
         self.processing_animation_label: ctk.CTkLabel | None = None
         self._processing_animation_step = 0
+        self.progress_elapsed_label: ctk.CTkLabel | None = None
+        # True while anonymize_batch runs on its worker thread - blocks
+        # navigation and a second start (see _processing_blocks_navigation).
+        self._processing_active = False
+        self._processing_started_at = 0.0
+        # Worker -> GUI thread hand-off: the worker only ever put()s here;
+        # _tick_processing_screen drains it on the GUI thread. No Tk call
+        # is ever made from the worker thread itself.
+        self._processing_events: queue.Queue = queue.Queue()
         self.review_cards_frame: ctk.CTkFrame | None = None
         self.review_summary_label: ctk.CTkLabel | None = None
         self.export_button: ctk.CTkButton | None = None
@@ -1700,6 +1714,8 @@ class AnonymizerApp:
         return panel
 
     def show_start_screen(self) -> None:
+        if self._processing_blocks_navigation():
+            return
         self.active_screen = "start"
         self._update_sidebar_active_state()
         self._clear_content()
@@ -2210,6 +2226,8 @@ class AnonymizerApp:
     # ------------------------------------------------------------------
 
     def show_history_screen(self) -> None:
+        if self._processing_blocks_navigation():
+            return
         self.active_screen = "history"
         self._update_sidebar_active_state()
         self._clear_content()
@@ -2537,6 +2555,9 @@ class AnonymizerApp:
         initial_tab: str | None = None,
         on_saved: Callable[[], None] | None = None,
     ) -> None:
+        if self._processing_blocks_navigation():
+            return
+
         def _after_save() -> None:
             self._sync_quick_settings_from_state()
             if on_saved is not None:
@@ -2574,18 +2595,13 @@ class AnonymizerApp:
         wrapper.place(relx=0.5, rely=0.42, anchor="center")
 
         # A small charming animation (a pencil "copying" between two
-        # pages) instead of a single static document emoji - per direct
-        # user feedback that the processing screen felt bare. Advanced
-        # one frame per _update_processing call (see below) rather than
-        # its own independent after()-rescheduled timer: anonymize_batch
-        # runs synchronously on the main thread, only pumped by
-        # update_idletasks() between files (not update(), which is what
-        # actually processes pending after() timers) - a separate timer
-        # would sit frozen for the whole batch and only catch up in one
-        # stuttering burst once the blocking call finally returned.
-        # Driving it from the same real per-file progress event the
-        # progress bar/labels already use keeps it honestly tied to
-        # actual progress instead of a fake, disconnected animation.
+        # pages) - per direct user feedback that the processing screen
+        # felt bare. Driven by its own after() timer
+        # (_tick_processing_screen): anonymize_batch now runs on a worker
+        # thread, so the Tk loop stays live. It used to run on the main
+        # thread, and with the local-LLM review a single file can take a
+        # minute or more - the screen froze and looked hung (2026-09-25
+        # user report).
         self._processing_animation_step = 0
         self.processing_animation_label = ctk.CTkLabel(
             wrapper,
@@ -2617,6 +2633,67 @@ class AnonymizerApp:
         )
         self.progress_file_label.pack(pady=(4, 0))
 
+        self.progress_elapsed_label = ctk.CTkLabel(
+            wrapper,
+            text="",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLOR_TEXT_MUTED,
+        )
+        self.progress_elapsed_label.pack(pady=(4, 0))
+
+        if self.use_llm_comparison_review or self.use_llm_narrative_review:
+            ctk.CTkLabel(
+                wrapper,
+                text=(
+                    "Włączona analiza AI - lokalny model może potrzebować "
+                    "nawet kilku minut na plik. Program pracuje, "
+                    "nie zamykaj okna."
+                ),
+                font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                text_color=COLOR_TEXT_MUTED,
+                wraplength=360,
+                justify="center",
+            ).pack(pady=(12, 0))
+
+    def _tick_processing_screen(self) -> None:
+        """Every PROCESSING_TICK_MS while the worker thread runs: apply
+        its queued progress/done/failed events, then advance the animation
+        and the elapsed-time line."""
+        if not self._processing_active:
+            return
+        while True:
+            try:
+                event = self._processing_events.get_nowait()
+            except queue.Empty:
+                break
+            kind = event[0]
+            if kind == "progress":
+                self._update_processing(*event[1:])
+            elif kind == "done":
+                self._on_anonymize_done(*event[1:])
+                return
+            elif kind == "failed":
+                self._on_anonymize_failed()
+                return
+        if self.processing_animation_label is not None:
+            self._processing_animation_step += 1
+            self.processing_animation_label.configure(
+                text=format_processing_animation_frame(self._processing_animation_step)
+            )
+        if self.progress_elapsed_label is not None:
+            elapsed = int(time.monotonic() - self._processing_started_at)
+            self.progress_elapsed_label.configure(
+                text=format_processing_elapsed(elapsed)
+            )
+        self.root.after(PROCESSING_TICK_MS, self._tick_processing_screen)
+
+    def _processing_blocks_navigation(self) -> bool:
+        """While a batch runs in the background, leaving the processing
+        screen (or opening Settings, or starting a second batch) would let
+        the finished batch yank the user back to the review screen mid-
+        task - or change settings under a running batch."""
+        return self._processing_active
+
     def _update_processing(self, index: int, total: int, path: Path) -> None:
         if self.progress_bar is not None:
             self.progress_bar.set(index / total if total else 0.0)
@@ -2626,23 +2703,14 @@ class AnonymizerApp:
             )
         if self.progress_file_label is not None:
             self.progress_file_label.configure(text=path.name)
-        if self.processing_animation_label is not None:
-            # Advanced one frame per real progress event rather than its
-            # own independent timer - see the comment in
-            # show_processing_screen for why a separate after()-driven
-            # timer would not actually animate during the batch's
-            # synchronous run.
-            self._processing_animation_step += 1
-            self.processing_animation_label.configure(
-                text=format_processing_animation_frame(self._processing_animation_step)
-            )
-        self.root.update_idletasks()
 
     # ------------------------------------------------------------------
     # Run batch
     # ------------------------------------------------------------------
 
     def start_anonymize(self) -> None:
+        if self._processing_active:
+            return
         if not self.selected_paths or self.output_dir is None:
             return
 
@@ -2687,36 +2755,60 @@ class AnonymizerApp:
             return
 
         self.show_processing_screen()
-        self.root.update_idletasks()
+        self._processing_active = True
+        self._processing_started_at = time.monotonic()
+        self._processing_events = queue.Queue()
+        events = self._processing_events
 
-        try:
-            batch_result = anonymize_batch(
-                self.selected_paths,
-                dated_output_dir,
-                sensitive_terms_path=self.sensitive_terms_path,
-                use_ner=self.use_ner,
-                llm_model_name=self.llm_model_name,
-                use_llm_comparison_review=self.use_llm_comparison_review,
-                use_llm_narrative_review=self.use_llm_narrative_review,
-                pdf_redaction_scope=pdf_redaction_scope_from_gui_label(
-                    self.pdf_output_label
-                ),
-                pdf_output_mode=pdf_output_mode_from_gui_label(
-                    self.pdf_output_label
-                ),
-                active_categories=self.active_categories,
-                page_ranges=page_ranges,
-                strip_signatures=self.strip_signatures,
-                progress_callback=self._update_processing,
-            )
-        except Exception:
-            self.show_start_screen()
-            if self.status_label is not None:
-                self.status_label.configure(
-                    text="Błąd: przetwarzanie nie powiodło się. Sprawdź pliki i folder."
+        # Everything the worker needs is captured here, on the GUI thread -
+        # the worker never reads self.* settings mid-run.
+        batch_kwargs = {
+            "sensitive_terms_path": self.sensitive_terms_path,
+            "use_ner": self.use_ner,
+            "llm_model_name": self.llm_model_name,
+            "use_llm_comparison_review": self.use_llm_comparison_review,
+            "use_llm_narrative_review": self.use_llm_narrative_review,
+            "pdf_redaction_scope": pdf_redaction_scope_from_gui_label(
+                self.pdf_output_label
+            ),
+            "pdf_output_mode": pdf_output_mode_from_gui_label(self.pdf_output_label),
+            "active_categories": self.active_categories,
+            "page_ranges": page_ranges,
+            "strip_signatures": self.strip_signatures,
+        }
+        selected_paths = list(self.selected_paths)
+
+        def report_progress(index: int, total: int, path: Path) -> None:
+            events.put(("progress", index, total, path))
+
+        def worker() -> None:
+            try:
+                batch_result = anonymize_batch(
+                    selected_paths,
+                    dated_output_dir,
+                    progress_callback=report_progress,
+                    **batch_kwargs,
                 )
-            return
+            except Exception:  # noqa: BLE001 - any failure must reach the GUI, not kill the thread silently
+                events.put(("failed",))
+                return
+            events.put(("done", batch_result, dated_output_dir))
 
+        threading.Thread(target=worker, daemon=True).start()
+        self._tick_processing_screen()
+
+    def _on_anonymize_failed(self) -> None:
+        self._processing_active = False
+        self.show_start_screen()
+        if self.status_label is not None:
+            self.status_label.configure(
+                text="Błąd: przetwarzanie nie powiodło się. Sprawdź pliki i folder."
+            )
+
+    def _on_anonymize_done(
+        self, batch_result: BatchResult, dated_output_dir: Path
+    ) -> None:
+        self._processing_active = False
         self.last_batch_result = batch_result
         self.original_path_by_output_name = self._build_original_path_map(
             batch_result
