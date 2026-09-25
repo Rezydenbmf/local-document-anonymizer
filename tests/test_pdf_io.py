@@ -1658,6 +1658,31 @@ class PdfRedactionPatternsLineBreakTests(unittest.TestCase):
         self.assertEqual(match.group(), "ul. Kwiatowa")
         self.assertIsNotNone(pattern.search("ul. Kwiatowa 12"))
 
+    def test_ulica_matches_bare_adres_label_without_ul_prefix(self) -> None:
+        """Regression (2026-09-25, skan-do-testow-poz-4.pdf): a table/form
+        "Adres" label with no "ul./al./pl." prefix at all used to leave
+        the street name and house number completely unredacted, mirroring
+        the identical fix in anonymizer.py's own copy of this pattern -
+        see this class's docstring on why both copies need it."""
+        pattern = _pattern_for_label("ULICA")
+
+        match = pattern.search("Adres Ogrodowa 22, 61-003 Poznań")
+        self.assertIsNotNone(match)
+        self.assertEqual(match.group(), "Adres Ogrodowa 22")
+
+        match_with_colon = pattern.search("Adres: Ogrodowa 22, 61-003 Poznań")
+        self.assertIsNotNone(match_with_colon)
+        self.assertEqual(match_with_colon.group(), "Adres: Ogrodowa 22")
+
+    def test_ulica_bare_adres_label_does_not_misfire_on_unrelated_fields(
+        self,
+    ) -> None:
+        pattern = _pattern_for_label("ULICA")
+
+        self.assertIsNone(pattern.search("Adres e-mail: test@test.pl"))
+        self.assertIsNone(pattern.search("Adres IP: 192.168.0.1"))
+        self.assertIsNone(pattern.search("Adresat: Jan Kowalski"))
+
     def test_miejscowosc_does_not_cross_a_line_break(self) -> None:
         pattern = _pattern_for_label("MIEJSCOWOSC")
         match = pattern.search("62-800 Ostrów\nNumer PESEL")

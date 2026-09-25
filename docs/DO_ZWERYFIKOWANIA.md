@@ -173,6 +173,34 @@ przenoszę ją do „Potwierdzone" albo usuwam. Jeśli lista urośnie powyżej
       skanów PRZED tą poprawką pokażą „brak lokalizacji” — to celowe
       (bezpieczne), wystarczy przetworzyć skan ponownie.
 
+- [ ] **Skan formularza: numer domu w tabeli nie zostaje już odkryty
+      (2026-09-25, zauważone przy weryfikacji poprzedniej poprawki)** —
+      na skanie `skan-do-testow-poz-4.pdf` wiersz „Adres Ogrodowa 22,
+      61-003 Poznań” (bez „ul.” przed nazwą ulicy — typowe w
+      tabelkowych formularzach) zostawiał ulicę i numer domu w pełni
+      widoczne. Teraz cała linia „Adres Ogrodowa 22” jest zamazana.
+      Sprawdź na żywo: zanonimizuj ten skan (albo podobny formularz z
+      tabelką „Adres” bez „ul.”) i sprawdź, czy cały wiersz adresowy —
+      ulica i numer domu — znika, nie tylko kod pocztowy i miasto.
+
+## Znane, jeszcze NIE naprawione (odłożone na Twoją prośbę — wracamy do
+   wdrożenia LLM)
+
+- [ ] **Telefon z kropkami jako separatorem nie jest wykrywany** —
+      na skanie protokołu (`llm_test_3_skan_protokol_2str.pdf`) numer
+      „600.000.528” zostaje w pełni widoczny; wzorzec TELEFON łapie
+      spacje/myślniki, ale nie kropki.
+- [ ] **Nazwisko rozbite łamaniem wiersza w OCR (np. „Grze-
+gorz
+      Pietrzak”) nie jest wykrywane** — w przeciwieństwie do nazwiska
+      złamanego myślnikiem w jednej linii, które działa poprawnie.
+      Widoczne na tym samym skanie protokołu, przy podpisie
+      przesłuchującego funkcjonariusza.
+
+Oba powyżej odłożone świadomie 2026-09-25 (Twoja decyzja: „ogólnie
+pamiętaj że teraz duże wdrożenie tego LLM mamy dokończyć") — nie
+naprawiane teraz, tylko odnotowane do zaplanowania później.
+
 ## Potwierdzone
 
 - [x] **Miganie okien terminala przy starcie — naprawione** (potwierdzone

@@ -1048,10 +1048,30 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
         re.compile(
             rf"""
             (?<!\w)
-            (?i:ul\.?|al\.?|pl\.?|ulic[ayę]|aleja|alei|aleję|plac(?:u)?){_INLINE_WS}+
-            {_NAME_TOKEN}
-            (?:{_INLINE_WS}+{_NAME_TOKEN}){{0,2}}
-            (?:{_INLINE_WS}+\d+[A-Za-z]?(?:/\d+)?)?
+            (?:
+                (?i:ul\.?|al\.?|pl\.?|ulic[ayę]|aleja|alei|aleję|plac(?:u)?)
+                {_INLINE_WS}+
+                {_NAME_TOKEN}
+                (?:{_INLINE_WS}+{_NAME_TOKEN}){{0,2}}
+                (?:{_INLINE_WS}+\d+[A-Za-z]?(?:/\d+)?)?
+                |
+                # A bare "Adres"/"Adres:" label with no "ul./al./pl."
+                # prefix at all (common in scanned table/form layouts -
+                # e.g. skan-do-testow-poz-4.pdf's "Adres Ogrodowa 22")
+                # only counts as a street trigger when a house/building
+                # number actually follows. "Adres" alone is far too
+                # generic a word (unlike "ul.") to treat any 1-3
+                # capitalized words after it as a street name - the
+                # mandatory trailing number is what tells "Adres
+                # Ogrodowa 22" apart from a plain sentence like "Adres
+                # Testowy Warszawa" (see
+                # test_pdf_redaction_does_not_cover_plain_address_words).
+                (?i:adres:?)
+                {_INLINE_WS}+
+                {_NAME_TOKEN}
+                (?:{_INLINE_WS}+{_NAME_TOKEN}){{0,2}}
+                {_INLINE_WS}+\d+[A-Za-z]?(?:/\d+)?
+            )
             (?!\w)
             """,
             re.VERBOSE,

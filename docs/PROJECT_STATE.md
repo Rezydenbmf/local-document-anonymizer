@@ -5539,6 +5539,52 @@ lint 71, `code-review` (medium) with no findings. Real OCR on the
 synthetic scan: both pages now read line by line in document order,
 no rect spans several lines.
 
+## ULICA regex missed a bare "Adres" label with no ul./al./pl. prefix (2026-09-25)
+
+Found live-verifying the OCR paragraph-grouping fix above: on the second
+screenshot (`skan-do-testow-poz-4.pdf`, a scanned table-layout form), the
+street name and house number ("Ogrodowa 22") stayed fully exposed, with
+only the trailing postal code/city redacted, plus a lucky NER_ORG
+mis-tag that sometimes also swept up the street name (never the house
+number). Root cause: the ULICA regex only ever triggers on a literal
+"ul./al./pl./ulica/aleja/plac" prefix word - this form's table used the
+bare label "Adres" instead, which the pattern never recognized.
+
+Fix: added "adres"/"adres:" as a trigger word, in both independent
+copies of this pattern (anonymizer.py's `_PATTERNS` and
+pdf_redaction.py's `PDF_REDACTION_PATTERNS` - the existing, documented
+duplication that can't be import-deduplicated, circular). Unlike
+ul./al./pl., the trailing house number is made **mandatory** for the
+"adres" trigger only - "Adres" alone is too generic a word to treat any
+1-3 capitalized words after it as a street name, and the existing guard
+test `test_pdf_redaction_does_not_cover_plain_address_words` (a plain
+sentence "Adres Testowy Warszawa" with no number) confirmed that: the
+first version of this fix (number still optional) broke that test by
+over-matching. `_INLINE_WS` still excludes `
+`, so this still doesn't
+cross a line break, same as the existing ul./al./pl. triggers - a form
+with "Adres" and the street value in separate table cells on different
+OCR lines/paragraphs remains a known, unchanged gap (the same class of
+gap NIP/REGON needed their own separate `_table_separated_*` fallback
+for).
+
+Verified: 847 tests (5 new: 3 in `test_anonymizer.py`, 2 in
+`test_pdf_io.py`, covering both pattern copies, the colon variant, and
+negative cases "Adres e-mail"/"Adres IP"/"Adresat" that must NOT
+misfire), lint 71, `code-review` (medium) with no findings. Real OCR on
+`skan-do-testow-poz-4.pdf`: the ULICA rect now spans the full "Adres
+Ogrodowa 22" line (x0=93.67 to x1=321.0), leaving no part of the street
+or house number exposed.
+
+Related, found in the same live-verification round but **not yet
+fixed** (out of scope - flagged, not chased, to get back to the LLM
+suggestion review rollout): a phone number written with dots as the
+separator ("600.000.528") isn't matched by TELEFON at all; a person's
+surname split across two OCR lines by a hyphenated line-wrap
+("Grze-
+gorz Pietrzak") isn't redacted, unlike a first-line-only
+hyphenated surname. Both noted in `docs/DO_ZWERYFIKOWANIA.md`.
+
 ## Warning
 
 This repository is still an early-stage portfolio MVP. Do not use it to
