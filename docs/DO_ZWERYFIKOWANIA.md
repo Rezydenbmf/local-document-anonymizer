@@ -167,6 +167,16 @@ przenoszę ją do „Potwierdzone" albo usuwam. Jeśli lista urośnie powyżej
       Uwaga: ustawienia nadal obowiązują tylko do zamknięcia apki (tak
       było zawsze) — po ponownym uruchomieniu AI jest wyłączone.
 
+- [ ] **Anonimizacja w tle + licznik czasu + komunikat o AI (2026-09-25,
+      Twoje zgłoszenie z testu)** — (1) uruchom anonimizację z włączonym
+      AI: ołówek ma się ruszać cały czas, pod paskiem „Trwa już: N s”,
+      niżej informacja, że analiza AI może potrwać kilka minut; okno nie
+      może „zamarzać”; (2) w trakcie kliknij Historia / Ustawienia — nic
+      nie powinno się stać, dopóki przetwarzanie trwa; (3) po zakończeniu
+      otwórz porównanie — jeśli AI nie zgłosiło uwag albo nie zdążyło,
+      w panelu bocznym jest ramka „Sugestie AI” z wyjaśnieniem, co się
+      stało. Limit czasu na zapytanie do AI podniesiony z 30 s do 15 min.
+
 ## Znane, jeszcze NIE naprawione (odłożone na Twoją prośbę — wracamy do
    wdrożenia LLM)
 

@@ -5623,6 +5623,51 @@ off and no model chosen) - unchanged, by the existing design.
 Verified: 854 tests (7 new), lint 71; the real Settings dialog against
 the real Ollama install listed both models and saved the picked one.
 
+## AI review silently timed out; frozen processing screen (2026-09-25)
+
+First live run of the AI suggestion review (Bielik 4.5B v3 Q8_0 on the
+user's CPU-only ~15 GB RAM laptop, `llm_test_1_notatka_wizyta_3str.pdf`):
+no suggestions appeared, and a run that used to take 1-3 s took 30-60 s
+behind a static, frozen processing screen.
+
+**Root cause 1 - timeout.** The sidecar showed `"status": "timeout"` for
+both reviews. `DEFAULT_LLM_REVIEW_TIMEOUT_SECONDS` was 30 s per request.
+Measured with no limit on the same 2.8k-character document: comparison
+118.5 s, narrative 62.4 s. Raised to 900 s (prompt processing scales with
+input length; `MAX_REVIEW_INPUT_CHARS` is 20k).
+
+**Root cause 2 - silence.** Nothing told the user the AI had timed out:
+an empty sidecar looked identical to "the AI found nothing". New
+`gui_comparison_window.ai_review_status_note` + `AiReviewData.status_note`:
+when there is nothing to review but the AI ran, the sidebar shows a
+"Sugestie AI" note - timed out / failed / completed with no findings.
+
+**Root cause 3 - frozen screen.** `anonymize_batch` ran synchronously on
+the Tk thread (the old animation was deliberately driven by per-file
+progress events for that reason). With minutes per file that looks like
+a hang. It now runs on a worker thread; the worker only `put()`s
+progress/done/failed events on a `queue.Queue`, and a 400 ms `after()`
+tick (`_tick_processing_screen`) drains it on the GUI thread, animates
+the pencil and shows "Trwa już: N s". No Tk call is made from the worker
+(an earlier `root.after`-from-worker version failed under tests: Tk
+refuses cross-thread calls unless the main thread is inside
+`mainloop()`). Navigation, Settings and a second start are blocked
+while it runs (`_processing_blocks_navigation`); the drop target lives
+on the start screen, which isn't shown. An AI-enabled run shows a hint
+that it can take minutes. Closing the window mid-run kills the daemon
+worker (same as killing the frozen app before) - not guarded yet.
+
+**Open quality finding (the important one):** with the timeout out of
+the way, Bielik 4.5B *completed* both reviews on the trap document and
+returned **zero findings and zero suggestions** - although the document
+is built to contain things the regex/NER pipeline misses (a nickname,
+a phone number spelled out in words, an obfuscated e-mail, a described
+home location). Not yet diagnosed: the model, the prompt, or the schema.
+Next step: compare other models on the same input and inspect the raw
+responses.
+
+Verified: 866 tests (12 new), lint 70.
+
 ## Warning
 
 This repository is still an early-stage portfolio MVP. Do not use it to
