@@ -295,10 +295,22 @@ PDF_REDACTION_PATTERNS: tuple[PdfRedactionPattern, ...] = (
         re.compile(
             rf"""
             (?<!\w)
-            (?i:ul\.?|al\.?|pl\.?|ulic[ayę]|aleja|alei|aleję|plac(?:u)?){_INLINE_WS}+
-            {_NAME_TOKEN}
-            (?:{_INLINE_WS}+{_NAME_TOKEN}){{0,2}}
-            (?:{_INLINE_WS}+\d+[A-Za-z]?(?:/\d+)?)?
+            (?:
+                (?i:ul\.?|al\.?|pl\.?|ulic[ayę]|aleja|alei|aleję|plac(?:u)?)
+                {_INLINE_WS}+
+                {_NAME_TOKEN}
+                (?:{_INLINE_WS}+{_NAME_TOKEN}){{0,2}}
+                (?:{_INLINE_WS}+\d+[A-Za-z]?(?:/\d+)?)?
+                |
+                # Bare "Adres"/"Adres:" label, mandatory trailing house
+                # number - identical fix and rationale as anonymizer.py's
+                # own copy of this pattern; see that copy's comment.
+                (?i:adres:?)
+                {_INLINE_WS}+
+                {_NAME_TOKEN}
+                (?:{_INLINE_WS}+{_NAME_TOKEN}){{0,2}}
+                {_INLINE_WS}+\d+[A-Za-z]?(?:/\d+)?
+            )
             (?!\w)
             """,
             re.VERBOSE,

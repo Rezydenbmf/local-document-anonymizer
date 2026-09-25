@@ -340,6 +340,47 @@ class AnonymizerEngineTests(unittest.TestCase):
         self.assertEqual(anonymized, "Adres: [ULICA], [POSTAL_CODE] [MIEJSCOWOSC].")
         self.assertEqual(report, {"ULICA": 1, "POSTAL_CODE": 1, "MIEJSCOWOSC": 1})
 
+    def test_replaces_street_name_after_bare_adres_label(self) -> None:
+        """Regression (2026-09-25, skan-do-testow-poz-4.pdf): a form/table
+        "Adres" label with no "ul./al./pl." prefix at all (common in
+        scanned forms) used to leave the street name and house number
+        completely unredacted - only the trailing postal code and city
+        matched. "Adres" is added as its own trigger word, same as
+        "ul."/"al."/"pl." already are, both with and without a colon."""
+        text = "Adres Ogrodowa 22, 61-003 Poznań"
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(anonymized, "[ULICA], [POSTAL_CODE] [MIEJSCOWOSC]")
+        self.assertEqual(report, {"ULICA": 1, "POSTAL_CODE": 1, "MIEJSCOWOSC": 1})
+
+    def test_replaces_street_name_after_bare_adres_label_with_colon(self) -> None:
+        text = "Adres: Ogrodowa 22, 61-003 Poznań"
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(anonymized, "[ULICA], [POSTAL_CODE] [MIEJSCOWOSC]")
+        self.assertEqual(report, {"ULICA": 1, "POSTAL_CODE": 1, "MIEJSCOWOSC": 1})
+
+    def test_bare_adres_label_does_not_swallow_unrelated_fields(self) -> None:
+        """The "adres" trigger only fires when followed by a
+        capitalized-looking name token, so it must not misfire on
+        "Adres e-mail"/"Adres IP" (lowercase/all-caps continuation) or
+        swallow part of an unrelated word like "Adresat"."""
+        text = (
+            "Adres e-mail: test@test.pl. Adres IP: 192.168.0.1. "
+            "Adresat: Jan Kowalski."
+        )
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(
+            anonymized,
+            "Adres e-mail: [EMAIL]. Adres IP: 192.168.0.1. "
+            "Adresat: Jan Kowalski.",
+        )
+        self.assertEqual(report, {"EMAIL": 1})
+
     def test_replaces_street_name_with_and_without_period_prefix(self) -> None:
         text = "UL. Testowa 5. Ul Testowa 5. al. Niepodległości 10a. Plac Zamkowy 1."
 
