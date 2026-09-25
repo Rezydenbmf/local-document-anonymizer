@@ -965,9 +965,15 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
         re.compile(r"(?<!\w)[A-Z]{3}\d{6}(?!\w)"),
     ),
     (
+        # "O" is accepted wherever a digit is expected: OCR reads a zero
+        # in a scan as the letter O often enough that the benchmark's
+        # good-quality scanned invoice (2026-09-25) came back as "PLO7
+        # 5531 ..." and the whole account number stayed visible. "PL"
+        # plus 26 digit-or-O positions in IBAN grouping is still far too
+        # specific to hit ordinary words.
         "IBAN",
         re.compile(
-            r"(?<!\w)PL\s?\d{2}(?:\s?\d{4}){6}(?!\w)",
+            r"(?<!\w)PL\s?[\dO]{2}(?:\s?[\dO]{4}){6}(?!\w)",
             re.IGNORECASE,
         ),
     ),

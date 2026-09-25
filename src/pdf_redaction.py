@@ -217,7 +217,9 @@ PDF_REDACTION_PATTERNS: tuple[PdfRedactionPattern, ...] = (
     PdfRedactionPattern(
         "IBAN",
         re.compile(
-            r"(?<!\w)PL\s?\d{2}(?:\s?\d{4}){6}(?!\w)",
+            # Kept in sync with anonymizer.py's IBAN entry: "O" stands in
+            # for an OCR-misread zero.
+            r"(?<!\w)PL\s?[\dO]{2}(?:\s?[\dO]{4}){6}(?!\w)",
             re.IGNORECASE,
         ),
     ),

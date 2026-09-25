@@ -248,6 +248,16 @@ class AnonymizerEngineTests(unittest.TestCase):
         self.assertEqual(anonymized, "Konto: [IBAN]. IBAN [IBAN].")
         self.assertEqual(report, {"IBAN": 2})
 
+    def test_replaces_iban_with_ocr_misread_zero(self) -> None:
+        """Benchmark finding (2026-09-25): OCR of a good scan read the
+        check digits "07" as "O7", and the whole IBAN stayed visible."""
+        text = "Rachunek: PLO7 5531 4516 9373 1O76 5079 1573"
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(anonymized, "Rachunek: [IBAN]")
+        self.assertEqual(report, {"IBAN": 1})
+
     def test_does_not_replace_malformed_iban_grouping(self) -> None:
         text = "PL6 1109 0101 4000 0071 2198 1287 4"
 

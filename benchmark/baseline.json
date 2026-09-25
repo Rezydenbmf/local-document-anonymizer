@@ -1,6 +1,6 @@
 {
  "schema": "docshield-benchmark-baseline/1",
- "created": "2026-09-25 16:40",
+ "created": "2026-09-25 19:55",
  "generator": "8d08320cce151918",
  "policy_version": 1,
  "docs": {
@@ -124,19 +124,17 @@
   },
   "08_faktura_skan_dobry": {
    "must": 13,
-   "covered": 11,
+   "covered": 12,
    "partial": [
     "s03"
    ],
-   "full": [
-    "s12"
-   ],
+   "full": [],
    "keep_redacted": [],
    "residue": [],
    "over_rects": 0,
    "layers": {
     "ner": 2,
-    "regex": 9
+    "regex": 10
    }
   },
   "09_protokol_wspolnoty_skan_zly": {
@@ -245,243 +243,7 @@
   }
  },
  "llm_info": {
-  "model": "gemma3:4b",
-  "docs": {
-   "01_karta_informacyjna": {
-    "total": 14,
-    "hit": 0,
-    "already_redacted": 8,
-    "optional_only": 0,
-    "false_positive": 6,
-    "unresolved": 0,
-    "unnecessary_type": 0,
-    "unnecessary_wrong": 0,
-    "duplicates": 6,
-    "caught_span_ids": [],
-    "status": {
-     "comparison": "completed",
-     "narrative": "completed"
-    }
-   },
-   "02_faktura_vat_tabela": {
-    "total": 2,
-    "hit": 0,
-    "already_redacted": 2,
-    "optional_only": 0,
-    "false_positive": 0,
-    "unresolved": 0,
-    "unnecessary_type": 0,
-    "unnecessary_wrong": 0,
-    "duplicates": 0,
-    "caught_span_ids": [],
-    "status": {
-     "comparison": "completed",
-     "narrative": "completed"
-    }
-   },
-   "03_umowa_najmu_2str": {
-    "total": 5,
-    "hit": 1,
-    "already_redacted": 3,
-    "optional_only": 0,
-    "false_positive": 0,
-    "unresolved": 0,
-    "unnecessary_type": 1,
-    "unnecessary_wrong": 1,
-    "duplicates": 0,
-    "caught_span_ids": [
-     "s02",
-     "s15"
-    ],
-    "status": {
-     "comparison": "completed",
-     "narrative": "completed"
-    }
-   },
-   "04_cv_dwie_kolumny": {
-    "total": 8,
-    "hit": 2,
-    "already_redacted": 4,
-    "optional_only": 0,
-    "false_positive": 2,
-    "unresolved": 0,
-    "unnecessary_type": 0,
-    "unnecessary_wrong": 0,
-    "duplicates": 0,
-    "caught_span_ids": [
-     "s03",
-     "s09"
-    ],
-    "status": {
-     "comparison": "completed",
-     "narrative": "completed"
-    }
-   },
-   "05_wydruk_email": {
-    "total": 10,
-    "hit": 1,
-    "already_redacted": 4,
-    "optional_only": 0,
-    "false_positive": 2,
-    "unresolved": 0,
-    "unnecessary_type": 3,
-    "unnecessary_wrong": 3,
-    "duplicates": 0,
-    "caught_span_ids": [
-     "s16"
-    ],
-    "status": {
-     "comparison": "completed",
-     "narrative": "completed"
-    }
-   },
-   "06_pelnomocnictwo": {
-    "total": 7,
-    "hit": 0,
-    "already_redacted": 7,
-    "optional_only": 0,
-    "false_positive": 0,
-    "unresolved": 0,
-    "unnecessary_type": 0,
-    "unnecessary_wrong": 0,
-    "duplicates": 0,
-    "caught_span_ids": [],
-    "status": {
-     "comparison": "completed",
-     "narrative": "completed"
-    }
-   },
-   "07_decyzja_skan_dobry": {
-    "total": 5,
-    "hit": 1,
-    "already_redacted": 2,
-    "optional_only": 0,
-    "false_positive": 0,
-    "unresolved": 0,
-    "unnecessary_type": 2,
-    "unnecessary_wrong": 0,
-    "duplicates": 0,
-    "caught_span_ids": [
-     "s03"
-    ],
-    "status": {
-     "comparison": "completed",
-     "narrative": "completed"
-    }
-   },
-   "08_faktura_skan_dobry": {
-    "total": 6,
-    "hit": 3,
-    "already_redacted": 3,
-    "optional_only": 0,
-    "false_positive": 0,
-    "unresolved": 0,
-    "unnecessary_type": 0,
-    "unnecessary_wrong": 0,
-    "duplicates": 1,
-    "caught_span_ids": [
-     "s03"
-    ],
-    "status": {
-     "comparison": "completed",
-     "narrative": "completed"
-    }
-   },
-   "09_protokol_wspolnoty_skan_zly": {
-    "total": 13,
-    "hit": 0,
-    "already_redacted": 12,
-    "optional_only": 0,
-    "false_positive": 1,
-    "unresolved": 0,
-    "unnecessary_type": 0,
-    "unnecessary_wrong": 0,
-    "duplicates": 1,
-    "caught_span_ids": [],
-    "status": {
-     "comparison": "completed",
-     "narrative": "completed"
-    }
-   },
-   "10_wynik_badan_skan_zly": {
-    "total": 4,
-    "hit": 0,
-    "already_redacted": 4,
-    "optional_only": 0,
-    "false_positive": 0,
-    "unresolved": 0,
-    "unnecessary_type": 0,
-    "unnecessary_wrong": 0,
-    "duplicates": 0,
-    "caught_span_ids": [],
-    "status": {
-     "comparison": "completed",
-     "narrative": "completed"
-    }
-   },
-   "llm_test_1_notatka_wizyta_3str": {
-    "total": 14,
-    "hit": 7,
-    "already_redacted": 4,
-    "optional_only": 2,
-    "false_positive": 1,
-    "unresolved": 0,
-    "unnecessary_type": 0,
-    "unnecessary_wrong": 0,
-    "duplicates": 2,
-    "caught_span_ids": [
-     "s13",
-     "s14",
-     "s15",
-     "s16",
-     "s17",
-     "s18",
-     "s20"
-    ],
-    "status": {
-     "comparison": "completed",
-     "narrative": "completed"
-    }
-   },
-   "llm_test_2_opinia_lekarska_2str": {
-    "total": 12,
-    "hit": 2,
-    "already_redacted": 5,
-    "optional_only": 4,
-    "false_positive": 1,
-    "unresolved": 0,
-    "unnecessary_type": 0,
-    "unnecessary_wrong": 0,
-    "duplicates": 0,
-    "caught_span_ids": [
-     "s06"
-    ],
-    "status": {
-     "comparison": "completed",
-     "narrative": "completed"
-    }
-   },
-   "llm_test_3_skan_protokol_2str": {
-    "total": 7,
-    "hit": 3,
-    "already_redacted": 3,
-    "optional_only": 0,
-    "false_positive": 1,
-    "unresolved": 0,
-    "unnecessary_type": 0,
-    "unnecessary_wrong": 0,
-    "duplicates": 2,
-    "caught_span_ids": [
-     "s11",
-     "s12",
-     "s13",
-     "s14"
-    ],
-    "status": {
-     "comparison": "completed",
-     "narrative": "completed"
-    }
-   }
-  }
+  "model": null,
+  "docs": {}
  }
 }
