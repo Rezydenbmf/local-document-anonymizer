@@ -40,6 +40,13 @@ class PostAnonymizationAuditTests(unittest.TestCase):
 
         self.assertEqual(findings["DATA"], 1)
 
+    def test_statute_date_kept_by_policy_is_not_a_leftover(self) -> None:
+        findings = audit_findings(
+            "Na podstawie ustawy z dnia 29.08.1997 r. Wizyta 01.09.2026."
+        )
+
+        self.assertEqual(findings["DATA"], 1)
+
     def test_detects_private_dictionary_term_without_returning_term(self) -> None:
         source_term = "Person One Example"
         terms = parse_sensitive_terms(f"{source_term} = [IMIE NAZWISKO]\n")

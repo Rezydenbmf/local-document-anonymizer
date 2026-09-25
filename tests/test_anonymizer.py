@@ -221,6 +221,56 @@ class AnonymizerEngineTests(unittest.TestCase):
         self.assertEqual(anonymized, "Dostawca: [NAZWA_FIRMY]")
         self.assertEqual(report, {"NAZWA_FIRMY": 1})
 
+    def test_company_name_with_lowercase_connector_and_ocr_suffix(self) -> None:
+        """Benchmark (2026-09-25): "Kwiatek i Syn Sp. z o.o." left
+        "Kwiatek i" visible; OCR's "Sp. Z.0.0." was not a legal form."""
+        text = "Pracodawca: Kwiatek i Syn Sp. z o.o.\nZarządca, firma Admin-Dom Sp. Z.0.0., x"
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(
+            anonymized, "Pracodawca: [NAZWA_FIRMY]\nZarządca, firma [NAZWA_FIRMY], x"
+        )
+        self.assertEqual(report, {"NAZWA_FIRMY": 2})
+
+    def test_quoted_organisation_name_after_its_kind(self) -> None:
+        text = (
+            "Do: Spółdzielnia Mieszkaniowa „Zacisze” w sprawie.\n"
+            "NZOZ „Przychodnia pod Lipami” – poradnia.\n"
+            "ZEBRANIE WSPÓLNOTY MIESZKANIOWEJ\n„Nad Stawem”, zebranie."
+        )
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(
+            anonymized,
+            "Do: [NAZWA_FIRMY] w sprawie.\n"
+            "[NAZWA_FIRMY] – poradnia.\n"
+            "ZEBRANIE WSPÓLNOTY MIESZKANIOWEJ\n[NAZWA_FIRMY], zebranie.",
+        )
+        self.assertEqual(report, {"NAZWA_FIRMY": 3})
+
+    def test_quoted_title_without_organisation_kind_stays(self) -> None:
+        text = "W ramach programu „Posiłek w domu”. Nakręcono reportaż „Kowalka”."
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(anonymized, text)
+        self.assertEqual(report, {})
+
+    def test_facility_named_after_a_patron(self) -> None:
+        text = (
+            "Szpital Powiatowy im. Anny Leśniewskiej w Mirosławcu.\n"
+            "Szkoła Podstawowa nr 3 im. Jana Pawła II w Tychach."
+        )
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(
+            anonymized, "[NAZWA_FIRMY] w Mirosławcu.\n[NAZWA_FIRMY] w Tychach."
+        )
+        self.assertEqual(report, {"NAZWA_FIRMY": 2})
+
     def test_replaces_dowod_osobisty_number(self) -> None:
         text = "Numer dowodu: ABC123456."
 
@@ -247,6 +297,16 @@ class AnonymizerEngineTests(unittest.TestCase):
 
         self.assertEqual(anonymized, "Konto: [IBAN]. IBAN [IBAN].")
         self.assertEqual(report, {"IBAN": 2})
+
+    def test_replaces_iban_with_ocr_misread_zero(self) -> None:
+        """Benchmark finding (2026-09-25): OCR of a good scan read the
+        check digits "07" as "O7", and the whole IBAN stayed visible."""
+        text = "Rachunek: PLO7 5531 4516 9373 1O76 5079 1573"
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(anonymized, "Rachunek: [IBAN]")
+        self.assertEqual(report, {"IBAN": 1})
 
     def test_does_not_replace_malformed_iban_grouping(self) -> None:
         text = "PL6 1109 0101 4000 0071 2198 1287 4"
@@ -280,6 +340,39 @@ class AnonymizerEngineTests(unittest.TestCase):
         self.assertEqual(anonymized, "Kontakt tel. [TELEFON].")
         self.assertEqual(report, {"TELEFON": 1})
 
+    def test_replaces_grouped_phone_after_pod_numerem_and_with_dots(self) -> None:
+        """Benchmark (2026-09-25): "pod numerem 600 000 903" and
+        "z numeru 600.000.528" both stayed visible."""
+        text = (
+            "Jestem dostępna pod numerem 600 000 903 po 17:00. "
+            "Dzwonił z numeru 600.000.528, tel.600 000 111."
+        )
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(
+            anonymized,
+            "Jestem dostępna pod numerem [TELEFON] po 17:00. "
+            "Dzwonił z numeru [TELEFON], tel.[TELEFON].",
+        )
+        self.assertEqual(report, {"TELEFON": 3})
+
+    def test_dotted_number_without_phone_context_is_left_alone(self) -> None:
+        text = "Kwota 600.000.528 zł, wersja 1.600.000.528.2 pod numerem 12.600.000.528"
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(anonymized, text)
+        self.assertEqual(report, {})
+
+    def test_replaces_email_wrapped_after_a_hyphen_in_the_domain(self) -> None:
+        text = "tel. 600 000 815\nola.wilczynska@poczta-\ntestowa.test\nul. Brzozowa 3"
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(anonymized, "tel. [TELEFON]\n[EMAIL]\n[ULICA]")
+        self.assertEqual(report, {"TELEFON": 1, "EMAIL": 1, "ULICA": 1})
+
     def test_does_not_replace_weak_table_like_phone_number(self) -> None:
         text = "Tabela: populacja 123 456 789 oraz warto\u015b\u0107 43 595."
 
@@ -308,6 +401,47 @@ class AnonymizerEngineTests(unittest.TestCase):
             anonymized,
             "Zawarta dnia [DATA]. Termin do [DATA]. "
             "Data urodzenia: [DATA], drugi zapis: [DATA].",
+        )
+        self.assertEqual(report, {"DATA": 4})
+
+    def test_legal_act_date_stays_visible(self) -> None:
+        """Policy "keep" (2026-09-25): the date of a statute is not
+        personal data. An unrelated "z dnia" after a finished sentence
+        about a statute is still redacted."""
+        text = (
+            "Ustawa z dnia 12 marca 2004 r. o pomocy społecznej. "
+            "Zgodnie z rozporządzeniem Parlamentu\nEuropejskiego i Rady (UE) "
+            "2016/679 z dnia 27 kwietnia 2016 r. (RODO). "
+            "Na podstawie ustawy. Umowa z dnia 01.09.2026 r."
+        )
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(
+            anonymized,
+            "Ustawa z dnia 12 marca 2004 r. o pomocy społecznej. "
+            "Zgodnie z rozporządzeniem Parlamentu\nEuropejskiego i Rady (UE) "
+            "2016/679 z dnia 27 kwietnia 2016 r. (RODO). "
+            "Na podstawie ustawy. Umowa z dnia [DATA] r.",
+        )
+        self.assertEqual(report, {"DATA": 1})
+
+    def test_old_historical_date_in_words_stays_visible(self) -> None:
+        """Written-out dates 100+ years old are history, unless birth or
+        death wording (or a form's "Data") precedes them."""
+        text = (
+            "Wrócił do domu 11 listopada 1918 r. Bitwa 15 lipca 1410 r.\n"
+            "Zmarła 3 marca 1915 r. Data urodzenia: 4 maja 1919. "
+            "Liczbowo 11.11.1918. Spotkanie 5 maja 2026."
+        )
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(
+            anonymized,
+            "Wrócił do domu 11 listopada 1918 r. Bitwa 15 lipca 1410 r.\n"
+            "Zmarła [DATA] r. Data urodzenia: [DATA]. "
+            "Liczbowo [DATA]. Spotkanie [DATA].",
         )
         self.assertEqual(report, {"DATA": 4})
 
@@ -417,6 +551,72 @@ class AnonymizerEngineTests(unittest.TestCase):
 
         self.assertEqual(anonymized, text)
         self.assertEqual(report, {})
+
+    def test_street_prefix_may_be_followed_by_a_line_break(self) -> None:
+        """Benchmark (2026-09-25): "przy ul.⏎Kasztanowej 12" leaked in
+        full because the PDF line wrapped right after the prefix."""
+        text = "lokal przy ul.\nKasztanowej 12 w centrum"
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(anonymized, "lokal przy [ULICA] w centrum")
+        self.assertEqual(report, {"ULICA": 1})
+
+    def test_street_match_includes_separate_flat_number(self) -> None:
+        text = "Adres: ul. Wiśniowa 14 m. 2, lok. obok: ul. Polna 3 lok. 7."
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(anonymized, "Adres: [ULICA], lok. obok: [ULICA].")
+        self.assertEqual(report, {"ULICA": 2})
+
+    def test_known_town_is_found_again_inflected_and_capitalised(self) -> None:
+        """Benchmark (2026-09-25): NER missed "w Borowcu Dolnym" and
+        "W BOROWCU DOLNYM" although the same town was already caught in
+        its nominative form after the postal code."""
+        text = (
+            "ul. Lipowa 7, 34-512 Borowiec Dolny.\n"
+            "OŚRODEK W BOROWCU DOLNYM. Bank w Borowcu\nDolnym. "
+            "Działka w obrębie Borowiec Górny. Miejsce: Borowiec Dolny"
+        )
+
+        anonymized, report = anonymize_text(text)
+
+        self.assertEqual(
+            anonymized,
+            "[ULICA], [POSTAL_CODE] [MIEJSCOWOSC].\n"
+            "OŚRODEK W [MIEJSCOWOSC]. Bank w [MIEJSCOWOSC]. "
+            "Działka w obrębie [MIEJSCOWOSC]. Miejsce: [MIEJSCOWOSC]",
+        )
+        self.assertEqual(
+            report, {"ULICA": 1, "POSTAL_CODE": 1, "MIEJSCOWOSC": 5}
+        )
+
+    def test_known_town_stem_does_not_catch_ordinary_words(self) -> None:
+        """The stem "Tych" (Tychy) must not hit the pronoun "tych"/"Tych",
+        and nothing is searched for when no postal-code town exists."""
+        text = "43-100 Tychy. Mieszka w Tychach. Tych dokumentów, tych ludzi."
+
+        anonymized, _ = anonymize_text(text)
+
+        self.assertEqual(
+            anonymized,
+            "[POSTAL_CODE] [MIEJSCOWOSC]. Mieszka w [MIEJSCOWOSC]. "
+            "Tych dokumentów, tych ludzi.",
+        )
+        self.assertEqual(
+            anonymize_text("Mieszka w Borowcu Dolnym.")[0],
+            "Mieszka w Borowcu Dolnym.",
+        )
+
+    def test_known_town_respects_category_selection(self) -> None:
+        text = "34-512 Borowiec Dolny, w Borowcu Dolnym"
+
+        anonymized, _, _ = _apply_dictionary_and_regex(
+            text, active_labels=frozenset({"POSTAL_CODE"})
+        )
+
+        self.assertEqual(anonymized, "[POSTAL_CODE] Borowiec Dolny, w Borowcu Dolnym")
 
     def test_replaces_compound_city_name_after_postal_code(self) -> None:
         text = "62-800 Ostrów Wielkopolski. 43-300 Bielsko-Biała."

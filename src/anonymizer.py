@@ -69,6 +69,7 @@ try:
         build_pdf_redaction_metadata,
         build_pdf_redaction_skipped_ocr_metadata,
         extract_pdf_word_pages,
+        is_kept_reference_date,
         save_rebuilt_review_pdf_from_text,
         save_redacted_pdf_copy,
         save_word_coordinate_redacted_image_copy,
@@ -158,6 +159,7 @@ except ImportError:
         build_pdf_redaction_metadata,
         build_pdf_redaction_skipped_ocr_metadata,
         extract_pdf_word_pages,
+        is_kept_reference_date,
         save_rebuilt_review_pdf_from_text,
         save_redacted_pdf_copy,
         save_word_coordinate_redacted_image_copy,
@@ -682,10 +684,16 @@ PDF_STRICT_NER_REDACTION_LABELS = (
 PDF_NER_REDACTION_MIN_TEXT_LENGTH = 4
 PDF_NER_PERSON_MIN_WORDS = 2
 WEAK_PHONE_LIKE_SKIPPED_LABEL = "WEAK_PHONE_LIKE_SKIPPED"
+# "pod numerem" / "z numeru" and dots as separators: benchmark findings
+# of 2026-09-25 ("dostępna pod numerem 600 000 903", "dzwonił z numeru
+# 600.000.528"). A 3-3-3 group still needs one of these contexts.
 PHONE_CONTEXT_PATTERN = re.compile(
-    r"(?i)(?:tel\.?|telefon|kom\.?|mobile|fax|kontakt|numer telefonu|phone)\s*[:\-]?\s*$"
+    r"(?i)(?:tel\.?|telefon|kom\.?|mobile|fax|kontakt|numer telefonu|phone"
+    r"|pod\s+numerem|z\s+numeru|komórk\w*)\s*[:\-]?\s*$"
 )
-WEAK_GROUPED_PHONE_PATTERN = re.compile(r"(?<![\w+])\d{3}[-\s]\d{3}[-\s]\d{3}(?!\w)")
+WEAK_GROUPED_PHONE_PATTERN = re.compile(
+    r"(?<![\w+])(?<!\d\.)\d{3}[-\s.]\d{3}[-\s.]\d{3}(?!\.\d)(?!\w)"
+)
 # The direct "NIP"/"REGON" patterns in _PATTERNS require the label and
 # its digits to sit on the same line - confirmed live on a real invoice
 # fixture, a common table layout defeats that entirely: every field
@@ -842,6 +850,13 @@ _SURNAME_LIKE_TOKEN = (
     rf"[{_UPPER_LETTERS}][{_LOWER_LETTERS}]{{2,}}"
     r"(?:ski|ska|cki|cka|dzki|dzka|ak|ek|ik|yk|uk|cz|icz|wicz|owicz|ewicz)"
 )
+# House number, optionally "/flat" or a separate "m. 2" / "lok. 2" flat
+# number - "ul. Wiśniowa 14 m. 2" used to leave "m. 2" visible
+# (benchmark 2026-09-25).
+_HOUSE_NUMBER = (
+    rf"\d+[A-Za-z]?(?:/\d+)?"
+    rf"(?:{_INLINE_WS}+(?i:m\.|lok\.){_INLINE_WS}*\d+[A-Za-z]?)?"
+)
 # A Polish company's own legal-form suffix (Sp. z o.o., S.A., ...) is the
 # one reliable marker spaCy's small NER model kept missing or truncating
 # live on a real invoice fixture: it tagged only "z o.o." out of "Usługi
@@ -859,8 +874,10 @@ _SURNAME_LIKE_TOKEN = (
 # word directly before a stray "S.A."/"sp. z o.o." mention outside a
 # company-name context would also match - same false-positive tolerance
 # already accepted for ULICA/MIEJSCOWOSC.
+# "z.o.o." with zeros for the letter o is how OCR read "Sp. Z.0.0." on a
+# bad scan in the benchmark (2026-09-25).
 _COMPANY_LEGAL_FORM_SUFFIX = (
-    rf"(?i:sp\.{_INLINE_WS}*z{_INLINE_WS}*o\.{_INLINE_WS}*o\."
+    rf"(?i:sp\.{_INLINE_WS}*z\.?{_INLINE_WS}*[o0]\.{_INLINE_WS}*[o0]\."
     rf"|s\.a\."
     rf"|sp\.{_INLINE_WS}*[kj]\."
     rf"|s\.k\.a\."
@@ -883,11 +900,13 @@ _COMPANY_NAME_WORD = rf"[{_UPPER_LETTERS}\d][{_LOWER_LETTERS}\d-]*"
 # Młynarskie Sp. z o.o." (4 words) or a compound trade name plus a
 # descriptive phrase; ULICA/MIEJSCOWOSC stay tighter (2-3 tokens) because
 # a street or city name is never realistically that long.
+# A lowercase "i" or "&" may join two capitalised words ("Kwiatek i Syn
+# Sp. z o.o." used to leave "Kwiatek i" visible, benchmark 2026-09-25).
 NAZWA_FIRMY_PATTERN = re.compile(
     rf"""
     (?<!\w)
     {_COMPANY_NAME_WORD}
-    (?:{_INLINE_WS}+{_COMPANY_NAME_WORD}){{0,5}}
+    (?:{_INLINE_WS}+(?:[i&]{_INLINE_WS}+)?{_COMPANY_NAME_WORD}){{0,5}}
     {_INLINE_WS}+
     {_COMPANY_LEGAL_FORM_SUFFIX}
     (?!\w)
@@ -954,9 +973,12 @@ class BatchResult:
 
 _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
+        # The domain may wrap to the next line right after one of its
+        # own hyphens ("ola.wilczynska@poczta-⏎testowa.test", a CV
+        # column in the benchmark, 2026-09-25).
         "EMAIL",
         re.compile(
-            r"(?<![\w.+-])[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"
+            r"(?<![\w.+-])[A-Za-z0-9._%+-]+@(?:[A-Za-z0-9.-]|-\n)+\.[A-Za-z]{2,}\b"
         ),
     ),
     ("PESEL", re.compile(r"(?<!\w)\d{11}(?!\w)")),
@@ -965,9 +987,15 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
         re.compile(r"(?<!\w)[A-Z]{3}\d{6}(?!\w)"),
     ),
     (
+        # "O" is accepted wherever a digit is expected: OCR reads a zero
+        # in a scan as the letter O often enough that the benchmark's
+        # good-quality scanned invoice (2026-09-25) came back as "PLO7
+        # 5531 ..." and the whole account number stayed visible. "PL"
+        # plus 26 digit-or-O positions in IBAN grouping is still far too
+        # specific to hit ordinary words.
         "IBAN",
         re.compile(
-            r"(?<!\w)PL\s?\d{2}(?:\s?\d{4}){6}(?!\w)",
+            r"(?<!\w)PL\s?[\dO]{2}(?:\s?[\dO]{4}){6}(?!\w)",
             re.IGNORECASE,
         ),
     ),
@@ -1049,11 +1077,21 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
             rf"""
             (?<!\w)
             (?:
-                (?i:ul\.?|al\.?|pl\.?|ulic[ayę]|aleja|alei|aleję|plac(?:u)?)
-                {_INLINE_WS}+
+                # A line break is tolerated only right after an
+                # unambiguous street prefix ("przy ul.⏎Kasztanowej 12",
+                # benchmark 2026-09-25) - the prefix alone already says
+                # a street name follows. Everywhere else the match stays
+                # on one line (see _INLINE_WS).
+                (?:
+                    (?i:ul\.|al\.|ulic[ayę]|aleja|alei|aleję)
+                    {_INLINE_WS}*\n{_INLINE_WS}*
+                    |
+                    (?i:ul\.?|al\.?|pl\.?|ulic[ayę]|aleja|alei|aleję|plac(?:u)?)
+                    {_INLINE_WS}+
+                )
                 {_NAME_TOKEN}
                 (?:{_INLINE_WS}+{_NAME_TOKEN}){{0,2}}
-                (?:{_INLINE_WS}+\d+[A-Za-z]?(?:/\d+)?)?
+                (?:{_INLINE_WS}+{_HOUSE_NUMBER})?
                 |
                 # A bare "Adres"/"Adres:" label with no "ul./al./pl."
                 # prefix at all (common in scanned table/form layouts -
@@ -1070,7 +1108,7 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
                 {_INLINE_WS}+
                 {_NAME_TOKEN}
                 (?:{_INLINE_WS}+{_NAME_TOKEN}){{0,2}}
-                {_INLINE_WS}+\d+[A-Za-z]?(?:/\d+)?
+                {_INLINE_WS}+{_HOUSE_NUMBER}
             )
             (?!\w)
             """,
@@ -1102,6 +1140,7 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
         PERSON_NAME_TYPO_PATTERN,
     ),
 )
+MIEJSCOWOSC_PATTERN = dict(_PATTERNS)["MIEJSCOWOSC"]
 
 
 def anonymize_text(
@@ -1172,10 +1211,25 @@ def _apply_dictionary_and_regex(
     """
     anonymized, counters = apply_sensitive_terms(text, sensitive_terms)
     dictionary_counters = dict(counters)
+    # Read before the loop below replaces the postal-code towns it is
+    # built from.
+    place_names = known_place_names([anonymized])
+    # Before _PATTERNS, same as the PDF path: a quoted name can contain a
+    # word ULICA would otherwise claim first ("Kawiarnia „Aleja Róż”").
+    if active_labels is None or "NAZWA_FIRMY" in active_labels:
+        anonymized, organisation_count = _replace_spans(
+            anonymized, organisation_name_spans(anonymized), "NAZWA_FIRMY"
+        )
+        if organisation_count:
+            counters["NAZWA_FIRMY"] = (
+                counters.get("NAZWA_FIRMY", 0) + organisation_count
+            )
 
     for label, pattern in _PATTERNS:
         if active_labels is None or label in active_labels:
-            anonymized, count = pattern.subn(f"[{label}]", anonymized)
+            anonymized, count = _replace_spans(
+                anonymized, _pattern_spans(label, pattern, anonymized), label
+            )
             if count:
                 counters[label] = counters.get(label, 0) + count
         # Right after REGON's own direct (same-line) pattern gets its
@@ -1208,6 +1262,10 @@ def _apply_dictionary_and_regex(
             )
             for table_label, table_count in table_counts.items():
                 counters[table_label] = counters.get(table_label, 0) + table_count
+    if active_labels is None or "MIEJSCOWOSC" in active_labels:
+        anonymized, place_count = _replace_known_places(anonymized, place_names)
+        if place_count:
+            counters["MIEJSCOWOSC"] = counters.get("MIEJSCOWOSC", 0) + place_count
     if active_labels is None or "TELEFON" in active_labels:
         anonymized, weak_phone_count = _replace_contextual_weak_phone_numbers(
             anonymized
@@ -1246,6 +1304,185 @@ def _weak_phone_like_without_context_count(text: str) -> int:
         for match in WEAK_GROUPED_PHONE_PATTERN.finditer(text)
         if not _has_phone_context(text, match.start())
     )
+
+
+# Document-local place gazetteer (benchmark 2026-09-25). MIEJSCOWOSC only
+# fires right after a postal code ("34-512 Borowiec Dolny"), and spaCy's
+# small model misses the same town elsewhere in the document once it is
+# inflected or capitalised ("w Borowcu Dolnym", "W BOROWCU DOLNYM",
+# "Miejsce wystawienia: Borowiec Dolny"). A generic "w + two capitalised
+# words" rule would also swallow "w Sądzie Rejonowym", so instead every
+# town the postal-code pattern already found is searched for again, by
+# stem, in the rest of the same document.
+_PLACE_STEM_ENDING = re.compile(r"(?:iec|ec|ie|e|y|i|a|o)$", re.IGNORECASE)
+_PLACE_MIN_STEM_LENGTH = 4
+# Polish case endings on a town name are at most three letters
+# (Tych-ach, Borow-cu, Star-ym, Doln-ego).
+_PLACE_MAX_INFLECTION = 3
+# Between two words of one town name: spaces, or a single line break
+# ("w Mirosławcu⏎Górnym" wraps in running text).
+_PLACE_WORD_GAP = rf"(?:{_INLINE_WS}+|{_INLINE_WS}*\n{_INLINE_WS}*)"
+# The second word of a two-word town in a sibling name ("Borowiec
+# Górny" next to a known "Borowiec Dolny") - an adjective-shaped word.
+_PLACE_ADJECTIVE_WORD = (
+    rf"[{_UPPER_LETTERS}][{_LOWER_LETTERS}]*"
+    r"(?:y|i|a|e|ym|im|ej|ego|iego|emu|ą|ie)"
+)
+
+
+def _place_word_pattern(word: str) -> str:
+    stem = _PLACE_STEM_ENDING.sub("", word)
+    if len(stem) < _PLACE_MIN_STEM_LENGTH:
+        return re.escape(word)
+    if stem == word:
+        return rf"{re.escape(word)}[{_LOWER_LETTERS}]{{0,{_PLACE_MAX_INFLECTION}}}"
+    # At least one ending letter: the bare stem is never a real form of
+    # the town, but can be another word ("Tych" from Tychy).
+    return rf"{re.escape(stem)}[{_LOWER_LETTERS}]{{1,{_PLACE_MAX_INFLECTION}}}"
+
+
+def known_place_names(texts: Iterable[str]) -> tuple[str, ...]:
+    """Town names the postal-code pattern finds in ``texts``, deduplicated."""
+    names: dict[str, None] = {}
+    for text in texts:
+        for match in MIEJSCOWOSC_PATTERN.finditer(text):
+            names[" ".join(match.group(0).split())] = None
+    return tuple(names)
+
+
+def _known_place_pattern(place_names: Iterable[str]) -> re.Pattern[str] | None:
+    alternatives: list[str] = []
+    for name in place_names:
+        words = name.split()
+        if not words:
+            continue
+        word_patterns = [_place_word_pattern(word) for word in words]
+        alternatives.append(_PLACE_WORD_GAP.join(word_patterns))
+        if len(words) > 1:
+            alternatives.append(
+                f"{word_patterns[0]}{_PLACE_WORD_GAP}{_PLACE_ADJECTIVE_WORD}"
+            )
+    if not alternatives:
+        return None
+    # Longest alternative first, so a full "Borowiec Dolny" wins over
+    # its own one-word prefix.
+    alternatives.sort(key=len, reverse=True)
+    return re.compile(
+        rf"(?<![\w@.-])(?:{'|'.join(alternatives)})(?![\w@-])",
+        re.IGNORECASE,
+    )
+
+
+def known_place_spans(
+    text: str, place_names: Iterable[str]
+) -> list[tuple[int, int]]:
+    """Spans of ``place_names`` in any inflection or letter case. Only
+    words starting with a capital count, so the stem "Tych" (Tychy)
+    never catches the pronoun "tych"."""
+    pattern = _known_place_pattern(place_names)
+    if pattern is None:
+        return []
+    return [
+        (match.start(), match.end())
+        for match in pattern.finditer(text)
+        if match.group(0)[0].isupper()
+    ]
+
+
+def _replace_spans(
+    text: str, spans: list[tuple[int, int]], label: str
+) -> tuple[str, int]:
+    """Replace sorted, non-overlapping ``spans`` with ``[label]``."""
+    if not spans:
+        return text, 0
+    parts: list[str] = []
+    cursor = 0
+    for start, end in spans:
+        parts.append(text[cursor:start])
+        parts.append(f"[{label}]")
+        cursor = end
+    parts.append(text[cursor:])
+    return "".join(parts), len(spans)
+
+
+def _pattern_spans(
+    label: str, pattern: re.Pattern[str], text: str
+) -> list[tuple[int, int]]:
+    """Match spans of one _PATTERNS entry. DATA leaves out the dates the
+    policy keeps visible (see pdf_redaction.is_kept_reference_date)."""
+    return [
+        (match.start(), match.end())
+        for match in pattern.finditer(text)
+        if label != "DATA"
+        or not is_kept_reference_date(text, match.start(), match.end())
+    ]
+
+
+def _replace_known_places(text: str, place_names: Iterable[str]) -> tuple[str, int]:
+    return _replace_spans(text, known_place_spans(text, place_names), "MIEJSCOWOSC")
+
+
+# Organisation names with no legal form (benchmark 2026-09-25): a name in
+# quotes right after a word saying what kind of organisation it is
+# ("Wspólnota Mieszkaniowa „Nad Stawem”", "NZOZ „Przychodnia pod
+# Lipami”"), and a facility named after a patron ("Szpital Powiatowy
+# im. Anny Leśniewskiej"). A quoted title after any other word
+# ("programu „Posiłek w domu”", "reportaż „…”") stays visible.
+_ORGANISATION_KIND = (
+    r"(?i:wspóln\w*|spółdziel\w*|nzoz|spzoz|przychodni\w*|poradni\w*"
+    r"|laborator\w*|stowarzysz\w*|fundacj\w*|hotel\w*|pensjonat\w*"
+    r"|restaurac\w*|kawiarni\w*|sklep\w*|firm[aąęy]|zakład\w*|ośrod\w*"
+    r"|klub\w*|aptek\w*|gabinet\w*|szkoł\w*|szkol\w*|przedszkol\w*)"
+)
+_QUOTED_ORGANISATION_PATTERN = re.compile(
+    rf"""
+    (?<!\w)
+    {_ORGANISATION_KIND}
+    (?:{_INLINE_WS}+[{_UPPER_LETTERS}][{_LOWER_LETTERS}-]*){{0,2}}
+    (?P<gap>{_INLINE_WS}+|{_INLINE_WS}*\n{_INLINE_WS}*)
+    (?P<quoted>(?:„|,,|"|“)[^„”"“\n]{{2,60}}(?:”|"|“))
+    """,
+    re.VERBOSE,
+)
+_PATRON_WORD = rf"[{_UPPER_LETTERS}][{_LOWER_LETTERS}.-]*"
+_PATRON_FACILITY_PATTERN = re.compile(
+    rf"""
+    (?<!\w)
+    [{_UPPER_LETTERS}][{_LOWER_LETTERS}-]+
+    (?:{_INLINE_WS}+(?:[{_UPPER_LETTERS}][{_LOWER_LETTERS}-]+|nr{_INLINE_WS}*\d+)){{0,3}}
+    {_INLINE_WS}+im\.{_INLINE_WS}+
+    (?:(?i:gen|św|ks|dr|prof|kard|bł)\.{_INLINE_WS}+)?
+    {_PATRON_WORD}
+    (?:{_INLINE_WS}+{_PATRON_WORD}){{0,2}}
+    """,
+    re.VERBOSE,
+)
+
+
+def organisation_name_spans(text: str) -> list[tuple[int, int]]:
+    """Sorted, non-overlapping spans of quoted and patron-named
+    organisations. The organisation-kind words are included only when
+    they sit on the same line as the quoted name, so a heading like
+    "PROTOKÓŁ Z ZEBRANIA WSPÓLNOTY MIESZKANIOWEJ⏎„Nad Stawem”" hides just
+    the name, not the heading line."""
+    spans: list[tuple[int, int]] = []
+    for match in _QUOTED_ORGANISATION_PATTERN.finditer(text):
+        if "\n" in text[match.start():match.start("quoted")]:
+            spans.append((match.start("quoted"), match.end()))
+        else:
+            spans.append((match.start(), match.end()))
+    spans.extend(
+        (match.start(), match.end())
+        for match in _PATRON_FACILITY_PATTERN.finditer(text)
+    )
+    spans.sort()
+    merged: list[tuple[int, int]] = []
+    for start, end in spans:
+        if merged and start < merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(end, merged[-1][1]))
+        else:
+            merged.append((start, end))
+    return merged
 
 
 def _pdf_ner_redaction_terms(
@@ -1408,8 +1645,13 @@ def _regex_pdf_spans_for_page(
     occupied_ranges: list[tuple[int, int]],
     *,
     active_labels: frozenset[str] | None = None,
+    place_names: Iterable[str] = (),
 ) -> list[PdfRedactionSpan]:
-    """``active_labels`` must be applied *before* a span is added, not
+    """``place_names`` (see known_place_names) is gathered from the whole
+    document by the caller, so a town given with its postal code on page
+    1 is still found in inflected form on page 3.
+
+    ``active_labels`` must be applied *before* a span is added, not
     filtered out of the result afterward - _add_pdf_span reserves
     ``occupied_ranges`` as a side effect, and NER (source="ner") runs
     after this in _pdf_detection_spans_for_word_pages. A category
@@ -1419,16 +1661,30 @@ def _regex_pdf_spans_for_page(
     exactly the bug a post-hoc-only filter caused.
     """
     spans: list[PdfRedactionSpan] = []
+    # Ahead of _PATTERNS so the whole organisation name wins over a
+    # word inside it that another pattern would claim (and then block
+    # this wider span through occupied_ranges).
+    if active_labels is None or "NAZWA_FIRMY" in active_labels:
+        for start, end in organisation_name_spans(page_text):
+            _add_pdf_span(
+                spans,
+                occupied_ranges,
+                label="NAZWA_FIRMY",
+                page_number=page_number,
+                start=start,
+                end=end,
+                source="regex",
+            )
     for label, pattern in _PATTERNS:
         if active_labels is None or label in active_labels:
-            for match in pattern.finditer(page_text):
+            for start, end in _pattern_spans(label, pattern, page_text):
                 _add_pdf_span(
                     spans,
                     occupied_ranges,
                     label=label,
                     page_number=page_number,
-                    start=match.start(),
-                    end=match.end(),
+                    start=start,
+                    end=end,
                     source="regex",
                 )
         # Right after REGON's own direct (same-line) pattern above, and
@@ -1461,6 +1717,17 @@ def _regex_pdf_spans_for_page(
                     end=end,
                     source="regex",
                 )
+    if active_labels is None or "MIEJSCOWOSC" in active_labels:
+        for start, end in known_place_spans(page_text, place_names):
+            _add_pdf_span(
+                spans,
+                occupied_ranges,
+                label="MIEJSCOWOSC",
+                page_number=page_number,
+                start=start,
+                end=end,
+                source="regex",
+            )
     if active_labels is None or "TELEFON" in active_labels:
         for match in WEAK_GROUPED_PHONE_PATTERN.finditer(page_text):
             if not _has_phone_context(page_text, match.start()):
@@ -1559,6 +1826,8 @@ def _pdf_detection_spans_for_word_pages(
     at all", not "don't touch this page except for my dictionary terms".
     """
     spans: list[PdfRedactionSpan] = []
+    word_pages = list(word_pages)
+    place_names = known_place_names(page.text for page in word_pages)
     for page in word_pages:
         if active_pages is not None and page.page_number not in active_pages:
             continue
@@ -1577,6 +1846,7 @@ def _pdf_detection_spans_for_word_pages(
                 page.page_number,
                 occupied_ranges,
                 active_labels=active_labels,
+                place_names=place_names,
             )
         )
         spans.extend(

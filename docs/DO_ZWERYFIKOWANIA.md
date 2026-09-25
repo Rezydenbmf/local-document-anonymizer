@@ -114,13 +114,32 @@ przenoszę ją do „Potwierdzone" albo usuwam. Jeśli lista urośnie powyżej
       w zachowaniu — ale nigdy tego nie widziałem na żywo, tylko
       w testach i podglądach GIF, które wysyłałem Ci w czacie.
 
+- [ ] **Łatanie luk wykrytych przez system testów (2026-09-25, etap 3)**
+      — bez AI skuteczność wzrosła z 79,4% do 89,7%, daty ustaw
+      i historyczne zostają widoczne, a nadmiarowych zamazań nie
+      przybyło. Sprawdź na żywo na paru własnych, syntetycznych
+      dokumentach, czy tak to rozumiałeś: (1) miejscowość podana raz
+      z kodem pocztowym („34-512 Borowiec Dolny”) jest zamazana też
+      w odmianie („w Borowcu Dolnym”) i wielkimi literami, ale słowo
+      „Tych” na początku zdania zostaje; (2) nazwa w cudzysłowie po
+      słowie typu Wspólnota / Spółdzielnia / NZOZ / kawiarnia jest
+      zamazana, a zwykły tytuł w cudzysłowie („program „Posiłek
+      w domu””) nie; (3) „ustawa z dnia 12 marca 2004 r.” i „11
+      listopada 1918 r.” zostają widoczne, a „zmarła 3 marca 1915 r.”
+      i „Data urodzenia: 4 maja 1919” są zamazane (to reguła, którą
+      zatwierdziłeś); (4) telefon „pod numerem 600 000 903”
+      i „600.000.528” zamazany. **Znane ryzyko**: jeśli po liczbie
+      wyglądającej jak kod pocztowy („26-091”) stoi zwykłe słowo
+      z wielkiej litery, to słowo zostanie zamazane w całym dokumencie
+      (w stronę nadmiaru, nie wycieku) — daj znać, jeśli trafisz na to
+      w praktyce.
+
 ## Znane, jeszcze NIE naprawione (odłożone na Twoją prośbę — wracamy do
    wdrożenia LLM)
 
-- [ ] **Telefon z kropkami jako separatorem nie jest wykrywany** —
-      na skanie protokołu (`llm_test_3_skan_protokol_2str.pdf`) numer
-      „600.000.528” zostaje w pełni widoczny; wzorzec TELEFON łapie
-      spacje/myślniki, ale nie kropki.
+- [x] ~~**Telefon z kropkami jako separatorem nie jest wykrywany**~~ —
+      naprawione 2026-09-25 (etap 3, system testów): „600.000.528” po
+      „z numeru” jest teraz zamazany.
 - [ ] **Nazwisko rozbite łamaniem wiersza w OCR (np. „Grze-gorz
       Pietrzak”) nie jest wykrywane** — w przeciwieństwie do nazwiska
       złamanego myślnikiem w jednej linii, które działa poprawnie.
