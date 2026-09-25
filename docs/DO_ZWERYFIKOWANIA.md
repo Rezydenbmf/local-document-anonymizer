@@ -196,7 +196,10 @@ przenoszę ją do „Potwierdzone" albo usuwam. Jeśli lista urośnie powyżej
       akt („sygn. OL/2026/00417”, w `llm_test_1` „III RC 418/25”) są teraz
       widoczne — wcześniej znikały tylko przez ten błąd, program ich nie
       wykrywa. Czy sygnatura akt ma być zamazywana? Zdecydujemy przy
-      kluczu odpowiedzi do testów.
+      kluczu odpowiedzi do testów. **Dopisane tego samego dnia**:
+      ostrzeżenie „Some detected PDF spans could not be mapped…” na
+      ekranie wyników dla tego pliku powinno zniknąć — to słowo w polskim
+      cudzysłowie („…Lipami”), które NER wykrył, a PDF zostawiał odkryte.
 
 ## Znane, jeszcze NIE naprawione (odłożone na Twoją prośbę — wracamy do
    wdrożenia LLM)
