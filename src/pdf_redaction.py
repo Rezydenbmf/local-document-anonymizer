@@ -8,7 +8,7 @@ import tempfile
 import textwrap
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from datetime import date
+from datetime import datetime, timezone
 from pathlib import Path
 
 try:
@@ -404,7 +404,7 @@ def is_kept_reference_date(
     if year_match is None:
         return False
     if current_year is None:
-        current_year = date.today().year
+        current_year = datetime.now(timezone.utc).year
     if int(year_match.group(1)) > current_year - _HISTORICAL_DATE_MIN_AGE_YEARS:
         return False
     context = text[max(0, start - _PERSONAL_DATE_LOOKBACK):start]
