@@ -5800,6 +5800,38 @@ Verified: 888 tests (6 new: 4 in `test_gui_app_llm_model_fallback.py`,
 2 in `test_comparison_window_ai_status_note.py`), lint 70. No
 anonymization-logic files touched, so no mandatory code-review.
 
+## Agent access narrowed; delete guard hook (2026-09-25)
+
+The user found that Claude Code could read the whole C: drive: a
+`Read(//c//**)` allow rule in the (gitignored) `.claude/settings.local.json`,
+most likely saved by a "don't ask again" click during the 2026-09-08
+`C:\out` cleanup. Now:
+- `.claude/settings.local.json`: that rule is removed.
+  `blockReadsOutsideWorkingDirectories: true`, and `additionalDirectories`
+  = C:\ai, the DocShield results folder (testing phase), the project's
+  Claude memory dir and the session temp/scratchpad dir. A Read of
+  C:\Windows\win.ini was refused.
+- `.claude/settings.json` (committed) denies reads of `.env*`, `~/.ssh`
+  and the Chrome/Edge/Firefox profiles.
+- The Claude Code sandbox would also confine shell commands, but it does
+  not run on native Windows (docs; feature request #46740 closed as not
+  planned). Moving to WSL2 was rejected: DocShield is Windows-only
+  (tkinter, Windows Tesseract/Ollama, C:\Windows\Fonts, .exe build).
+- Instead, `.claude/hooks/guard_deletes.py` is a PreToolUse hook on
+  Bash|PowerShell. It blocks (exit 2) rm/del/rd/Remove-Item/mv/Move-Item/
+  find -delete/xargs targets that aren't strictly inside a project under
+  C:\ai (never C:\ai or a whole project folder) or the temp folder. It
+  tracks cd, resolves $VAR/%VAR%/~ and Git Bash paths, recurses into
+  quoted nested commands, and fails closed on anything unresolvable. Not
+  covered: deletes made from inside a program (Python os.remove, ...).
+  Side effect: a command whose *text* contains such an unresolvable
+  delete (a heredoc, test strings) gets blocked - write it to a file
+  first. Tests: `tests/test_guard_deletes_hook.py`. Live-verified: rm and
+  Remove-Item on a non-existent file in Documents were blocked;
+  deleting inside the repo still works. `code-review` (medium) found 4
+  bypasses (pipe into Remove-Item, `cd` alone / `cd -`, `%VAR%`, cd
+  inside a nested quoted command) - all fixed, each with a test.
+
 ## Planned next: measurable test system; later a two-step review flow (2026-09-25)
 
 Agreed with the user, in this order:
