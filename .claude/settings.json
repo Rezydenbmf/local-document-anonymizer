@@ -11,7 +11,13 @@
       "PowerShell(git push --force*)",
       "PowerShell(git push -f *)",
       "PowerShell(Remove-Item C:\\ -Recurse*)",
-      "PowerShell(Format-Volume*)"
+      "PowerShell(Format-Volume*)",
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Read(~/.ssh/**)",
+      "Read(~/AppData/Local/Google/Chrome/User Data/**)",
+      "Read(~/AppData/Local/Microsoft/Edge/User Data/**)",
+      "Read(~/AppData/Roaming/Mozilla/Firefox/Profiles/**)"
     ],
     "ask": [
       "Bash(git reset --hard*)",
