@@ -6064,6 +6064,19 @@ over-redaction, not a leak.
 
 Verified: 940 tests (16 new), lint 70.
 
+Full AI run at the end of the batch (gemma3:4b, 13 documents, 1243 s,
+`--check` exit 0): leak numbers identical to the fast run (89.7%, 16 full
+leaks - the AI only suggests, it never redacts). Suggestions: 127, **14
+hits on a leaked span** (was 20), 80 on already-redacted text (was 61), 23
+false positives (was 14), 10 duplicates, 6 "unnecessary redaction" (4 on
+must data). Fewer hits is expected: the regex passes now close gaps the AI
+used to be credited for. What remains leaked is mostly the AI's intended
+territory (words-for-digits phones, obfuscated e-mails, nicknames) and
+NER misses on single inflected surnames ("Wróblewskiej", "Dudkowej") and
+the small village "Zagórze Wąskie" given without a postal code. The
+committed baseline is the `--bez-ai` one; AI numbers there are
+informational only anyway.
+
 ## Warning
 
 This repository is still an early-stage portfolio MVP. Do not use it to
