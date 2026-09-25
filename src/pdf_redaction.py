@@ -972,7 +972,10 @@ def _apply_page_redactions(fitz, page) -> None:
         _char_key(char)
         for char in chars
         for rect, _ in trimmed_originals
-        if min(char[1][2], rect[2]) > max(char[1][0], rect[0])
+        # Centre inside on both axes: a same-line char the rect only
+        # grazes sideways survives either rect alike and must not trigger
+        # the fallback.
+        if rect[0] <= (char[1][0] + char[1][2]) / 2 <= rect[2]
         and rect[1] <= (char[1][1] + char[1][3]) / 2 <= rect[3]
     }
     if must_go.isdisjoint(_char_key(char) for char in _page_chars(page)):
